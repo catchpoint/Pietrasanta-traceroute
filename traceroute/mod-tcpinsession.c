@@ -627,7 +627,7 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     
     for(int i = 0; i < num_probes; i++) {
         if(((probes[i].seq_num >= curr_sack_blocks.block[0].sle && probes[i].seq_num < curr_sack_blocks.block[0].sre) || (probes[i].seq_num >= curr_sack_blocks.block[1].sle && probes[i].seq_num < curr_sack_blocks.block[1].sre) || (probes[i].seq_num >= curr_sack_blocks.block[2].sle && probes[i].seq_num < curr_sack_blocks.block[2].sre)) && (probes[i].seq_num > 0)) {
-            probes[i].tcpinsession_destination_reply = 1;
+            probes[i].reply_from_destination = 1;
                 
             if(probes[i].done == 0 && probes[i].final == 0) {
                 first_avail_probe = &probes[i];
