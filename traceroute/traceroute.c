@@ -651,6 +651,9 @@ int main(int argc, char *argv[])
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
             memcpy(destination_probes+idx, &probes[start+idx], sizeof(probe));
+        
+        if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
+            print_allowed = 1;
                 
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
@@ -980,8 +983,11 @@ static void do_it(void)
                     start++;
                 }
 
-                if(pb->final)
+                if(pb->final) {
                     end = (n / probes_per_hop + 1) * probes_per_hop;
+                    last_probe = end;
+                }
+                
                 continue;
             }
 
