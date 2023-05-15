@@ -31,6 +31,7 @@ struct probe_struct {
 	int recv_ttl;
 	int sk;
 	int seq;
+    uint32_t seq_num;
 	char *ext;
 	char err_str[16];	/*  assume enough   */
 };

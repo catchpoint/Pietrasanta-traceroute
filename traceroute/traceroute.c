@@ -1423,6 +1423,21 @@ int equal_addr(const sockaddr_any *a, const sockaddr_any *b)
     return 0;    /*  not reached   */
 }
 
+int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b) 
+{
+    if(!a->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family != b->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family == AF_INET6)
+        return (!memcmp (&a->sin6.sin6_addr, &b->sin6.sin6_addr, sizeof(a->sin6.sin6_addr)) && (a->sin6.sin6_port == b->sin6.sin6_port));
+    else
+        return !memcmp (&a->sin, &b->sin, sizeof(a->sin));
+    return 0;    /*  not reached   */
+}
+
 void bind_socket(int sk) 
 {
     sockaddr_any *addr, tmp;
