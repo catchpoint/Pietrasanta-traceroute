@@ -40,6 +40,12 @@ typedef struct probe_struct probe;
 
 extern probe* probes;
 
+struct sack_block_struct {
+    uint32_t sle;
+    uint32_t sre;
+};
+typedef struct sack_block_struct sack_block;
+
 struct sack_blocks_struct {
     sack_block block[3];
     probe* original_assigned_probe;
