@@ -10,12 +10,16 @@
 
 #include <clif.h>
 
+extern unsigned int num_probes;
+extern int last_probe;
+extern unsigned int first_hop;
 
 union common_sockaddr {
 	struct sockaddr sa;
 	struct sockaddr_in sin;
 	struct sockaddr_in6 sin6;
 };
+
 typedef union common_sockaddr sockaddr_any;
 
 struct probe_struct {
@@ -30,23 +34,25 @@ struct probe_struct {
 	char *ext;
 	char err_str[16];	/*  assume enough   */
 };
+
 typedef struct probe_struct probe;
 
+extern probe* probes;
 
 struct tr_module_struct {
 	struct tr_module_struct *next;
 	const char *name;
-	int (*init) (const sockaddr_any *dest,
-				unsigned int port_seq, size_t *packet_len);
+	int (*init) (const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
 	void (*send_probe) (probe *pb, int ttl);
 	void (*recv_probe) (int fd, int revents);
 	void (*expire_probe) (probe *pb);
 	CLIF_option *options;	/*  per module options, if any   */
 	int one_per_time;	/*  no simultaneous probes   */
 	size_t header_len;	/*  additional header length (aka for udp)   */
+    void(*close)();
 };
-typedef struct tr_module_struct tr_module;
 
+typedef struct tr_module_struct tr_module;
 
 #define __TEXT(X)       #X
 #define _TEXT(X)        __TEXT(X)
@@ -57,7 +63,6 @@ typedef struct tr_module_struct tr_module;
 #define DEF_DCCP_PORT	DEF_START_PORT	/*  is it a good choice?...  */
 #define DEF_RAW_PROT	253	/*  for experimentation and testing, rfc3692  */
 
-
 void error (const char *str) __attribute__((noreturn));
 void error_or_perm (const char *str) __attribute__((noreturn));
 
@@ -66,8 +71,7 @@ void tune_socket (int sk);
 void parse_icmp_res (probe *pb, int type, int code, int info);
 void probe_done (probe *pb);
 
-typedef probe *(*check_reply_t) (int sk, int err, sockaddr_any *from,
-							char *buf, size_t len);
+typedef probe *(*check_reply_t) (int sk, int err, sockaddr_any *from, char *buf, size_t len);
 void recv_reply (int sk, int err, check_reply_t check_reply);
 
 int equal_addr (const sockaddr_any *a, const sockaddr_any *b);
@@ -94,7 +98,6 @@ int raw_can_connect (void);
 unsigned int random_seq (void);
 uint16_t in_csum (const void *ptr, size_t len);
 
-
 void tr_register_module (tr_module *module);
 const tr_module *tr_get_module (const char *name);
 
@@ -104,4 +107,3 @@ static void __init_ ## MOD (void) {	\
 				\
 	tr_register_module (&MOD);	\
 }
-
