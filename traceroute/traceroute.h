@@ -92,9 +92,11 @@ void recv_reply(int sk, int err, check_reply_t check_reply);
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
+void print_probe(probe*);
 
 probe *probe_by_seq(int seq);
 probe *probe_by_sk(int sk);
+probe* probe_by_seq_num(uint32_t seq_num);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);
