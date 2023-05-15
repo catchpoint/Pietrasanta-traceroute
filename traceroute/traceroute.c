@@ -651,9 +651,6 @@ int main(int argc, char *argv[])
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
             memcpy(destination_probes+idx, &probes[start+idx], sizeof(probe));
-        
-        if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
-            print_allowed = 1;
                 
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
@@ -672,6 +669,19 @@ int main(int argc, char *argv[])
     print_header();
 
     do_it();
+    
+    if(strcmp(module, "tcpinsession") == 0) {
+        int destination_replies = 0;
+        for(int i = last_probe-probes_per_hop; i < last_probe; i++)
+            if(probes[i].reply_from_destination == 1)
+                destination_replies++;
+
+        if(destination_replies > 0) {
+            int replace_idx = 0;
+            for(int i = last_probe-probes_per_hop; i < last_probe; i++, replace_idx++)
+                memcpy(&probes[i], &destination_probes[replace_idx], sizeof(probe));
+        }
+    }
 
     if(ops->close)
         ops->close();
