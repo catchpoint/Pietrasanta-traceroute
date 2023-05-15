@@ -91,7 +91,7 @@ unsigned int first_hop = 1;
 
 static unsigned int max_hops = DEF_HOPS;
 static unsigned int sim_probes = DEF_SIM_PROBES;
-static unsigned int probes_per_hop = DEF_NUM_PROBES;
+unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
 probe* probes = NULL;

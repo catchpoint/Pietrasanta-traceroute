@@ -10,6 +10,7 @@
 
 #include <clif.h>
 
+extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;
 extern unsigned int first_hop;
