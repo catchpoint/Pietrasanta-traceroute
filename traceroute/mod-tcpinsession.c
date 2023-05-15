@@ -708,6 +708,8 @@ void tcpinsession_close()
     for(int i = start; i < last_probe; i++)
         print_probe(&probes[i]);
     close(sk);
+    
+    printf("\n");
 }
 
 static tr_module tcpinsession_ops = {

@@ -765,11 +765,6 @@ void print_probe(probe *pb)
     fflush(stdout);
 }
 
-static void print_end(void) 
-{
-    printf("\n");
-}
-
 /*    Compute  timeout  stuff        */
 static double get_timeout(probe *pb) 
 {
@@ -1042,7 +1037,7 @@ static void do_it(void)
         }
     }
 
-    print_end();
+    printf("\n");
 }
 
 void tune_socket(int sk) 
