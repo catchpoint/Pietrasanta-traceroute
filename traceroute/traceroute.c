@@ -95,7 +95,8 @@ unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
 probe* probes = NULL;
-probe* tcpinsession_destination_probes = NULL;
+probe* destination_probes = NULL;
+int print_allowed = 1;
 
 static char **gateways = NULL;
 static int num_gateways = 0;
@@ -313,7 +314,7 @@ static void init_ip_options(void)
         rtbuf = malloc(rtbuf_len);
         if(!rtbuf)  error("malloc");
 
-        in =(struct in_addr *) &rtbuf[4];
+        in = (struct in_addr *) &rtbuf[4];
         for(i = 0; i < num_gateways; i++)
             memcpy(&in[i], &gates[i].sin.sin_addr, sizeof(*in));
         /*  final hop   */
@@ -322,7 +323,7 @@ static void init_ip_options(void)
 
         rtbuf[0] = IPOPT_NOP;
         rtbuf[1] = IPOPT_LSRR;
-        rtbuf[2] =(i * sizeof(*in)) + 3;
+        rtbuf[2] = (i * sizeof(*in)) + 3;
         rtbuf[3] = IPOPT_MINOFF;
     } else if(af == AF_INET6) {
         struct in6_addr *in6;
@@ -333,7 +334,7 @@ static void init_ip_options(void)
         rtbuf = malloc(rtbuf_len);
         if(!rtbuf)  error("malloc");
 
-        rth =(struct ip6_rthdr *) rtbuf;
+        rth = (struct ip6_rthdr *) rtbuf;
         rth->ip6r_nxt = 0;
         rth->ip6r_len = 2 * num_gateways;
         rth->ip6r_type = ipv6_rthdr_type;
@@ -341,7 +342,7 @@ static void init_ip_options(void)
 
         *((uint32_t *)(rth + 1)) = 0;
 
-        in6 =(struct in6_addr *)(rtbuf + 8);
+        in6 = (struct in6_addr *)(rtbuf + 8);
         for(i = 0; i < num_gateways; i++)
             memcpy(&in6[i], &gates[i].sin6.sin6_addr, sizeof(*in6));
     }
@@ -383,7 +384,7 @@ static int set_source(CLIF_option *optn, char *arg)
 
 static int set_port(CLIF_option *optn, char *arg) 
 {
-    unsigned int *up =(unsigned int *)optn->data;
+    unsigned int *up = (unsigned int *)optn->data;
     char *q;
 
     *up = strtoul(arg, &q, 0);
@@ -530,6 +531,14 @@ static CLIF_argument arg_list[] = {
     CLIF_END_ARGUMENT
 };
 
+/*    PRINT  STUFF        */
+static void print_header(void) 
+{
+    /*  Note, without ending new-line!  */
+    printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    fflush(stdout);
+}
+
 static void do_it(void);
 
 int main(int argc, char *argv[]) 
@@ -615,8 +624,8 @@ int main(int argc, char *argv[])
         first_hop = 255;
         sim_probes = 1;
         
-        tcpinsession_destination_probes = calloc(probes_per_hop, sizeof(probe));
-        if(!tcpinsession_destination_probes)
+        destination_probes = calloc(probes_per_hop, sizeof(probe));
+        if(!destination_probes)
             error("calloc");
     }
 
@@ -635,12 +644,13 @@ int main(int argc, char *argv[])
         ex_error("trace method's init failed");
         
     if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
+        print_allowed = 0;
         data_len = DEF_DATA_LEN_TCPINSESSION;
         do_it();
         
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
-            memcpy(tcpinsession_destination_probes+idx, &probes[start+idx], sizeof(probe));
+            memcpy(destination_probes+idx, &probes[start+idx], sizeof(probe));
                 
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
@@ -656,20 +666,14 @@ int main(int argc, char *argv[])
             error("calloc");
     }
 
+    print_header();
+
     do_it();
 
     if(ops->close)
         ops->close();
 
     return 0;
-}
-
-/*    PRINT  STUFF        */
-static void print_header(void) 
-{
-    /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
-    fflush(stdout);
 }
 
 static void print_addr(sockaddr_any *res) 
@@ -695,13 +699,12 @@ static void print_addr(sockaddr_any *res)
         printf(" [%s]", get_as_path(str));
 }
 
-
-static void print_probe(probe *pb) 
+void print_probe(probe *pb) 
 {
-    if(strcmp(module, "tcpinsession") == 0)
+    if(print_allowed == 0)
         return;
         
-    unsigned int idx =(pb - probes);
+    unsigned int idx = (pb - probes);
     unsigned int ttl = idx / probes_per_hop + 1;
     unsigned int np = idx % probes_per_hop;
 
@@ -794,7 +797,7 @@ static double get_timeout(probe *pb)
 /*    Check  expiration  stuff    */
 static void check_expired(probe *pb) 
 {
-    int idx =(pb - probes);
+    int idx = (pb - probes);
     probe *p, *endp = probes + num_probes;
     probe *fp = NULL, *pfp = NULL;
 
@@ -885,7 +888,7 @@ static void check_expired(probe *pb)
 
                 if(hops < back_hops) {
                     ttl = (p - probes) / probes_per_hop + 1;
-                    back_hops =(back_hops - hops) + ttl;
+                    back_hops = (back_hops - hops) + ttl;
                     break;
                 }
             }
@@ -911,11 +914,11 @@ replace_by_final:
     fp->send_time = 1.;
 }
 
-probe *probe_by_seq(int seq) 
+probe *probe_by_seq(uint32_t seq) 
 {
     int n;
 
-    if(seq <= 0)
+    if(seq == 0)
         return NULL;
 
     for(n = 0; n < num_probes; n++) {
@@ -948,11 +951,9 @@ static void poll_callback(int fd, int revents)
 
 static void do_it(void) 
 {
-    int start =(first_hop - 1) * probes_per_hop;
+    int start = (first_hop - 1) * probes_per_hop;
     int end = num_probes;
     double last_send = 0;
-
-    print_header();
 
     while(start < end) {
         int n, num = 0;
@@ -1300,7 +1301,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     */
 
     if(!err && af == AF_INET && ops->header_len == 0) { /*  XXX: Assume that the presence of an extra header means that it is not a raw socket... */
-        struct iphdr *ip =(struct iphdr *) bufp;
+        struct iphdr *ip = (struct iphdr *) bufp;
         int hlen;
 
         if(n < sizeof(struct iphdr))  return;
@@ -1333,14 +1334,14 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
 
         if(cm->cmsg_level == SOL_SOCKET) {
             if(cm->cmsg_type == SO_TIMESTAMP) {
-                struct timeval *tv =(struct timeval *) ptr;
+                struct timeval *tv = (struct timeval *) ptr;
                 recv_time = tv->tv_sec + tv->tv_usec / 1000000.;
             }
         } else if(cm->cmsg_level == SOL_IP) {
             if(cm->cmsg_type == IP_TTL)
                 recv_ttl = *((int *) ptr);
             else if(cm->cmsg_type == IP_RECVERR) {
-                ee =(struct sock_extended_err *) ptr;
+                ee = (struct sock_extended_err *) ptr;
 
                 if(ee->ee_origin != SO_EE_ORIGIN_ICMP && ee->ee_origin != SO_EE_ORIGIN_LOCAL) 
                     return;
@@ -1393,7 +1394,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     }
 
     /*  at least...(rfc4884)  */
-    if(ee && extension && header_len + n >=(128 + 8) && header_len <= 128 && ((af == AF_INET &&(ee->ee_type == ICMP_TIME_EXCEEDED || ee->ee_type == ICMP_DEST_UNREACH || ee->ee_type == ICMP_PARAMETERPROB)) || (af == AF_INET6 &&(ee->ee_type == ICMP6_TIME_EXCEEDED || ee->ee_type == ICMP6_DST_UNREACH)))) {
+    if(ee && extension && header_len + n >= (128 + 8) && header_len <= 128 && ((af == AF_INET &&(ee->ee_type == ICMP_TIME_EXCEEDED || ee->ee_type == ICMP_DEST_UNREACH || ee->ee_type == ICMP_PARAMETERPROB)) || (af == AF_INET6 &&(ee->ee_type == ICMP6_TIME_EXCEEDED || ee->ee_type == ICMP6_DST_UNREACH)))) {
         int step;
         int offs = 128 - header_len;
 
@@ -1542,7 +1543,7 @@ int raw_can_connect(void)
                 return 0;
 
             n = sscanf(uts.release, "%u.%u.%u.%u", &a, &b, &c, &d);
-            can_connect =(n >= 3 && VER(a, b, c, d) >= VER(2, 6, 25, 0));
+            can_connect = (n >= 3 && VER(a, b, c, d) >= VER(2, 6, 25, 0));
         }
     }
 

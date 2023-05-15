@@ -208,7 +208,7 @@ static int check_sysctl(const char* name)
     return 0;
 }
 
-static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p, int tos) 
+static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
 {
     initial_seq_num = rand();
     
@@ -511,7 +511,7 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
 {
     th->source = src.sin.sin_port;
     th->seq = htonl(seq_num);
-    pb->seq_num = seq_num;
+    pb->seq = seq_num;
     
     if(counter_pointer == NULL)
         error("counter pointer uninitialized");
@@ -626,7 +626,7 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     probe* first_avail_probe = NULL;
     
     for(int i = 0; i < num_probes; i++) {
-        if(((probes[i].seq_num >= curr_sack_blocks.block[0].sle && probes[i].seq_num < curr_sack_blocks.block[0].sre) || (probes[i].seq_num >= curr_sack_blocks.block[1].sle && probes[i].seq_num < curr_sack_blocks.block[1].sre) || (probes[i].seq_num >= curr_sack_blocks.block[2].sle && probes[i].seq_num < curr_sack_blocks.block[2].sre)) && (probes[i].seq_num > 0)) {
+        if(((probes[i].seq >= curr_sack_blocks.block[0].sle && probes[i].seq < curr_sack_blocks.block[0].sre) || (probes[i].seq >= curr_sack_blocks.block[1].sle && probes[i].seq < curr_sack_blocks.block[1].sre) || (probes[i].seq >= curr_sack_blocks.block[2].sle && probes[i].seq < curr_sack_blocks.block[2].sre)) && (probes[i].seq > 0)) {
             probes[i].reply_from_destination = 1;
                 
             if(probes[i].done == 0 && probes[i].final == 0) {
@@ -648,15 +648,14 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         return NULL;
         
     struct tcphdr* tcp = (struct tcphdr*)buf;
-    uint32_t seq_num_returned = 0;
     
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
         uint16_t dport = tcp->dest; 
         if(dport != dest_port)
             return NULL;
 
-        seq_num_returned = ntohl(tcp->seq);
-        return probe_by_seq_num(seq_num_returned);
+        uint32_t seq_num_returned = ntohl(tcp->seq);
+        return probe_by_seq(seq_num_returned);
     }
     
     uint16_t dport = tcp->source;
@@ -704,6 +703,7 @@ static void tcpinsession_expire_probe(probe* pb)
 
 void tcpinsession_close()
 {
+    print_allowed = 1;
     int start = (first_hop - 1) * probes_per_hop;
     for(int i = start; i < last_probe; i++)
         print_probe(&probes[i]);

@@ -14,6 +14,7 @@ extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;
 extern unsigned int first_hop;
+extern int print_allowed;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -31,8 +32,7 @@ struct probe_struct {
     double recv_time;
     int recv_ttl;
     int sk;
-    int seq;
-    uint32_t seq_num;
+    uint32_t seq;
     int reply_from_destination;
     char *ext;
     char err_str[16];    /*  assume enough   */
@@ -95,9 +95,8 @@ int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
 void print_probe(probe*);
 
-probe *probe_by_seq(int seq);
+probe *probe_by_seq(uint32_t seq);
 probe *probe_by_sk(int sk);
-probe* probe_by_seq_num(uint32_t seq_num);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);
