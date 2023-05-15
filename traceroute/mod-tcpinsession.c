@@ -531,7 +531,6 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
     }
 
     pb->sk = -1;
-    pb->icmp_done = 0;
     pb->send_time = get_time();
     
     int res = do_send(raw_sk, th, *length_p, &dest_addr);
@@ -685,7 +684,7 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     if(info)
         pb->ext = names_by_flags(TH_FLAGS(tcp));
     
-    // Note that here we cannot receive the MSS, because it it included only in the initial SYN+ACK
+    // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
    
     return pb;
 }
@@ -698,9 +697,9 @@ static void tcpinsession_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), tcpinsession_check_reply);
 }
 
-static void tcpinsession_expire_probe(probe* pb, int* what) 
+static void tcpinsession_expire_probe(probe* pb) 
 {
-    probe_done(pb, what);
+    probe_done(pb);
 }
 
 void tcpinsession_close()
