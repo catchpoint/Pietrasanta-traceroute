@@ -149,7 +149,7 @@ override LIBS += $(patsubst %,-L%,$(libraries))
 endif
 
 LIBDEPS = $(filter-out -L%,$(LIBS))
-
+LIBDEPS = $(filter-out -l%,$(LIBS))
 
 #
 #	SUBDIRS	    STUFF
