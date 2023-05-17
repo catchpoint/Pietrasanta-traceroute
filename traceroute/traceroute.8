@@ -121,6 +121,9 @@ Use ICMP ECHO for probes
 .B \-T, \-\-tcp
 Use TCP SYN for probes
 .TP
+.B \-\-tcpinsession
+Use TCP in session
+.TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)
 .TP
@@ -553,6 +556,13 @@ Options:
 Use IP protocol
 .I proto
 (default 253).
+.SS tcpinsession
+Opens a TCP connection with the destination and sends TCP probes within the opened connection.
+The default destination port is 80.
+.P
+This method enusres that no traffic is delivered to the destination application by creating a gap into the stream of sequence numbers.
+.P
+This method also makes use of the TCP SACK option to match returning ACKs with the probes that triggeered them.
 .SH NOTES
 .PP
 To speed up work, normally several probes are sent simultaneously.
