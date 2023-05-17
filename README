@@ -1,3 +1,12 @@
+This is an enhanced version of Dmitry Butskoy traceroute to support "TCP in
+session" method. This method opens a TCP connection with the destination and
+sends TCP probes within the opened session with incremental TTL. The aim is to
+bypass firewalls and intrusion detection systems that might be triggered when
+using the classic TCP method due to the large amount of different SYNs
+generated.
+
+Hereafter is the original Dmitry README:
+
 This is a new modern implementation of the traceroute(8)
 utility for Linux systems.
 
@@ -14,7 +23,6 @@ Main features:
   * TCP SYNs (in general, any TCP request with various flags and options)
   * DCCP Request packets
   * Generic IP datagrams
-  * TCP "In Session" segments
 - UDP methods do not require root privileges
 - Ability to send several probe packets at a time
 - Ability to compute a proper time to wait for each probe
