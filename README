@@ -1,11 +1,11 @@
-This is an enhanced version of Dmitry Butskoy traceroute to support "TCP in
-session" method. This method opens a TCP connection with the destination and
-sends TCP probes within the opened session with incremental TTL. The aim is to
-bypass firewalls and intrusion detection systems that might be triggered when
-using the classic TCP method due to the large amount of different SYNs
-generated. This method also ensures that no data is delivered to the destination
-application by inserting a gap into the stream of sequence numbers being
-generated.
+This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint 
+to support "TCP in session" method. This method opens a TCP connection with
+the destination and sends TCP probes within the opened session with incremental
+TTL. The aim is to bypass firewalls and intrusion detection systems that might
+be triggered when using the classic TCP method due to the large amount of
+different SYNs generated. This method also ensures that no data is delivered to
+the destination application by inserting a gap into the stream of sequence
+numbers being generated.
 
 Hereafter is the original Dmitry README:
 
