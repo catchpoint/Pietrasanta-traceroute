@@ -705,7 +705,8 @@ void tcpinsession_close()
 {
     print_allowed = 1;
     int start = (first_hop - 1) * probes_per_hop;
-    for(int i = start; i < last_probe; i++)
+    int end = (last_probe == -1) ? num_probes : last_probe;
+    for(int i = start; i < end; i++)
         print_probe(&probes[i]);
     close(sk);
     
