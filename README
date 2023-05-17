@@ -14,6 +14,7 @@ Main features:
   * TCP SYNs (in general, any TCP request with various flags and options)
   * DCCP Request packets
   * Generic IP datagrams
+  * TCP "In Session" segments
 - UDP methods do not require root privileges
 - Ability to send several probe packets at a time
 - Ability to compute a proper time to wait for each probe
