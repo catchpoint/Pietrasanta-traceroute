@@ -89,7 +89,9 @@
 
 static char version_string[] = "Modern traceroute for Linux, "
                 "version " _TEXT(VERSION)
-                "\nCopyright(c) 2016  Dmitry Butskoy, "
+                "\nCopyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc."
+    "\nThis software was updated by Catchpoint Systems, Inc. to incorporate InSession algorithm functionality."
+                "\n\nCopyright(c) 2016  Dmitry Butskoy, "
                 "  License: GPL v2 or any later";
 static int debug = 0;
 unsigned int first_hop = 1;
