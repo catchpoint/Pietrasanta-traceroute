@@ -1,9 +1,10 @@
 /*
-    Copyright (c)  2023             Catchpoint Systems, Inc.    
-    Copyright (c)  2023             Alessandro Improta, Luca Sani, TJ Boyd, Vandan Desai    
-                    <aimprota@catchpoint.com>    
-                    <lsani@catchpoint.com>
-    Copyright (c)  2006, 2007       Dmitry Butskoy
+    Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    
+    This software was updated by Catchpoint Systems, Inc. to incorporate
+    InSession algorithm functionality.
+    
+    Copyright(c)  2006, 2007        Dmitry Butskoy
                     <buc@citadel.stu.neva.ru>
     License:  GPL v2 or any later
 
