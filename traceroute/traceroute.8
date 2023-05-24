@@ -563,9 +563,8 @@ Use IP protocol
 Opens a TCP connection with the destination and sends TCP probes within the opened connection.
 The default destination port is 80.
 .P
-This method enusres that no traffic is delivered to the destination application by creating a gap into the stream of sequence numbers.
-.P
-This method also makes use of the TCP SACK option to match returning ACKs with the probes that triggeered them.
+This method prevents false packet loss introduced by firewall and router configurations related to
+security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers. 
 .SH NOTES
 .PP
 To speed up work, normally several probes are sent simultaneously.
