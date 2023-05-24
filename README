@@ -1,5 +1,5 @@
 This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint 
-to support "TCP in session" method. This method opens a TCP connection with
+to support "TCP InSession" method. This method opens a TCP connection with
 the destination and sends TCP probes within the opened session with incremental
 TTL. The aim is to prevent false packet loss introduced by firewall and
 router configurations related to security and to ensures that packets follow a
