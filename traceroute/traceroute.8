@@ -1,3 +1,6 @@
+.\" Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+.\" This software was updated by Catchpoint Systems, Inc. to incorporate
+.\" InSession algorithm functionality.
 .\" Copyright (c)  2006   Dmitry Butskoy (dmitry@butskoy.name)
 .\" License: GPL v2 or any later version
 .\" See COPYING for the status of this software
@@ -23,6 +26,9 @@ traceroute \- print the route packets trace to network host
 .br
 .ti +8
 .BR "" [ "--mtu" "] [" "--back" ]
+.br
+.ti +8
+.BR "" [ "--tcpinsession" "]
 .br
 .ti +8
 .BR host " [" "packet_len" "]"
@@ -120,6 +126,9 @@ Use ICMP ECHO for probes
 .TP
 .B \-T, \-\-tcp
 Use TCP SYN for probes
+.TP
+.B \-\-tcpinsession
+Use TCP in session
 .TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)
@@ -553,6 +562,12 @@ Options:
 Use IP protocol
 .I proto
 (default 253).
+.SS tcpinsession
+Opens a TCP connection with the destination and sends TCP probes within the opened connection.
+The default destination port is 80.
+.P
+This method prevents false packet loss introduced by firewall and router configurations related to
+security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers. 
 .SH NOTES
 .PP
 To speed up work, normally several probes are sent simultaneously.
