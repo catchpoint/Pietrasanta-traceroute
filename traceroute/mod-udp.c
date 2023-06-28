@@ -202,56 +202,43 @@ static int udp_is_raw_icmp_sk(int sk)
 static void udp_handle_raw_icmp_packet(char* bufp)
 {
     if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        struct iphdr* inner_ip_hdr;
+        sockaddr_any offending_probe_dest;
+        sockaddr_any offending_probe_src;
+        struct udphdr* offending_probe = NULL;
+        int proto = 0;
         
-        if(inner_ip->protocol != IPPROTO_UDP)
+        extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void**)&inner_ip_hdr, (void **)&offending_probe); 
+        
+        if(proto != IPPROTO_UDP)
             return;
             
-        struct udphdr* offending_probe = (struct udphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin.sin_family = AF_INET;
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-        
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin.sin_family = AF_INET;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-        
+        offending_probe = (struct udphdr*)offending_probe;
         probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
         
         if(pb) {
-            pb->returned_tos = inner_ip->tos;        
+            pb->returned_tos = inner_ip_hdr->tos;        
             udp_expire_probe(pb, &pb->icmp_done);
         }
     } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+        struct ip6_hdr* inner_ip_hdr;
+        sockaddr_any offending_probe_dest;
+        sockaddr_any offending_probe_src;
+        struct udphdr* offending_probe = NULL;
+        int proto = 0;
         
-        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_UDP)
+        extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&inner_ip_hdr, (void **)&offending_probe);
+        
+        if(proto != IPPROTO_UDP)
             return;
         
-        struct udphdr* offending_probe = (struct udphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin6.sin6_family = AF_INET6;
         offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-        memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-        
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin6.sin6_family = AF_INET6;
         offending_probe_src.sin6.sin6_port = offending_probe->source;
-        memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
         
         probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
         
         if(pb) {
-            uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
+            uint32_t tmp = ntohl(inner_ip_hdr->ip6_ctlun.ip6_un1.ip6_un1_flow);
             tmp &= 0x0fffffff;
             tmp >>= 20; 
             
