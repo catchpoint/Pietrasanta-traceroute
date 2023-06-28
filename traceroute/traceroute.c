@@ -758,6 +758,12 @@ void print_probe(probe *pb)
                     printf(" '-%d'", hops);
             }
         }
+        
+        if(tos && !pb->final) {
+            uint8_t ecn = pb->returned_tos & 3;
+            uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
+            printf(" <TOS:%d,DSCP:%d,ECN:%d>", pb->returned_tos, dscp, ecn);
+        }
     }
 
 
