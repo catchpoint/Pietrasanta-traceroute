@@ -728,68 +728,28 @@ static int tcpinsession_is_raw_icmp_sk(int sk)
 */
 static void tcpinsession_handle_raw_icmp_packet(char* bufp)
 {
-    if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct tcphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    
+    if(proto != IPPROTO_TCP)
+        return;
+    
+    offending_probe = (struct tcphdr*)offending_probe;
+    
+    uint32_t probe_seq_num = ntohl(offending_probe->seq);
+    probe* pb = probe_by_seq(probe_seq_num);
+    
+    if(pb) {
+        offending_probe_dest.sin.sin_port = offending_probe->dest;
+        offending_probe_src.sin.sin_port = offending_probe->source;
         
-        if(inner_ip->protocol != IPPROTO_TCP)
-            return;
-            
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
-        
-        uint32_t probe_seq_num = ntohl(offending_probe->seq);
-        probe* pb = probe_by_seq(probe_seq_num);
-        
-        if(pb) {
-            sockaddr_any offending_probe_dest;
-            memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-            offending_probe_dest.sin.sin_family = AF_INET;
-            offending_probe_dest.sin.sin_port = offending_probe->dest;
-            offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-            
-            sockaddr_any offending_probe_src;
-            memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-            offending_probe_src.sin.sin_family = AF_INET;
-            offending_probe_src.sin.sin_port = offending_probe->source;
-            offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-            
-            if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
-                pb->returned_tos = inner_ip->tos;
-                tcpinsession_expire_probe(pb, &pb->icmp_done);
-            }
-        }
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
-        
-        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_TCP)
-            return;
-        
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
-        
-        uint32_t probe_seq_num = ntohl(offending_probe->seq);
-        probe* pb = probe_by_seq(probe_seq_num);
-        
-        if(pb) {
-            sockaddr_any offending_probe_dest;
-            memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-            offending_probe_dest.sin6.sin6_family = AF_INET6;
-            offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-            memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-            
-            sockaddr_any offending_probe_src;
-            memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-            offending_probe_src.sin6.sin6_family = AF_INET6;
-            offending_probe_src.sin6.sin6_port = offending_probe->source;
-            memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-            
-            if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
-                uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
-                tmp &= 0x0fffffff;
-                tmp >>= 20; 
-                
-                pb->returned_tos = (uint8_t)tmp;
-                tcpinsession_expire_probe(pb, &pb->icmp_done);
-            }
+        if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+            pb->returned_tos = returned_tos;
+            tcpinsession_expire_probe(pb, &pb->icmp_done);
         }
     }
 }

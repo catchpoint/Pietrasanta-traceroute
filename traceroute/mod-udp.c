@@ -201,48 +201,25 @@ static int udp_is_raw_icmp_sk(int sk)
 
 static void udp_handle_raw_icmp_packet(char* bufp)
 {
-    if(dest_addr.sa.sa_family == AF_INET) {
-        sockaddr_any offending_probe_dest;
-        sockaddr_any offending_probe_src;
-        struct udphdr* offending_probe = NULL;
-        int proto = 0;
-        int returned_tos = 0;
-        extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct udphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    
+    if(proto != IPPROTO_UDP)
+        return;
         
-        if(proto != IPPROTO_UDP)
-            return;
-            
-        offending_probe = (struct udphdr*)offending_probe;
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        
-        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
-        
-        if(pb) {
-            pb->returned_tos = returned_tos;        
-            udp_expire_probe(pb, &pb->icmp_done);
-        }
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        sockaddr_any offending_probe_dest;
-        sockaddr_any offending_probe_src;
-        struct udphdr* offending_probe = NULL;
-        int proto = 0;
-        int returned_tos = 0;
-        extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos);
-        
-        if(proto != IPPROTO_UDP)
-            return;
-        
-        offending_probe = (struct udphdr*)offending_probe;
-        offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-        offending_probe_src.sin6.sin6_port = offending_probe->source;
-        
-        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
-        
-        if(pb) {
-            pb->returned_tos = (uint8_t)returned_tos;
-            udp_expire_probe(pb, &pb->icmp_done);
-        }
+    offending_probe = (struct udphdr*)offending_probe;
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+    
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+    
+    if(pb) {
+        pb->returned_tos = returned_tos;        
+        udp_expire_probe(pb, &pb->icmp_done);
     }
 }
 

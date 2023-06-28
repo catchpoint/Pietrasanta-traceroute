@@ -36,6 +36,7 @@ static int last_ttl = 0;
 
 static uint8_t buf[1024];	    /*  enough, enough...  */
 static size_t csum_len = 0;
+static sockaddr_any src;
 static struct tcphdr *th = NULL;
 
 #define TH_FLAGS(TH)	(((uint8_t *) (TH))[13])
@@ -76,168 +77,157 @@ static struct {
 	{ "cwr", TH_CWR },
 };
 
-static char *names_by_flags (unsigned int flags) {
-	int i;
-	char str[64];	/*  enough...  */
-	char *curr = str;
-	char *end = str + sizeof (str) / sizeof (*str);
+static char* names_by_flags(unsigned int flags)
+{
+    int i;
+    char str[64];    /*  enough...  */
+    char* curr = str;
+    char* end = str + sizeof(str) / sizeof(*str);
 
-	for (i = 0; i < sizeof (tcp_flags) / sizeof (*tcp_flags); i++) {
-	    const char *p;
+    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
+        const char* p;
 
-	    if (!(flags & tcp_flags[i].flag))  continue;
+        if(!(flags & tcp_flags[i].flag))  
+            continue;
 
-	    if (curr > str && curr < end)  *curr++ = ',';
-	    for (p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++) ;
-	}
+        if(curr > str && curr < end)  
+            *curr++ = ',';
+        for(p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++);
+    }
 
-	*curr = '\0';
+    *curr = '\0';
 
-	return  strdup (str);
+    return strdup(str);
 }
 
-static int set_tcp_flag (CLIF_option *optn, char *arg) {
-	int i;
+static int set_tcp_flag(CLIF_option* optn, char* arg) 
+{
+    int i;
 
-	for (i = 0; i < sizeof (tcp_flags) / sizeof (*tcp_flags); i++) {
-	    if (!strcmp (optn->long_opt, tcp_flags[i].name)) {
-		    flags |= tcp_flags[i].flag;
-		    return 0;
-	    }
-	}
+    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
+        if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
+            flags |= tcp_flags[i].flag;
+            return 0;
+        }
+    }
 
-	return -1;
+    return -1;
 }
 
-static int set_tcp_flags (CLIF_option *optn, char *arg) {
-	char *q;
-	unsigned long value;
+static int set_tcp_flags(CLIF_option* optn, char* arg) 
+{
+    char* q;
+    unsigned long value;
 
-	value = strtoul (arg, &q, 0);
-	if (q == arg)  return -1;
+    value = strtoul(arg, &q, 0);
+    if(q == arg)
+        return -1;
 
-	flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
-	return 0;
+    flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
+    return 0;
 }
 
-static int set_flag (CLIF_option *optn, char *arg) {
+static int set_flag(CLIF_option* optn, char* arg)
+{
+    flags |= (unsigned long)optn->data;
 
-	flags |= (unsigned long) optn->data;
-
-	return 0;
+    return 0;
 }
 
 static CLIF_option tcp_options[] = {
-	{ 0, "syn", 0, "Set tcp flag SYN (default if no other "
-			"tcp flags specified)", set_tcp_flag, 0, 0, 0 },
-	{ 0, "ack", 0, "Set tcp flag ACK,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "fin", 0, "FIN,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "rst", 0, "RST,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "psh", 0, "PSH,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
-	{ 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
-	{ 0, "flags", "NUM", "Set tcp flags exactly to value %s",
-				set_tcp_flags, 0, 0, CLIF_ABBREV },
-	{ 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR "
-			"(for Explicit Congestion Notification, rfc3168)",
-				set_flag, (void *) FL_ECN, 0, 0 },
-	{ 0, "sack", 0, "Use sack,",
-				set_flag, (void *) FL_SACK, 0, 0 },
-	{ 0, "timestamps", 0, "timestamps,",
-				set_flag, (void *) FL_TSTAMP, 0, CLIF_ABBREV },
-	{ 0, "window_scaling", 0, "window_scaling option for tcp",
-				set_flag, (void *) FL_WSCALE, 0, CLIF_ABBREV },
-	{ 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting "
-			"for the tcp options and ecn. Always set by default "
-			"(with \"syn\") if nothing else specified",
-				CLIF_set_flag, &sysctl, 0, 0 },
-	{ 0, "reuse", 0, "Allow to reuse local port numbers "
-			"for the huge workloads (SO_REUSEADDR)",
-				CLIF_set_flag, &reuse, 0, 0 },
-	{ 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)",
-				CLIF_set_uint, &mss, 0, 0 },
-	{ 0, "info", 0, "Print tcp flags of final tcp replies when target "
-			"host is reached. Useful to determine whether "
-			"an application listens the port etc.",
-				CLIF_set_flag, &info, 0, 0 },
-	CLIF_END_OPTION
+    { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
+    { 0, "ack", 0, "Set tcp flag ACK,", set_tcp_flag, 0, 0, 0 },
+    { 0, "fin", 0, "FIN,", set_tcp_flag, 0, 0, 0 },
+    { 0, "rst", 0, "RST,", set_tcp_flag, 0, 0, 0 },
+    { 0, "psh", 0, "PSH,", set_tcp_flag, 0, 0, 0 },
+    { 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
+    { 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
+    { 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
+    { 0, "flags", "NUM", "Set tcp flags exactly to value %s", set_tcp_flags, 0, 0, CLIF_ABBREV },
+    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", set_flag, (void*)FL_ECN, 0, 0 },
+    { 0, "sack", 0, "Use sack,", set_flag, (void*)FL_SACK, 0, 0 },
+    { 0, "timestamps", 0, "timestamps,", set_flag, (void*)FL_TSTAMP, 0, CLIF_ABBREV },
+    { 0, "window_scaling", 0, "window_scaling option for tcp", set_flag, (void*)FL_WSCALE, 0, CLIF_ABBREV },
+    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
+    { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
+    { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
+    { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
+    CLIF_END_OPTION
 };
 
 
 #define SYSCTL_PREFIX	"/proc/sys/net/ipv4/tcp_"
-static int check_sysctl (const char *name) {
-	int fd, res;
-	char buf[sizeof (SYSCTL_PREFIX) + strlen (name) + 1];
-	uint8_t ch;
+static int check_sysctl(const char* name) 
+{
+    int fd;
+    int res;
+    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
+    uint8_t ch;
 
-	strcpy (buf, SYSCTL_PREFIX);
-	strcat (buf, name);
+    strcpy(buf, SYSCTL_PREFIX);
+    strcat(buf, name);
 
-	fd = open (buf, O_RDONLY, 0);
-	if (fd < 0)  return 0;
+    fd = open(buf, O_RDONLY, 0);
+    if(fd < 0)
+        return 0;
 
-	res = read (fd, &ch, sizeof (ch));
-	close (fd);
+    res = read(fd, &ch, sizeof(ch));
+    close(fd);
 
-	if (res != sizeof (ch))
-		return 0;
+    if(res != sizeof(ch))
+        return 0;
 
-	/*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
-	if (ch == '1')  return 1;
+    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
+    if(ch == '1')
+        return 1;
 
-	return 0;
+    return 0;
 }
 
 
-static int tcp_init (const sockaddr_any *dest,
-			    unsigned int port_seq, size_t *packet_len_p) {
+static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
+{
 	int af = dest->sa.sa_family;
-	sockaddr_any src;
 	int mtu;
 	socklen_t len;
-	uint8_t *ptr;
-	uint16_t *lenp;
-
+	uint8_t* ptr;
+	uint16_t* lenp;
 
 	dest_addr = *dest;
 	dest_addr.sin.sin_port = 0;	/*  raw sockets can be confused   */
 
-	if (!port_seq)  port_seq = DEF_TCP_PORT;
+	if(!port_seq)  port_seq = DEF_TCP_PORT;
 	dest_port = htons (port_seq);
 
 
 	/*  Create raw socket for tcp   */
 
-	raw_sk = socket (af, SOCK_RAW, IPPROTO_TCP);
-	if (raw_sk < 0)
+	raw_sk = socket(af, SOCK_RAW, IPPROTO_TCP);
+	if(raw_sk < 0)
 		error_or_perm ("socket");
 
-	tune_socket (raw_sk);	    /*  including bind, if any   */
+	tune_socket(raw_sk);	    /*  including bind, if any   */
 
-	if (connect (raw_sk, &dest_addr.sa, sizeof (dest_addr)) < 0)
+	if(connect(raw_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
 		error ("connect");
 
-	len = sizeof (src);
-	if (getsockname (raw_sk, &src.sa, &len) < 0)
+	len = sizeof(src);
+	if(getsockname(raw_sk, &src.sa, &len) < 0)
 		error ("getsockname");
 
 
-	len = sizeof (mtu);
-	if (getsockopt (raw_sk, af == AF_INET ? SOL_IP : SOL_IPV6,
-				af == AF_INET ? IP_MTU : IPV6_MTU,
-				&mtu, &len) < 0 || mtu < 576
-	)  mtu = 576;
+	len = sizeof(mtu);
+	if(getsockopt(raw_sk, af == AF_INET ? SOL_IP : SOL_IPV6, af == AF_INET ? IP_MTU : IPV6_MTU, &mtu, &len) < 0 || mtu < 576)
+        mtu = 576;
 
 	/*  mss = mtu - headers   */
-	mtu -= af == AF_INET ? sizeof (struct iphdr) : sizeof (struct ip6_hdr);
-	mtu -= sizeof (struct tcphdr);
+	mtu -= af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr);
+	mtu -= sizeof(struct tcphdr);
 
-
-	if (!raw_can_connect ()) {	/*  work-around for buggy kernels  */
+	if(!raw_can_connect()) {	/*  work-around for buggy kernels  */
 	    close (raw_sk);
 	    raw_sk = socket (af, SOCK_RAW, IPPROTO_TCP);
-	    if (raw_sk < 0)  error ("socket");
+	    if(raw_sk < 0)  error ("socket");
 	    tune_socket (raw_sk);
 	    /*  but do not connect it...  */
 	}
@@ -247,21 +237,21 @@ static int tcp_init (const sockaddr_any *dest,
 
 	add_poll (raw_sk, POLLIN | POLLERR);
 
-
 	/*  Now create the sample packet.  */
 
-	if (!flags)  sysctl = 1;
+	if(!flags)
+	    sysctl = 1;
 
-	if (sysctl) {
-	    if (check_sysctl ("ecn"))  flags |= FL_ECN;
-	    if (check_sysctl ("sack"))  flags |= FL_SACK;
-	    if (check_sysctl ("timestamps"))  flags |= FL_TSTAMP;
-	    if (check_sysctl ("window_scaling"))  flags |= FL_WSCALE;
+	if(sysctl) {
+	    if(check_sysctl ("ecn"))  flags |= FL_ECN;
+	    if(check_sysctl ("sack"))  flags |= FL_SACK;
+	    if(check_sysctl ("timestamps"))  flags |= FL_TSTAMP;
+	    if(check_sysctl ("window_scaling"))  flags |= FL_WSCALE;
 	}
 
-	if (!(flags & (FL_FLAGS | 0xff))) {	/*  no any tcp flag set   */
+	if(!(flags & (FL_FLAGS | 0xff))) {	/*  no any tcp flag set   */
 	    flags |= TH_SYN;
-	    if (flags & FL_ECN)
+	    if(flags & FL_ECN)
 		    flags |= TH_ECE | TH_CWR;
 	}
 
@@ -277,14 +267,14 @@ static int tcp_init (const sockaddr_any *dest,
 
 	ptr = buf;
 
-	if (af == AF_INET) {
-	    len = sizeof (src.sin.sin_addr);
+	if(af == AF_INET) {
+	    len = sizeof(src.sin.sin_addr);
 	    memcpy (ptr, &src.sin.sin_addr, len);
 	    ptr += len;
 	    memcpy (ptr, &dest_addr.sin.sin_addr, len);
 	    ptr += len;
 	} else {
-	    len = sizeof (src.sin6.sin6_addr);
+	    len = sizeof(src.sin6.sin6_addr);
 	    memcpy (ptr, &src.sin6.sin6_addr, len);
 	    ptr += len;
 	    memcpy (ptr, &dest_addr.sin6.sin6_addr, len);
@@ -292,10 +282,9 @@ static int tcp_init (const sockaddr_any *dest,
 	}
 
 	lenp = (uint16_t *) ptr;
-	ptr += sizeof (uint16_t);
+	ptr += sizeof(uint16_t);
 	*((uint16_t *) ptr) = htons ((uint16_t) IPPROTO_TCP);
-	ptr += sizeof (uint16_t);
-
+	ptr += sizeof(uint16_t);
 
 	/*  Construct TCP header   */
 
@@ -314,18 +303,17 @@ static int tcp_init (const sockaddr_any *dest,
 
 	/*  Build TCP options   */
 
-	ptr = (uint8_t *) (th + 1);
+	ptr = (uint8_t*)(th + 1);
 
-	if (flags & TH_SYN) {
+	if(flags & TH_SYN) {
 	    *ptr++ = TCPOPT_MAXSEG;	/*  2   */
 	    *ptr++ = TCPOLEN_MAXSEG;	/*  4   */
-	    *((uint16_t *) ptr) = htons (mss ? mss : mtu);
-	    ptr += sizeof (uint16_t);
+	    *((uint16_t*) ptr) = htons (mss ? mss : mtu);
+	    ptr += sizeof(uint16_t);
 	}
 
-	if (flags & FL_TSTAMP) {
-
-	    if (flags & FL_SACK) {
+	if(flags & FL_TSTAMP) {
+	    if(flags & FL_SACK) {
 		*ptr++ = TCPOPT_SACK_PERMITTED;	/*  4   */
 		*ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
 	    } else {
@@ -335,19 +323,19 @@ static int tcp_init (const sockaddr_any *dest,
 	    *ptr++ = TCPOPT_TIMESTAMP;	/*  8   */
 	    *ptr++ = TCPOLEN_TIMESTAMP;	/*  10  */
 
-	    *((uint32_t *) ptr) = random_seq ();	/*  really!  */
-	    ptr += sizeof (uint32_t);
-	    *((uint32_t *) ptr) = (flags & TH_ACK) ? random_seq () : 0;
-	    ptr += sizeof (uint32_t);
+	    *((uint32_t*) ptr) = random_seq();	/*  really!  */
+	    ptr += sizeof(uint32_t);
+	    *((uint32_t*) ptr) = (flags & TH_ACK) ? random_seq () : 0;
+	    ptr += sizeof(uint32_t);
 	}
-	else if (flags & FL_SACK) {
+	else if(flags & FL_SACK) {
 	    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    *ptr++ = TCPOPT_SACK_PERMITTED;	/*  4   */
 	    *ptr++ = TCPOLEN_SACK_PERMITTED;	/*  2   */
 	}
 
-	if (flags & FL_WSCALE) {
+	if(flags & FL_WSCALE) {
 	    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    *ptr++ = TCPOPT_WINDOW;	/*  3   */
 	    *ptr++ = TCPOLEN_WINDOW;	/*  3   */
@@ -357,15 +345,15 @@ static int tcp_init (const sockaddr_any *dest,
 
 	csum_len = ptr - buf;
 
-	if (csum_len > sizeof (buf))
-		error ("impossible");	/*  paranoia   */
+	if(csum_len > sizeof(buf))
+		error("impossible");	/*  paranoia   */
 
-	len = ptr - (uint8_t *) th;
-	if (len & 0x03)  error ("impossible");	/*  as >>2 ...  */
+	len = ptr - (uint8_t*) th;
+	if(len & 0x03)
+	    error("impossible");	/*  as >>2 ...  */
 
 	*lenp = htons (len);
 	th->doff = len >> 2;
-
 
 	*packet_len_p = len;
 
@@ -380,11 +368,12 @@ static int tcp_init (const sockaddr_any *dest,
 }
 
 
-static void tcp_send_probe (probe *pb, int ttl) {
+static void tcp_send_probe(probe* pb, int ttl)
+{
 	int sk;
 	int af = dest_addr.sa.sa_family;
 	sockaddr_any addr;
-	socklen_t len = sizeof (addr);
+	socklen_t len = sizeof(addr);
 
 
 	/*  To make sure we have chosen a free unused "source port",
@@ -392,14 +381,14 @@ static void tcp_send_probe (probe *pb, int ttl) {
 	*/
 
 	sk = socket (af, SOCK_STREAM, 0);
-	if (sk < 0)  error ("socket");
+	if(sk < 0)  error ("socket");
 
-	if (reuse && setsockopt (sk, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+	if(reuse && setsockopt (sk, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
 		error ("setsockopt SO_REUSEADDR");
 
 	bind_socket (sk);
 
-	if (getsockname (sk, &addr.sa, &len) < 0)
+	if(getsockname (sk, &addr.sa, &len) < 0)
 		error ("getsockname");
 
 	/*  When we reach the target host, it can send us either RST or SYN+ACK.
@@ -422,7 +411,7 @@ static void tcp_send_probe (probe *pb, int ttl) {
 	th->check = in_csum (buf, csum_len);
 
 
-	if (ttl != last_ttl) {
+	if(ttl != last_ttl) {
 
 	    set_ttl (raw_sk, ttl);
 
@@ -432,7 +421,7 @@ static void tcp_send_probe (probe *pb, int ttl) {
 
 	pb->send_time = get_time ();
 
-	if (do_send (raw_sk, th, th->doff << 2, &dest_addr) < 0) {
+	if(do_send(raw_sk, th, th->doff << 2, &dest_addr) < 0) {
 	    close (sk);
 	    pb->send_time = 0;
 	    return;
@@ -443,21 +432,28 @@ static void tcp_send_probe (probe *pb, int ttl) {
 
 	pb->sk = sk;
 
+    // Note that the dest port is incremented for each probe, so we have to specify it explicitly
+    // Note also that the source port is changed for each probe (determined by bind) so we have to specify it explicitly too
+    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
+    pb->dest.sin.sin_port = dest_port; // valid also for IPv6 as we have a union
+    memcpy(&pb->src, &src, sizeof(src));
+    pb->src.sin.sin_port = addr.sin.sin_port; // valid also for IPv6 as we have a union
+    
 	return;
 }
 
 
-static probe *tcp_check_reply (int sk, int err, sockaddr_any *from,
-						    char *buf, size_t len) {
-	probe *pb;
-	struct tcphdr *tcp = (struct tcphdr *) buf;
+static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len)
+{
+	probe* pb;
+	struct tcphdr* tcp = (struct tcphdr*) buf;
 	uint16_t sport, dport;
 
+	if(len < 8)
+	    return NULL;	    /*  too short   */
 
-	if (len < 8)  return NULL;	    /*  too short   */
 
-
-	if (err) {
+	if(err) {
 	    sport = tcp->source;
 	    dport = tcp->dest;
 	} else {
@@ -465,39 +461,37 @@ static probe *tcp_check_reply (int sk, int err, sockaddr_any *from,
 	    dport = tcp->source;
 	}
 
-
-	if (dport != dest_port)
+	if(dport != dest_port)
 		return NULL;
 
-	if (!equal_addr (&dest_addr, from))
+	if(!equal_addr(&dest_addr, from))
 		return NULL;
 
 	pb = probe_by_seq (sport);
-	if (!pb)  return NULL;
+	if(!pb)  return NULL;
 
 
-	if (!err) {
-
+	if(!err) {
 	    pb->final = 1;
 
-	    if (info)
-		pb->ext = names_by_flags (TH_FLAGS(tcp));
+	    if(info)
+    		pb->ext = names_by_flags(TH_FLAGS(tcp));
 	}
 
 	return pb;
 }
 
 
-static void tcp_recv_probe (int sk, int revents) {
-
-	if (!(revents & (POLLIN | POLLERR)))
+static void tcp_recv_probe(int sk, int revents)
+{
+	if(!(revents & (POLLIN | POLLERR)))
 		return;
 
-	recv_reply (sk, !!(revents & POLLERR), tcp_check_reply);
+	recv_reply(sk, !!(revents & POLLERR), tcp_check_reply);
 }
 
 
-static void tcp_expire_probe (probe *pb, int* what)
+static void tcp_expire_probe(probe* pb, int* what)
 {
 	probe_done (pb, what);
 }
@@ -512,63 +506,25 @@ static int tcp_is_raw_icmp_sk(int sk)
 
 static void tcp_handle_raw_icmp_packet(char* bufp)
 {
-    if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct tcphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    
+    if(proto != IPPROTO_TCP)
+        return;
         
-        if(inner_ip->protocol != IPPROTO_TCP)
-            return;
-            
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin.sin_family = AF_INET;
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-        
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin.sin_family = AF_INET;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-        
-        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
-        
-        if(pb) {
-            pb->returned_tos = inner_ip->tos;
-            tcp_expire_probe(pb, &pb->icmp_done);
-        }
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
-        
-        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_TCP)
-            return;
-        
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin6.sin6_family = AF_INET6;
-        offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-        memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-        
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin6.sin6_family = AF_INET6;
-        offending_probe_src.sin6.sin6_port = offending_probe->source;
-        memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-        
-        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
-        
-        if(pb) {
-            uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
-            tmp &= 0x0fffffff;
-            tmp >>= 20; 
-            
-            pb->returned_tos = (uint8_t)tmp;
-            tcp_expire_probe(pb, &pb->icmp_done);
-        }
+    offending_probe = (struct tcphdr*)offending_probe;
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+    
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+    
+    if(pb) {
+        pb->returned_tos = returned_tos;        
+        tcp_expire_probe(pb, &pb->icmp_done);
     }
 }
 

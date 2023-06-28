@@ -35,19 +35,13 @@ static int dgram = 0;
 
 
 static CLIF_option icmp_options[] = {
-        { 0, "raw", 0, "Use raw sockets way only. Default is try this way "
-			"first (probably not allowed for unprivileged users), "
-			"then try dgram",
-				CLIF_set_flag, &raw, 0, CLIF_EXCL },
-        { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented "
-			"by old kernels or restricted by sysadmins",
-				CLIF_set_flag, &dgram, 0, CLIF_EXCL },
-        CLIF_END_OPTION
+    { 0, "raw", 0, "Use raw sockets way only. Default is try this way first (probably not allowed for unprivileged users), then try dgram", CLIF_set_flag, &raw, 0, CLIF_EXCL },
+    { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented by old kernels or restricted by sysadmins", CLIF_set_flag, &dgram, 0, CLIF_EXCL },
+    CLIF_END_OPTION
 };
 
-
-static int icmp_init (const sockaddr_any *dest,
-			    unsigned int port_seq, size_t *packet_len_p) {
+static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *packet_len_p)
+{
 	int i;
 	int af = dest->sa.sa_family;
 	int protocol;
@@ -55,14 +49,15 @@ static int icmp_init (const sockaddr_any *dest,
 	dest_addr = *dest;
 	dest_addr.sin.sin_port = 0;
 
-	if (port_seq)  seq = port_seq;
+	if(port_seq)
+	    seq = port_seq;
 
 	length_p = packet_len_p;
-	if (*length_p < sizeof (struct icmphdr))
+	if(*length_p < sizeof (struct icmphdr))
 		*length_p = sizeof (struct icmphdr);
 
 	data = malloc (*length_p);
-	if (!data)  error ("malloc");
+	if(!data)  error ("malloc");
 
         for (i = sizeof (struct icmphdr); i < *length_p; i++)
                 data[i] = 0x40 + (i & 0x3f);
@@ -70,16 +65,16 @@ static int icmp_init (const sockaddr_any *dest,
 
 	protocol = (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6;
 
-	if (!raw) {
+	if(!raw) {
 	    icmp_sk = socket (af, SOCK_DGRAM, protocol);
-	    if (icmp_sk < 0 && dgram)
+	    if(icmp_sk < 0 && dgram)
 		    error ("socket");
 	}
 
-	if (!dgram) {
+	if(!dgram) {
 	    int raw_sk = socket (af, SOCK_RAW, protocol);
-	    if (raw_sk < 0) {
-		if (raw || icmp_sk < 0)
+	    if(raw_sk < 0) {
+		if(raw || icmp_sk < 0)
 			error_or_perm ("socket");
 		dgram = 1;
 	    } else {
@@ -93,18 +88,18 @@ static int icmp_init (const sockaddr_any *dest,
 	tune_socket (icmp_sk);
 
 	/*  Don't want to catch packets from another hosts   */
-	if (raw_can_connect () &&
+	if(raw_can_connect () &&
 	    connect (icmp_sk, &dest_addr.sa, sizeof (dest_addr)) < 0
 	)  error ("connect");
 
 	use_recverr (icmp_sk);
 
 
-	if (dgram) {
+	if(dgram) {
 	    sockaddr_any addr;
 	    socklen_t len = sizeof (addr);
 
-	    if (getsockname (icmp_sk, &addr.sa, &len) < 0)
+	    if(getsockname (icmp_sk, &addr.sa, &len) < 0)
 		    error ("getsockname");
 	    ident = ntohs (addr.sin.sin_port);	/*  both IPv4 and IPv6   */
 
@@ -129,7 +124,7 @@ static void icmp_send_probe (probe *pb, int ttl) {
 	int af = dest_addr.sa.sa_family;
 
 
-	if (ttl != last_ttl) {
+	if(ttl != last_ttl) {
 
 	    set_ttl (icmp_sk, ttl);
 
@@ -137,7 +132,7 @@ static void icmp_send_probe (probe *pb, int ttl) {
 	}
 
 
-	if (af == AF_INET) {
+	if(af == AF_INET) {
 	    struct icmp *icmp = (struct icmp *) data;
 
 	    icmp->icmp_type = ICMP_ECHO;
@@ -148,7 +143,7 @@ static void icmp_send_probe (probe *pb, int ttl) {
 
 	    icmp->icmp_cksum = in_csum (data, *length_p);
 	}
-	else if (af == AF_INET6) {
+	else if(af == AF_INET6) {
 	    struct icmp6_hdr *icmp6 = (struct icmp6_hdr *) data;
 
 	    icmp6->icmp6_type = ICMP6_ECHO_REQUEST;
@@ -163,7 +158,7 @@ static void icmp_send_probe (probe *pb, int ttl) {
 
 	pb->send_time = get_time ();
 
-	if (do_send (icmp_sk, data, *length_p, &dest_addr) < 0) {
+	if(do_send (icmp_sk, data, *length_p, &dest_addr) < 0) {
 	    pb->send_time = 0;
 	    return;
 	}
@@ -185,11 +180,11 @@ static probe *icmp_check_reply (int sk, int err, sockaddr_any *from,
 	probe *pb;
 
 
-	if (len < sizeof (struct icmphdr))
+	if(len < sizeof (struct icmphdr))
 		return NULL;
 
 
-	if (af == AF_INET) {
+	if(af == AF_INET) {
 	    struct icmp *icmp = (struct icmp *) buf;
 
 	    type = icmp->icmp_type;
@@ -208,16 +203,16 @@ static probe *icmp_check_reply (int sk, int err, sockaddr_any *from,
 	}
 
 
-	if (recv_id != ident)
+	if(recv_id != ident)
 		return NULL;
 
 	pb = probe_by_seq (recv_seq);
-	if (!pb)  return NULL;
+	if(!pb)  return NULL;
 
 
-	if (!err) {
+	if(!err) {
 
-	    if (!(af == AF_INET && type == ICMP_ECHOREPLY) &&
+	    if(!(af == AF_INET && type == ICMP_ECHOREPLY) &&
 		!(af == AF_INET6 && type == ICMP6_ECHO_REPLY)
 	    )  return NULL;
 
@@ -230,7 +225,7 @@ static probe *icmp_check_reply (int sk, int err, sockaddr_any *from,
 
 static void icmp_recv_probe (int sk, int revents)
 {
-	if (!(revents & (POLLIN | POLLERR)))
+	if(!(revents & (POLLIN | POLLERR)))
 		return;
 
 	recv_reply (sk, !!(revents & POLLERR), icmp_check_reply);
