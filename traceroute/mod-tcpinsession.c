@@ -24,7 +24,6 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <netinet/tcp.h>
-#include <linux/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
        

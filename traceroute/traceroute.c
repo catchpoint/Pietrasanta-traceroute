@@ -26,8 +26,12 @@
 #include <errno.h>
 #include <locale.h>
 #include <sys/utsname.h>
-#include <linux/types.h>
+
+#ifdef __APPLE__
+#include "mac/errqueue.h" 
+#else
 #include <linux/errqueue.h>
+#endif
 
 /*  XXX: Remove this when things will be defined properly in netinet/ ...  */
 #include "flowlabel.h"

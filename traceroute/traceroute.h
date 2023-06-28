@@ -12,7 +12,6 @@
 */
 
 #include <netinet/in.h>
-
 #include <clif.h>
 
 extern unsigned int probes_per_hop;
