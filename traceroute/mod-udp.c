@@ -153,10 +153,16 @@ static void udp_send_probe(probe* pb, int ttl)
 
 	pb->sk = sk;
 
+    socklen_t len = sizeof(pb->src);
+    if(getsockname(sk, &pb->src.sa, &len) < 0)
+        error("getsockname");
+        
 	add_poll (sk, POLLIN | POLLERR);
 
 	pb->seq = dest_addr.sin.sin_port;
 
+    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
+    
 	if (curr_port) {	/*  traditional udp method   */
 	    curr_port++;
 	    dest_addr.sin.sin_port = htons (curr_port);	/* both ipv4 and ipv6 */
@@ -166,30 +172,26 @@ static void udp_send_probe(probe* pb, int ttl)
 }
 
 
-static probe *udp_check_reply (int sk, int err, sockaddr_any *from,
-						    char *buf, size_t len) {
-	probe *pb;
+static probe* udp_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
+{
+    probe* pb = probe_by_sk(sk);
+    if(!pb)
+        return NULL;
 
-	pb = probe_by_sk (sk);
-	if (!pb)  return NULL;
+    if(pb->seq != from->sin.sin_port)
+        return NULL;
 
-	if (pb->seq != from->sin.sin_port)
-		return NULL;
+    if(!err)
+        pb->final = 1;
 
-	if (!err)  pb->final = 1;
-
-	return pb;
+    return pb;
 }
 
-
-static void udp_recv_probe (int sk, int revents) {
-
-	if (!(revents & (POLLIN | POLLERR)))
-		return;
-
-	recv_reply (sk, !!(revents & POLLERR), udp_check_reply);
+static void udp_recv_probe(int sk, int revents) 
+{
+    if((revents & (POLLIN | POLLERR)))
+        recv_reply(sk, !!(revents & POLLERR), udp_check_reply);
 }
-
 
 static void udp_expire_probe (probe *pb, int* what) 
 {
@@ -277,6 +279,8 @@ static tr_module default_ops = {
 	.expire_probe = udp_expire_probe,
 	.header_len = sizeof (struct udphdr),
 	.handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
+	.is_raw_icmp_sk = udp_is_raw_icmp_sk,
+	.handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
 };
 
 TR_MODULE (default_ops);
@@ -289,6 +293,8 @@ static tr_module udp_ops = {
 	.recv_probe = udp_recv_probe,
 	.expire_probe = udp_expire_probe,
 	.header_len = sizeof (struct udphdr),
+	.handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
+	.is_raw_icmp_sk = udp_is_raw_icmp_sk,
 	.handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
 };
 
