@@ -120,6 +120,8 @@ static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
 static unsigned int tos = 0;
+static unsigned int dscp = 0;
+static unsigned int ecn = 0;
 static unsigned int flow_label = 0;
 static int noroute = 0;
 static unsigned int fwmark = 0;
@@ -505,7 +507,7 @@ static CLIF_option option_list[] = {
     { "N", "sim-queries", "squeries", "Set the number of probes to be tried simultaneously (default is " _TEXT(DEF_SIM_PROBES) ")", CLIF_set_uint, &sim_probes, 0, 0 },
     { "n", 0, 0, "Do not resolve IP addresses to their domain names", CLIF_set_flag, &noresolve, 0, 0 },
     { "p", "port", "port", "Set the destination port to use. It is either initial udp port value for \"default\" method(incremented by each probe, default is " _TEXT(DEF_START_PORT) "), or initial seq for \"icmp\"(incremented as well, default from 1), or some constant destination port for other methods(with default of " _TEXT(DEF_TCP_PORT) " for \"tcp\", " _TEXT(DEF_UDP_PORT) " for \"udp\", etc.)", set_port, &dst_port_seq, 0, 0 },
-    { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets", CLIF_set_uint, &tos, 0, 0 },
+    { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn", CLIF_set_uint, &tos, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
@@ -527,6 +529,8 @@ static CLIF_option option_list[] = {
     { 0, "mtu", 0, "Discover MTU along the path being traced. Implies `-F -N 1'", CLIF_set_flag, &mtudisc, 0, CLIF_EXTRA },
     { 0, "back", 0, "Guess the number of hops in the backward path and print if it differs", CLIF_set_flag, &backward, 0, CLIF_EXTRA },
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
+    { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp, 0, 0 },
+    { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn, 0, 0 },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -560,8 +564,8 @@ int main(int argc, char *argv[])
 
 
     ops = tr_get_module(module);
-    if(!ops)  ex_error("Unknown traceroute module %s", module);
-
+    if(!ops)
+        ex_error("Unknown traceroute module %s", module);
 
     if(!first_hop || first_hop > max_hops)
         ex_error("first hop out of range");
@@ -580,6 +584,14 @@ int main(int argc, char *argv[])
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
 
+    if(tos && (dscp || ecn)) {
+        ex_error("tos cannot be used in conjunction with dscp and ecn");
+    } else if(dscp || ecn) {
+        tos = dscp;
+        tos <<= 2;
+        tos += ecn;
+    }
+    
     if(af == AF_INET6 &&(tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
