@@ -1323,6 +1323,43 @@ void probe_done(probe* pb, int* what)
     }
 }
 
+void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** inner_ip_hdr, void** offending_probe)
+{
+    if(family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        
+        *proto = inner_ip->protocol;
+        
+        *offending_probe = (void *)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+        
+        memset(dst, 0, sizeof(sockaddr_any));
+        dst->sin.sin_family = AF_INET;
+        dst->sin.sin_addr.s_addr = inner_ip->daddr;
+        
+        memset(src, 0, sizeof(sockaddr_any));
+        src->sin.sin_family = AF_INET;
+        src->sin.sin_addr.s_addr = inner_ip->saddr;
+        
+        *inner_ip_hdr = inner_ip;
+    } else if(family == AF_INET6) {
+        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+        *proto = inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt;
+        
+        *offending_probe = (void *) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
+        
+        memset(dst, 0, sizeof(sockaddr_any));
+        dst->sin6.sin6_family = AF_INET6;
+        memcpy(&dst->sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(dst->sin6.sin6_addr));
+        
+        memset(&src, 0, sizeof(sockaddr_any));
+        src->sin6.sin6_family = AF_INET6;
+        memcpy(&src->sin6.sin6_addr, &inner_ip->ip6_src, sizeof(src->sin6.sin6_addr));
+        
+        *inner_ip_hdr = inner_ip;
+    }
+}
+
 void recv_reply(int sk, int err, check_reply_t check_reply) 
 {
     struct msghdr msg;

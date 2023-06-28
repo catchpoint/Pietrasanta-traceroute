@@ -139,6 +139,8 @@ uint16_t in_csum(const void *ptr, size_t len);
 void tr_register_module(tr_module *module);
 const tr_module *tr_get_module(const char *name);
 
+void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** inner_ip_hdr, void** offending_probe);
+
 #define TR_MODULE(MOD)    \
 static void __init_ ## MOD (void) __attribute__ ((constructor));    \
 static void __init_ ## MOD (void) {    \
