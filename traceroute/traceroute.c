@@ -789,9 +789,9 @@ static double get_timeout(probe *pb)
         probe *p = &probes[idx - (idx % probes_per_hop)];
 
         for(i = 0; i < probes_per_hop; i++, p++) {
-            /*   `p == pb' skipped since  !pb->proto_done   */
+            /*   `p == pb' skipped since  !pb->done   */
 
-            if(p->proto_done && (value = p->recv_time - p->send_time) > 0) {
+            if(p->done && (value = p->recv_time - p->send_time) > 0) {
                 value += DEF_WAIT_PREC;
                 value *= here_factor;
                 return value < wait_secs ? value : wait_secs;
@@ -804,7 +804,7 @@ static double get_timeout(probe *pb)
         probe *p, *endp = probes + num_probes;
 
         for(p = pb + 1; p < endp && p->send_time; p++) {
-            if(p->proto_done &&(value = p->recv_time - p->send_time) > 0) {
+            if(p->done &&(value = p->recv_time - p->send_time) > 0) {
                 value += DEF_WAIT_PREC;
                 value *= near_factor;
                 return value < wait_secs ? value : wait_secs;
@@ -822,12 +822,12 @@ static void check_expired(probe *pb)
     probe *p, *endp = probes + num_probes;
     probe *fp = NULL, *pfp = NULL;
 
-    if(!pb->proto_done)        /*  an ops method still not release it  */
+    if(!pb->done)        /*  an ops method still not release it  */
         return;
 
     /*  check all the previous in the same hop   */
     for(p = &probes[idx -(idx % probes_per_hop)]; p < pb; p++) {
-        if(!p->proto_done || !p->final)       /*  too early to decide something OR already ttl-exceeded in the same hop  */
+        if(!p->done || !p->final)       /*  too early to decide something OR already ttl-exceeded in the same hop  */
             return;
 
         pfp = p;    /*  some of the previous probes is final   */
@@ -835,7 +835,7 @@ static void check_expired(probe *pb)
 
     /*  check forward all the sent probes   */
     for(p = pb + 1; p < endp && p->send_time; p++) {
-        if(p->proto_done) {    /*  some next probe already done...  */
+        if(p->done) {    /*  some next probe already done...  */
             if(!p->final) {    /*  ...was ttl-exceeded. OK, we are expired.  */
                 return;
             } else {
@@ -904,7 +904,7 @@ static void check_expired(probe *pb)
         probe and compare with it.
         */
         for(p = pb - 1; p >= probes; p--) {
-            if(p->proto_done && !p->final && p->recv_ttl) {
+            if(p->done && !p->final && p->recv_ttl) {
                 int hops = ttl2hops(p->recv_ttl);
 
                 if(hops < back_hops) {
@@ -1009,7 +1009,7 @@ static void do_it(void)
         for(n = start; n < end; n++) {
             probe *pb = &probes[n];
 
-            if(n == start && !pb->proto_done && pb->send_time) { /*  probably time to print, but yet not replied   */
+            if(n == start && !pb->done && pb->send_time) { /*  probably time to print, but yet not replied   */
                 double expire_time = pb->send_time + get_timeout(pb);
 
                 if(expire_time > now_time)
@@ -1020,7 +1020,7 @@ static void do_it(void)
                 }
             }
 
-            if(pb->proto_done) {
+            if(pb->done) {
                 if(n == start) {    /*  can print it now   */
                     print_probe(pb);
                     start++;
@@ -1381,7 +1381,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         */
         if(!n && err && dontfrag) {
             pb = &probes[(first_hop - 1) * probes_per_hop];
-            if(pb->proto_done)
+            if(pb->done)
                 return;
         } else {
             return;
