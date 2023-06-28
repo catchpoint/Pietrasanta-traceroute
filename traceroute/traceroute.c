@@ -1323,7 +1323,7 @@ void probe_done(probe* pb, int* what)
     }
 }
 
-void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** inner_ip_hdr, void** offending_probe)
+void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos)
 {
     if(family == AF_INET) {
         struct iphdr* outer_ip = (struct iphdr*)bufp;
@@ -1341,7 +1341,7 @@ void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sock
         src->sin.sin_family = AF_INET;
         src->sin.sin_addr.s_addr = inner_ip->saddr;
         
-        *inner_ip_hdr = inner_ip;
+        *probe_tos = inner_ip->tos;
     } else if(family == AF_INET6) {
         struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
         *proto = inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt;
@@ -1356,7 +1356,11 @@ void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sock
         src->sin6.sin6_family = AF_INET6;
         memcpy(&src->sin6.sin6_addr, &inner_ip->ip6_src, sizeof(src->sin6.sin6_addr));
         
-        *inner_ip_hdr = inner_ip;
+        uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
+        tmp &= 0x0fffffff;
+        tmp >>= 20; 
+        
+        *probe_tos = (uint8_t)tmp;
     }
 }
 
