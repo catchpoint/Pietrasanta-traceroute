@@ -592,7 +592,7 @@ int main(int argc, char *argv[])
         tos += ecn;
     }
     
-    if(af == AF_INET6 &&(tos || flow_label))
+    if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
     if(src_port) {
