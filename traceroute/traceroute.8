@@ -31,6 +31,9 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--tcpinsession" "]
 .br
 .ti +8
+.BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
+.br
+.ti +8
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -128,7 +131,7 @@ Use ICMP ECHO for probes
 Use TCP SYN for probes
 .TP
 .B \-\-tcpinsession
-Use TCP in session
+Use TCP InSession. See https://www.catchpoint.com/blog/traceroute-insession-catchpoints-effort-towards-a-more-reliable-network-diagnostic-tool
 .TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)
@@ -215,6 +218,14 @@ are 16 (low delay) and 8 (high throughput). Note that in order to use
 some TOS precedence values, you have to be super user.
 .br
 For IPv6, set the Traffic Control value.
+.TP
+.BI \-\-ecn=ecn
+Set the ECN value in the Type of Service (TOS) field. ECN values can either
+be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE.
+.TP
+.BI \-\-dscp=dscp
+Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
+0 to 63.
 .TP
 .BI \-l " flow_label" ", --flowlabel=" flow_label
 Use specified flow_label for IPv6 packets.
