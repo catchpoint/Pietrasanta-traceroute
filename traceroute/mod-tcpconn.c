@@ -196,7 +196,7 @@ static void tcp_recv_probe (int sk, int revents) {
 
 	    pb->recv_time = get_time ();
 
-	    probe_done (pb);
+	    probe_done (pb, &pb->done);
 
 	    return;
 	}
@@ -211,9 +211,9 @@ static void tcp_recv_probe (int sk, int revents) {
 }
 
 
-static void tcp_expire_probe (probe *pb) {
-
-	probe_done (pb);
+static void tcp_expire_probe (probe *pb, int* what)
+{
+	probe_done (pb, what);
 }
 
 

@@ -783,9 +783,9 @@ static double get_timeout(probe *pb)
         probe *p = &probes[idx - (idx % probes_per_hop)];
 
         for(i = 0; i < probes_per_hop; i++, p++) {
-            /*   `p == pb' skipped since  !pb->done   */
+            /*   `p == pb' skipped since  !pb->proto_done   */
 
-            if(p->done && (value = p->recv_time - p->send_time) > 0) {
+            if(p->proto_done && (value = p->recv_time - p->send_time) > 0) {
                 value += DEF_WAIT_PREC;
                 value *= here_factor;
                 return value < wait_secs ? value : wait_secs;
@@ -798,7 +798,7 @@ static double get_timeout(probe *pb)
         probe *p, *endp = probes + num_probes;
 
         for(p = pb + 1; p < endp && p->send_time; p++) {
-            if(p->done &&(value = p->recv_time - p->send_time) > 0) {
+            if(p->proto_done &&(value = p->recv_time - p->send_time) > 0) {
                 value += DEF_WAIT_PREC;
                 value *= near_factor;
                 return value < wait_secs ? value : wait_secs;
@@ -816,12 +816,12 @@ static void check_expired(probe *pb)
     probe *p, *endp = probes + num_probes;
     probe *fp = NULL, *pfp = NULL;
 
-    if(!pb->done)        /*  an ops method still not release it  */
+    if(!pb->proto_done)        /*  an ops method still not release it  */
         return;
 
     /*  check all the previous in the same hop   */
     for(p = &probes[idx -(idx % probes_per_hop)]; p < pb; p++) {
-        if(!p->done || !p->final)       /*  too early to decide something OR already ttl-exceeded in the same hop  */
+        if(!p->proto_done || !p->final)       /*  too early to decide something OR already ttl-exceeded in the same hop  */
             return;
 
         pfp = p;    /*  some of the previous probes is final   */
@@ -829,7 +829,7 @@ static void check_expired(probe *pb)
 
     /*  check forward all the sent probes   */
     for(p = pb + 1; p < endp && p->send_time; p++) {
-        if(p->done) {    /*  some next probe already done...  */
+        if(p->proto_done) {    /*  some next probe already done...  */
             if(!p->final) {    /*  ...was ttl-exceeded. OK, we are expired.  */
                 return;
             } else {
@@ -898,7 +898,7 @@ static void check_expired(probe *pb)
         probe and compare with it.
         */
         for(p = pb - 1; p >= probes; p--) {
-            if(p->done && !p->final && p->recv_ttl) {
+            if(p->proto_done && !p->final && p->recv_ttl) {
                 int hops = ttl2hops(p->recv_ttl);
 
                 if(hops < back_hops) {
@@ -959,6 +959,31 @@ probe *probe_by_sk(int sk)
     return NULL;
 }
 
+int equal_port(const sockaddr_any* a, const sockaddr_any* b) 
+{
+    if(!a->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family != b->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family == AF_INET6)
+        return (a->sin6.sin6_port == b->sin6.sin6_port);
+    else
+        return (a->sin.sin_port == b->sin.sin_port);
+    return 0;    /*  not reached   */
+}
+
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest) 
+{
+    for(int n = 0; n < num_probes; n++) {
+        if(equal_sockaddr(src, &probes[n].src) && equal_sockaddr(dest, &probes[n].dest))
+            return &probes[n];
+    }
+    
+    return NULL;
+}
+
 static void poll_callback(int fd, int revents) 
 {
     ops->recv_probe(fd, revents);
@@ -978,18 +1003,18 @@ static void do_it(void)
         for(n = start; n < end; n++) {
             probe *pb = &probes[n];
 
-            if(n == start && !pb->done && pb->send_time) { /*  probably time to print, but yet not replied   */
+            if(n == start && !pb->proto_done && pb->send_time) { /*  probably time to print, but yet not replied   */
                 double expire_time = pb->send_time + get_timeout(pb);
 
                 if(expire_time > now_time)
                     next_time = expire_time;
                 else {
-                    ops->expire_probe(pb);
+                    ops->expire_probe(pb, NULL);
                     check_expired(pb);
                 }
             }
 
-            if(pb->done) {
+            if(pb->proto_done) {
                 if(n == start) {    /*  can print it now   */
                     print_probe(pb);
                     start++;
@@ -1272,17 +1297,24 @@ static void parse_local_res(probe *pb, int ee_errno, int info)
     error("local recverr");
 }
 
-void probe_done(probe *pb) {
+void probe_done(probe* pb, int* what) 
+{
+    if(what != NULL)
+        *what = 1;
+        
+    // Note that we are not interested in TOS for last hop, so if the probe is declared final, we skip it
+    // Note also that what is NULL when probe is considered to be expired, thus we can proceed with closing the socket
+    if(what == NULL || pb->final == 1 || (pb->proto_done == 1 && pb->icmp_done == 1)) {
+        if(pb->sk) {
+            del_poll(pb->sk);
+            if(pb->sk != -1)
+                close(pb->sk);
+            pb->sk = 0;
+        }
 
-    if(pb->sk) {
-        del_poll(pb->sk);
-        close(pb->sk);
-        pb->sk = 0;
+        pb->seq = 0;
+        pb->done = 1;
     }
-
-    pb->seq = 0;
-
-    pb->done = 1;
 }
 
 void recv_reply(int sk, int err, check_reply_t check_reply) 
@@ -1314,6 +1346,11 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(n < 0)
         return;
 
+    if(ops->is_raw_icmp_sk(sk)) {
+        ops->handle_raw_icmp_packet(bufp);
+        return;
+    }
+    
     /*  when not MSG_ERRQUEUE, AF_INET returns full ipv4 header
         on raw sockets...
     */
@@ -1338,7 +1375,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         */
         if(!n && err && dontfrag) {
             pb = &probes[(first_hop - 1) * probes_per_hop];
-            if(pb->done)
+            if(pb->proto_done)
                 return;
         } else {
             return;
@@ -1400,7 +1437,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(ee && mtudisc && ee->ee_info >= header_len && ee->ee_info < header_len + data_len) {
         data_len = ee->ee_info - header_len;
 
-        probe_done(pb);
+        probe_done(pb, &pb->proto_done);
 
         /*  clear this probe(as actually the previous hop answers here)
           but fill its `err_str' by the info obtained. Ugly, but easy...
@@ -1424,7 +1461,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         handle_extensions(pb, bufp + offs, n - offs, step);
     }
 
-    probe_done(pb);
+    probe_done(pb, &pb->proto_done);
 }
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b) 

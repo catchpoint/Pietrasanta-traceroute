@@ -30,6 +30,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
 
+static int raw_icmp_sk = -1;
 static int raw_sk = -1;
 static int last_ttl = 0;
 
@@ -368,6 +369,13 @@ static int tcp_init (const sockaddr_any *dest,
 
 	*packet_len_p = len;
 
+    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+    
+    if(raw_icmp_sk < 0)
+        error("raw icmp socket");
+    
+    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    
 	return 0;
 }
 
@@ -489,11 +497,80 @@ static void tcp_recv_probe (int sk, int revents) {
 }
 
 
-static void tcp_expire_probe (probe *pb) {
-
-	probe_done (pb);
+static void tcp_expire_probe (probe *pb, int* what)
+{
+	probe_done (pb, what);
 }
 
+static int tcp_is_raw_icmp_sk(int sk)
+{
+    if(sk == raw_icmp_sk)
+        return 1;
+
+    return 0;
+}
+
+static void tcp_handle_raw_icmp_packet(char* bufp)
+{
+    if(dest_addr.sa.sa_family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        
+        if(inner_ip->protocol != IPPROTO_TCP)
+            return;
+            
+        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+        
+        sockaddr_any offending_probe_dest;
+        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
+        offending_probe_dest.sin.sin_family = AF_INET;
+        offending_probe_dest.sin.sin_port = offending_probe->dest;
+        offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
+        
+        sockaddr_any offending_probe_src;
+        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
+        offending_probe_src.sin.sin_family = AF_INET;
+        offending_probe_src.sin.sin_port = offending_probe->source;
+        offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
+        
+        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+        
+        if(pb) {
+            pb->returned_tos = inner_ip->tos;
+            tcp_expire_probe(pb, &pb->icmp_done);
+        }
+    } else if(dest_addr.sa.sa_family == AF_INET6) {
+        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+        
+        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_TCP)
+            return;
+        
+        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
+        
+        sockaddr_any offending_probe_dest;
+        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
+        offending_probe_dest.sin6.sin6_family = AF_INET6;
+        offending_probe_dest.sin6.sin6_port = offending_probe->dest;
+        memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
+        
+        sockaddr_any offending_probe_src;
+        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
+        offending_probe_src.sin6.sin6_family = AF_INET6;
+        offending_probe_src.sin6.sin6_port = offending_probe->source;
+        memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
+        
+        probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+        
+        if(pb) {
+            uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
+            tmp &= 0x0fffffff;
+            tmp >>= 20; 
+            
+            pb->returned_tos = (uint8_t)tmp;
+            tcp_expire_probe(pb, &pb->icmp_done);
+        }
+    }
+}
 
 static tr_module tcp_ops = {
 	.name = "tcp",
@@ -502,6 +579,8 @@ static tr_module tcp_ops = {
 	.recv_probe = tcp_recv_probe,
 	.expire_probe = tcp_expire_probe,
 	.options = tcp_options,
+	.is_raw_icmp_sk = tcp_is_raw_icmp_sk,
+    .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet
 };
 
 TR_MODULE (tcp_ops);

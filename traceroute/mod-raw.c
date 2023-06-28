@@ -144,9 +144,10 @@ static void raw_recv_probe (int sk, int revents) {
 }
 
 
-static void raw_expire_probe (probe *pb) {
+static void raw_expire_probe (probe *pb, int* what)
+{
 
-	probe_done (pb);
+	probe_done (pb, what);
 }
 
 

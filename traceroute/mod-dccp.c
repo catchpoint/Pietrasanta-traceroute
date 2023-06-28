@@ -271,9 +271,9 @@ static void dccp_recv_probe (int sk, int revents) {
 }
 
 
-static void dccp_expire_probe (probe *pb) {
+static void dccp_expire_probe (probe *pb, int* what) {
 
-	probe_done (pb);
+	probe_done (pb, what);
 }
 
 

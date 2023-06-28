@@ -12,7 +12,11 @@
 */
 
 #include <netinet/in.h>
-
+#include <netinet/icmp6.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/in.h>
+#include <netinet/ip6.h>
+#include <sys/time.h>
 #include <clif.h>
 
 extern unsigned int probes_per_hop;
@@ -29,8 +33,11 @@ union common_sockaddr {
 
 typedef union common_sockaddr sockaddr_any;
 
-struct probe_struct {
+struct probe_struct
+{
     int done;
+    int proto_done;
+    int icmp_done;
     int final;
     sockaddr_any res;
     double send_time;
@@ -40,6 +47,10 @@ struct probe_struct {
     uint32_t seq;
     int reply_from_destination;
     char *ext;
+    sockaddr_any src;
+    sockaddr_any dest;
+    uint32_t seq_num;
+    int returned_tos;
     char err_str[16];    /*  assume enough   */
 };
 
@@ -67,11 +78,13 @@ struct tr_module_struct {
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
     void (*send_probe)(probe *pb, int ttl);
     void (*recv_probe)(int fd, int revents);
-    void (*expire_probe)(probe *pb);
+    void (*expire_probe)(probe *pb, int* what);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
     size_t header_len;    /*  additional header length (aka for udp)   */
     void(*close)();
+    int (*is_raw_icmp_sk)(int sk);
+    void (*handle_raw_icmp_packet)(char* bufp);
 };
 
 typedef struct tr_module_struct tr_module;
@@ -91,7 +104,7 @@ void error_or_perm(const char *str) __attribute__((noreturn));
 double get_time(void);
 void tune_socket(int sk);
 void parse_icmp_res(probe *pb, int type, int code, int info);
-void probe_done(probe *pb);
+void probe_done(probe *pb, int* what);
 
 typedef probe *(*check_reply_t)(int sk, int err, sockaddr_any *from, char *buf, size_t len);
 void recv_reply(int sk, int err, check_reply_t check_reply);
@@ -102,6 +115,7 @@ void print_probe(probe*);
 
 probe *probe_by_seq(uint32_t seq);
 probe *probe_by_sk(int sk);
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);

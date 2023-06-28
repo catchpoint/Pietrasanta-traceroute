@@ -27,6 +27,7 @@ static char *data;
 static size_t *length_p;
 
 static int icmp_sk = -1;
+static int raw_icmp_sk = -1; // cannot use icmp_sk because it is used with recverr (thus no full ICMP packet is received but only the payload of the offending ICMP packet)
 static int last_ttl = 0;
 
 static int raw = 0;
@@ -113,6 +114,13 @@ static int icmp_init (const sockaddr_any *dest,
 
 	add_poll (icmp_sk, POLLIN | POLLERR);
  
+    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+    
+    if(raw_icmp_sk < 0)
+        error("raw icmp socket");
+    
+    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    
 	return 0;
 }
 
@@ -220,8 +228,8 @@ static probe *icmp_check_reply (int sk, int err, sockaddr_any *from,
 }
 
 
-static void icmp_recv_probe (int sk, int revents) {
-
+static void icmp_recv_probe (int sk, int revents)
+{
 	if (!(revents & (POLLIN | POLLERR)))
 		return;
 
@@ -229,11 +237,100 @@ static void icmp_recv_probe (int sk, int revents) {
 }
 
 
-static void icmp_expire_probe (probe *pb) {
-
-	probe_done (pb);
+static void icmp_expire_probe(probe *pb, int* what) 
+{
+	probe_done (pb, what);
 }
 
+static int icmp_is_raw_icmp_sk(int sk)
+{
+    if(sk == raw_icmp_sk)
+        return 1;
+
+    return 0;
+}
+
+static void icmp_handle_raw_icmp_packet(char* bufp)
+{
+    if(dest_addr.sa.sa_family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct icmp* icmp_packet = (struct icmp*) (bufp + (outer_ip->ihl << 2));
+        
+        int type = icmp_packet->icmp_type;
+        uint16_t recv_seq = 0;
+        
+        if(type == ICMP_ECHOREPLY) {
+            uint16_t recv_id = ntohs(icmp_packet->icmp_id);
+            
+            if(recv_id != ident)
+                return;
+            
+            recv_seq = ntohs(icmp_packet->icmp_seq);
+            probe* pb = probe_by_seq(recv_seq);
+            
+            if(pb)
+                icmp_expire_probe(pb, &pb->icmp_done);
+        } else {
+            struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+            if(inner_ip->protocol != IPPROTO_ICMP)
+                return;
+            struct icmp* offending_probe = (struct icmp*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+            
+            uint16_t recv_id = ntohs(offending_probe->icmp_id);
+            
+            if(recv_id != ident)
+                return;
+            
+            recv_seq = ntohs(offending_probe->icmp_seq);
+            probe* pb = probe_by_seq(recv_seq);
+        
+            if(pb) {
+                pb->returned_tos = inner_ip->tos;
+                icmp_expire_probe(pb, &pb->icmp_done);
+            }
+        }
+    } else if(dest_addr.sa.sa_family == AF_INET6) {
+        struct icmp6_hdr* icmp_packet = (struct icmp6_hdr*)bufp;
+        
+        int type = icmp_packet->icmp6_type;
+        uint16_t recv_seq = 0;
+        
+        if(type == ICMP6_ECHO_REPLY) {
+            uint16_t recv_id = ntohs(icmp_packet->icmp6_id);
+            
+            if(recv_id != ident)
+                return;
+            
+            recv_seq = ntohs(icmp_packet->icmp6_seq);
+            probe* pb = probe_by_seq(recv_seq);
+        
+            if(pb)
+                icmp_expire_probe(pb, &pb->icmp_done);
+        } else {
+            struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));            
+            struct icmp6_hdr* offending_probe = (struct icmp6_hdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
+            
+            if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_ICMPV6)
+                return;
+            
+            uint16_t recv_id = ntohs(offending_probe->icmp6_id);
+            
+            if(recv_id != ident)
+                return;
+            
+            recv_seq = ntohs(offending_probe->icmp6_seq);
+            probe* pb = probe_by_seq(recv_seq);
+        
+            if(pb) {
+                uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
+                tmp &= 0x0fffffff;
+                tmp >>= 20; 
+                pb->returned_tos = (uint8_t)tmp;
+                icmp_expire_probe(pb, &pb->icmp_done);
+            }
+        }
+    }
+}
 
 static tr_module icmp_ops = {
 	.name = "icmp",
@@ -242,6 +339,8 @@ static tr_module icmp_ops = {
 	.recv_probe = icmp_recv_probe,
 	.expire_probe = icmp_expire_probe,
 	.options = icmp_options,
+	.is_raw_icmp_sk = icmp_is_raw_icmp_sk,
+    .handle_raw_icmp_packet = icmp_handle_raw_icmp_packet
 };
 
 TR_MODULE (icmp_ops);
