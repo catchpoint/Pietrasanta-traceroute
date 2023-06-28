@@ -121,7 +121,7 @@ static void icmp_send_probe(probe *pb, int ttl)
 {
 	int af = dest_addr.sa.sa_family;
 
-	if(ttl != last_ttl) 
+	if(ttl != last_ttl) {
 	    set_ttl(icmp_sk, ttl);
 	    last_ttl = ttl;
 	}
