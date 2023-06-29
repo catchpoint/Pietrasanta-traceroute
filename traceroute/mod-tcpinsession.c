@@ -102,6 +102,8 @@ uint32_t seq_num = 0;
 uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
+extern int ecn_discovery_result;
+extern int check_ecn_tcp;
 
 static char* names_by_flags(unsigned int flags)
 {
@@ -181,34 +183,6 @@ static CLIF_option tcp_options[] = {
     CLIF_END_OPTION
 };
 
-#define SYSCTL_PREFIX "/proc/sys/net/ipv4/tcp_"
-static int check_sysctl(const char* name) 
-{
-    int fd;
-    int res;
-    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
-    uint8_t ch;
-
-    strcpy(buf, SYSCTL_PREFIX);
-    strcat(buf, name);
-
-    fd = open(buf, O_RDONLY, 0);
-    if(fd < 0)
-        return 0;
-
-    res = read(fd, &ch, sizeof(ch));
-    close(fd);
-
-    if(res != sizeof(ch))
-        return 0;
-
-    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
-    if(ch == '1')
-        return 1;
-
-    return 0;
-}
-
 static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
 {
     initial_seq_num = rand();
@@ -276,6 +250,12 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = htons(response_iphdr->tot_len)-sizeof(*response_iphdr)-sizeof(*response_tcp_hdr);
+                            
+                            if(check_ecn_tcp) {
+                                // Check if the SYN+ACK contains the ECN flag
+                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
+                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
+                            }
                         }
                     }
                 }
@@ -289,6 +269,12 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = received-sizeof(*response_tcp_hdr);
+                            
+                            if(check_ecn_tcp) {
+                                // Check if the SYN+ACK contains the ECN flag
+                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
+                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
+                            }
                         }
                     }
                 }
@@ -686,6 +672,19 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
    
+    if(check_ecn_tcp) {
+        if(TH_FLAGS(tcp) & TH_ECE) {
+            if(ecn_discovery_result != DESTINATION_SUPPORT_ECN && ecn_discovery_result != ECN_IS_SUPPORTED)
+                ecn_discovery_result = WEIRD_ECN_BEHAVIOR; // ECN was not supported vy TCP dest but data ACK contains ECE (!?!)
+            else
+                ecn_discovery_result = ECN_IS_SUPPORTED;
+        } else {
+            if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
+                ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE;
+            // else the destination does not support ECN
+        }
+    }
+    
     return pb;
 }
 

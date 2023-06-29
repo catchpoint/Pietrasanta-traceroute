@@ -104,6 +104,8 @@ int last_probe = -1;
 probe* probes = NULL;
 probe* destination_probes = NULL;
 int print_allowed = 1;
+int check_ecn_tcp = 0;
+int ecn_discovery_result = DESTINATION_DOES_NOT_SUPPORT_ECN;
 
 static char **gateways = NULL;
 static int num_gateways = 0;
@@ -147,6 +149,13 @@ static unsigned int opts_idx = 1;    /*  first one reserved...   */
 
 static int af = 0;
 
+static void print_trailer();
+
+static void print_end(void) 
+{
+    printf("\n");
+}
+
 static void ex_error(const char *format, ...) 
 {
     va_list ap;
@@ -174,6 +183,34 @@ void error_or_perm(const char *str)
     if(errno == EPERM)
         fprintf(stderr, "You do not have enough privileges to use this traceroute method.");
     error(str);
+}
+
+#define SYSCTL_PREFIX	"/proc/sys/net/ipv4/tcp_"
+int check_sysctl(const char* name) 
+{
+    int fd;
+    int res;
+    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
+    uint8_t ch;
+
+    strcpy(buf, SYSCTL_PREFIX);
+    strcat(buf, name);
+
+    fd = open(buf, O_RDONLY, 0);
+    if(fd < 0)
+        return 0;
+
+    res = read(fd, &ch, sizeof(ch));
+    close(fd);
+
+    if(res != sizeof(ch))
+        return 0;
+
+    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
+    if(ch == '1')
+        return 1;
+
+    return 0;
 }
 
 /*  Set initial parameters according to how we was called   */
@@ -590,6 +627,9 @@ int main(int argc, char *argv[])
         tos = dscp;
         tos <<= 2;
         tos += ecn;
+        
+        if(ecn && check_sysctl("ecn"))
+            check_ecn_tcp = 1;
     }
     
     if(af == AF_INET6 && (tos || flow_label))
@@ -705,6 +745,8 @@ int main(int argc, char *argv[])
     if(ops->close)
         ops->close();
 
+    print_trailer();
+    
     return 0;
 }
 
@@ -1088,6 +1130,26 @@ static void do_it(void)
     }
 
     printf("\n");
+}
+
+static void print_trailer()
+{
+    if(check_ecn_tcp) {
+        if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
+            printf("\nDestination does not support ECN (no ECE flag found in SYN+ACK)");
+        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
+            printf("\nECN not working: destination supports it but the data ACK does not contain the ECE flag set");
+        else if(ecn_discovery_result == ECN_IS_SUPPORTED)
+            printf("\nECN is supported");
+        else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
+           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); 
+        else
+            printf("\nWeird ECN behavior");
+    }
+    
+    print_end();
+
+    fflush(stdout);
 }
 
 void tune_socket(int sk) 

@@ -87,6 +87,14 @@ struct tr_module_struct {
     void (*handle_raw_icmp_packet)(char* bufp);
 };
 
+enum {
+    DESTINATION_DOES_NOT_SUPPORT_ECN = 0, // We found that during the 3-way handshake the destination does not support ECN (ECE is not set into the SYN+ACK)
+    DESTINATION_SUPPORT_ECN = 1,
+    DATA_ACK_DOES_NOT_CONTAIN_ECE = 2, // The handshake said that TCP dest supports ECN but despite we send a data packet with CE (11) in the IP header the (S)ACK of that packet does not econtain the ECE flag
+    ECN_IS_SUPPORTED = 3,
+    WEIRD_ECN_BEHAVIOR = 4
+};
+
 typedef struct tr_module_struct tr_module;
 
 #define __TEXT(X)       #X
@@ -105,6 +113,7 @@ double get_time(void);
 void tune_socket(int sk);
 void parse_icmp_res(probe *pb, int type, int code, int info);
 void probe_done(probe *pb, int* what);
+int check_sysctl(const char* name);
 
 typedef probe *(*check_reply_t)(int sk, int err, sockaddr_any *from, char *buf, size_t len);
 void recv_reply(int sk, int err, check_reply_t check_reply);

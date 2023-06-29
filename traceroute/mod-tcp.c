@@ -155,36 +155,6 @@ static CLIF_option tcp_options[] = {
     CLIF_END_OPTION
 };
 
-
-#define SYSCTL_PREFIX	"/proc/sys/net/ipv4/tcp_"
-static int check_sysctl(const char* name) 
-{
-    int fd;
-    int res;
-    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
-    uint8_t ch;
-
-    strcpy(buf, SYSCTL_PREFIX);
-    strcat(buf, name);
-
-    fd = open(buf, O_RDONLY, 0);
-    if(fd < 0)
-        return 0;
-
-    res = read(fd, &ch, sizeof(ch));
-    close(fd);
-
-    if(res != sizeof(ch))
-        return 0;
-
-    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
-    if(ch == '1')
-        return 1;
-
-    return 0;
-}
-
-
 static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
 	int af = dest->sa.sa_family;
