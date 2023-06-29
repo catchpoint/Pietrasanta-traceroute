@@ -713,8 +713,6 @@ void tcpinsession_close()
     for(int i = start; i < end; i++)
         print_probe(&probes[i]);
     close(sk);
-    
-    printf("\n");
 }
 
 static int tcpinsession_is_raw_icmp_sk(int sk)
