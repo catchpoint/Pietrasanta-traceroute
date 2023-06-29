@@ -42,7 +42,6 @@ static CLIF_option icmp_options[] = {
 
 static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *packet_len_p)
 {
-	int i;
 	int af = dest->sa.sa_family;
 	int protocol;
 
@@ -59,11 +58,11 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
 	data = malloc(*length_p);
 	if(!data)
 	    error("malloc");
-
-    for(i = sizeof(struct icmphdr); i < *length_p; i++)
+	    
+    for(int i = sizeof(struct icmphdr); i < *length_p; i++)
         data[i] = 0x40 + (i & 0x3f);
-
-	protocol = (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6;
+        
+    protocol = (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6;
 
 	if(!raw) {
 	    icmp_sk = socket(af, SOCK_DGRAM, protocol);
