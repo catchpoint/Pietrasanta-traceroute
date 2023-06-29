@@ -628,7 +628,7 @@ int main(int argc, char *argv[])
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;
     unsigned int saved_sim_probes = sim_probes;
-    unsigned int saved_data_len = data_len;
+    size_t saved_data_len = data_len;
     
     if(strcmp(module, "tcpinsession") == 0) {
         max_hops = 255;

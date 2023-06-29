@@ -22,6 +22,12 @@
 
 #include "traceroute.h"
 
+#ifdef __APPLE__
+#include "mac/ip.h"
+#include "mac/types.h"
+#include <string.h>
+#endif
+
 #ifndef IP_MTU
 #define IP_MTU 14
 #endif
@@ -36,7 +42,6 @@ static uint8_t buf[1024];        /*  enough, enough...  */
 static size_t csum_len = 0;
 static struct tcphdr *th = NULL;
 
-#define TH_FLAGS(TH) (((uint8_t *)(TH))[13])
 #define TH_FIN 0x01
 #define TH_SYN 0x02
 #define TH_RST 0x04
@@ -52,11 +57,11 @@ static int reuse = 0;
 static unsigned int mss = 0;
 static int info = 0;
 
-#define FL_FLAGS    0x0100
-#define FL_ECN        0x0200
-#define FL_SACK        0x0400
-#define FL_TSTAMP    0x0800
-#define FL_WSCALE    0x1000
+#define FL_FLAGS 0x0100
+#define FL_ECN 0x0200
+#define FL_SACK 0x0400
+#define FL_TSTAMP 0x0800
+#define FL_WSCALE 0x1000
 
 static struct {
     const char *name;
@@ -175,7 +180,7 @@ static int check_sysctl(const char *name)
     return 0;
 }
 
-static int tcp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len_p) 
+static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
 {
     int af = dest->sa.sa_family;
     sockaddr_any src;
@@ -277,15 +282,27 @@ static int tcp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pac
 
     th = (struct tcphdr *) ptr;
 
+#ifdef __APPLE__
+    th->th_sport = 0;        /*  temporary   */
+    th->th_dport = dest_port;
+    th->th_seq = 0;        /*  temporary   */
+    th->th_ack = 0;
+    th->th_off = 0;        /*  later...  */
+    (((uint8_t *)(th))[13]) = flags & 0xff;
+    th->th_win = htons(4 * mtu);
+    th->th_sum = 0;
+    th->th_urp = 0;
+#else
     th->source = 0;        /*  temporary   */
     th->dest = dest_port;
     th->seq = 0;        /*  temporary   */
     th->ack_seq = 0;
     th->doff = 0;        /*  later...  */
-    TH_FLAGS(th) = flags & 0xff;
+    (((uint8_t *)(th))[13]) = flags & 0xff;
     th->window = htons(4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
+#endif
 
     /*  Build TCP options   */
 
@@ -332,14 +349,19 @@ static int tcp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pac
     if(csum_len > sizeof(buf))
         error("impossible");    /*  paranoia   */
 
-    len = ptr - (uint8_t *) th;
-    if(len & 0x03)
+    size_t size_len = ptr - (uint8_t*) th;
+    if(size_len & 0x03)
         error("impossible");    /*  as >>2 ...  */
 
-    *lenp = htons(len);
-    th->doff = len >> 2;
+    *lenp = htons(size_len);
 
-    *packet_len_p = len;
+#ifdef __APPLE__
+    th->th_off = size_len >> 2
+#else
+    th->doff = size_len >> 2;
+#endif
+
+    *packet_len_p = size_len;
 
     return 0;
 }
@@ -378,10 +400,19 @@ static void tcp_send_probe(probe *pb, int ttl)
       send RST in such a situation automatically (we have to do nothing).
     */
 
+#ifdef __APPLE__
+    th->th_sport = addr.sin.sin_port;
+    th->th_seq = random_seq();
+
+    th->th_sum = 0;
+    th->th_sum = in_csum(buf, csum_len);
+#else
     th->source = addr.sin.sin_port;
     th->seq = random_seq();
+
     th->check = 0;
     th->check = in_csum(buf, csum_len);
+#endif
 
     if(ttl != last_ttl) {
         set_ttl(raw_sk, ttl);
@@ -390,13 +421,24 @@ static void tcp_send_probe(probe *pb, int ttl)
 
     pb->send_time = get_time();
 
+#ifdef __APPLE__
+    if(do_send(raw_sk, th, th->th_off << 2, &dest_addr) < 0) {
+        close(sk);
+        pb->send_time = 0;
+        return;
+    }
+    
+    pb->seq = th->th_sport;
+#else
     if(do_send(raw_sk, th, th->doff << 2, &dest_addr) < 0) {
         close(sk);
         pb->send_time = 0;
         return;
     }
-
+    
     pb->seq = th->source;
+#endif
+    
     pb->sk = sk;
 }
 
@@ -409,6 +451,15 @@ static probe *tcp_check_reply(int sk, int err, sockaddr_any *from, char *buf, si
     if(len < 8)
         return NULL;        /*  too short   */
 
+#ifdef __APPLE__
+    if(err) {
+        sport = tcp->th_sport;
+        dport = tcp->th_dport;
+    } else {
+        sport = tcp->th_dport;
+        dport = tcp->th_sport;
+    }
+#else
     if(err) {
         sport = tcp->source;
         dport = tcp->dest;
@@ -416,6 +467,7 @@ static probe *tcp_check_reply(int sk, int err, sockaddr_any *from, char *buf, si
         sport = tcp->dest;
         dport = tcp->source;
     }
+#endif
 
     if(dport != dest_port)
         return NULL;
@@ -430,7 +482,7 @@ static probe *tcp_check_reply(int sk, int err, sockaddr_any *from, char *buf, si
     if(!err) {
         pb->final = 1;
         if(info)
-            pb->ext = names_by_flags(TH_FLAGS(tcp));
+            pb->ext = names_by_flags((((uint8_t *)(tcp))[13]));
     }
 
     return pb;
