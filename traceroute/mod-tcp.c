@@ -349,19 +349,19 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     if(csum_len > sizeof(buf))
         error("impossible");    /*  paranoia   */
 
-    size_t size_len = ptr - (uint8_t*) th;
-    if(size_len & 0x03)
+    len = ptr - (uint8_t*) th;
+    if(len & 0x03)
         error("impossible");    /*  as >>2 ...  */
 
-    *lenp = htons(size_len);
+    *lenp = htons(len);
 
 #ifdef __APPLE__
-    th->th_off = size_len >> 2
+    th->th_off = len >> 2;
 #else
-    th->doff = size_len >> 2;
+    th->doff = len >> 2;
 #endif
 
-    *packet_len_p = size_len;
+    *packet_len_p = len;
 
     return 0;
 }

@@ -28,7 +28,11 @@
 #include <sys/utsname.h>
 
 #ifdef __APPLE__
+#define SO_BINDTODEVICE 25
+#include <string.h>
 #include "mac/errqueue.h" 
+#include "mac/icmp.h"
+#include "mac/ip.h" 
 #else
 #include <linux/errqueue.h>
 #endif
