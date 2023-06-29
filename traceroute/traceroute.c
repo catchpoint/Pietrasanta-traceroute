@@ -628,7 +628,7 @@ int main(int argc, char *argv[])
         tos <<= 2;
         tos += ecn;
         
-        if(ecn && check_sysctl("ecn"))
+        if(ecn && check_sysctl("ecn") && strcmp(module, "tcpinsession") == 0)
             check_ecn_tcp = ecn;
     }
     
@@ -1136,15 +1136,15 @@ static void print_trailer()
 {
     if(check_ecn_tcp) {
         if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
-            printf("\nDestination does not support ECN (no ECE flag found in TCP handshake)");
+            printf("\nECN mechanism is not supported by the destination");
         else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
-            printf("\nECN not working: destination supports it but the data ACK does not contain the ECE flag set");
+            printf("\nnECN mechanism is supported by the destination but the congestion is not properly acknowledged");
         else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED)
-            printf("\nECN is supported but CE check was not performed (suppplied was %d)", check_ecn_tcp);
+            printf("\nECN mechanism is supported by the destination");
         else if(ecn_discovery_result == ECN_IS_SUPPORTED)
-            printf("\nECN is supported");
+            printf("\nECN mechanism is supported by the destination and the congestion is properly acknowledged");
         else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
-           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported");
+           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); // should never happen
         else
             printf("\nWeird ECN behavior");
     }

@@ -89,7 +89,7 @@ struct tr_module_struct {
 
 enum {
     DESTINATION_DOES_NOT_SUPPORT_ECN = 0, // We found that during the 3-way handshake the destination does not support ECN (ECE is not set into the SYN+ACK)
-    DESTINATION_SUPPORT_ECN = 1,
+    DESTINATION_SUPPORT_ECN = 1, // SYN+ACK contains ECE
     DATA_ACK_DOES_NOT_CONTAIN_ECE = 2, // The handshake said that TCP dest supports ECN but despite we send a data packet with CE (11) in the IP header the (S)ACK of that packet does not econtain the ECE flag
     ECN_IS_SUPPORTED = 3,
     WEIRD_ECN_BEHAVIOR = 4,
