@@ -92,7 +92,8 @@ enum {
     DESTINATION_SUPPORT_ECN = 1,
     DATA_ACK_DOES_NOT_CONTAIN_ECE = 2, // The handshake said that TCP dest supports ECN but despite we send a data packet with CE (11) in the IP header the (S)ACK of that packet does not econtain the ECE flag
     ECN_IS_SUPPORTED = 3,
-    WEIRD_ECN_BEHAVIOR = 4
+    WEIRD_ECN_BEHAVIOR = 4,
+    DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED = 5 //  The handshake said that TCP dest supports ECN but since the given ECN is not (CE) 11 we couldn't do the full check
 };
 
 typedef struct tr_module_struct tr_module;

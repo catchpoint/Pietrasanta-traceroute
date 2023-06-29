@@ -679,8 +679,12 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
             else
                 ecn_discovery_result = ECN_IS_SUPPORTED;
         } else {
-            if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
-                ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE;
+            if(ecn_discovery_result == DESTINATION_SUPPORT_ECN) {
+                if(check_ecn_tcp != 3)
+                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED;
+                else
+                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE;
+            }
             // else the destination does not support ECN
         }
     }

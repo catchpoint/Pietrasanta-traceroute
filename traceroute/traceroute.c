@@ -629,7 +629,7 @@ int main(int argc, char *argv[])
         tos += ecn;
         
         if(ecn && check_sysctl("ecn"))
-            check_ecn_tcp = 1;
+            check_ecn_tcp = ecn;
     }
     
     if(af == AF_INET6 && (tos || flow_label))
@@ -1136,13 +1136,15 @@ static void print_trailer()
 {
     if(check_ecn_tcp) {
         if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
-            printf("\nDestination does not support ECN (no ECE flag found in SYN+ACK)");
+            printf("\nDestination does not support ECN (no ECE flag found in TCP handshake)");
         else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
             printf("\nECN not working: destination supports it but the data ACK does not contain the ECE flag set");
+        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED)
+            printf("\nECN is supported but CE check was not performed (suppplied was %d)", check_ecn_tcp);
         else if(ecn_discovery_result == ECN_IS_SUPPORTED)
             printf("\nECN is supported");
         else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
-           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); 
+           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported");
         else
             printf("\nWeird ECN behavior");
     }
