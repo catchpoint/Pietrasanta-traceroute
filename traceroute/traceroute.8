@@ -218,14 +218,13 @@ some TOS precedence values, you have to be super user.
 For IPv6, set the Traffic Control value.
 .TP
 .BI \-\-ecn=ecn
-Set the ECN value in the Type of Service (TOS) field. ECN values can either
-be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE.
-When running in tcpinsession mode with a positive value for ecn traceroute
-performs additional checks to verify if the destination supports the ECN
-mechanism (rfc3168). In particular, when using an ecn value equal to 1 or 2
-traceroute checks if the destination supports the ECN mechanism at the TCP level.
-When using an ecn value equal to 3 (CE) traceroute checks also whether 
-the destination acknowledges properly a congestion experiencd event. 
+Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
+be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
+report the ECN value for each expiring probe. When running in InSession mode, 
+traceroute will perform additional checks to verify if the destination supports the ECN
+mechanism: if ecn is set to ECT(0) or ECT(1) it will check if the destination 
+supports the ECN mechanism at the TCP level, while if it is set to CE it will also
+check whether the destination acknowledges properly a congestion detection. 
 .TP
 .BI \-\-dscp=dscp
 Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
