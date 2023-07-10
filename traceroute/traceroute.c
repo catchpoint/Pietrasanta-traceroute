@@ -1481,7 +1481,7 @@ void bind_socket(int sk)
         addr = &src_addr;
     }
 
-    if(bind(sk, &addr->sa, sizeof(*addr)) < 0)
+    if(bind(sk, &addr->sa, sizeof(struct sockaddr)) < 0)
         error("bind");
 }
 
