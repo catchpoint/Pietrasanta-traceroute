@@ -17,7 +17,8 @@
 static void __init_random_seq (void) __attribute__ ((constructor));
 static void __init_random_seq (void) 
 {
-    srand(times(NULL) + getpid());
+    struct tms buf;
+    srand(times(&buf) + getpid());
 }
 
 unsigned int random_seq (void) 
