@@ -134,7 +134,7 @@ static void udp_send_probe (probe *pb, int ttl) {
     set_ttl (sk, ttl);
 
 
-    if (connect (sk, &dest_addr.sa, sizeof (dest_addr)) < 0)
+    if (connect (sk, &dest_addr.sa, sizeof (struct sockaddr)) < 0)
         error ("connect");
 
     use_recverr (sk);
