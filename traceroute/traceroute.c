@@ -1439,7 +1439,7 @@ void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sock
         dst->sin6.sin6_family = AF_INET6;
         memcpy(&dst->sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(dst->sin6.sin6_addr));
         
-        memset(&src, 0, sizeof(sockaddr_any));
+        memset(src, 0, sizeof(sockaddr_any));
         src->sin6.sin6_family = AF_INET6;
         memcpy(&src->sin6.sin6_addr, &inner_ip->ip6_src, sizeof(src->sin6.sin6_addr));
         
