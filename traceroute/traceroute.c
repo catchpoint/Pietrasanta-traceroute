@@ -135,6 +135,7 @@ static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
 static int mtudisc = 0;
 static int overall_mtu = -1;
+static int reliable_overall_mtu = 0;
 static int backward = 0;
 
 static sockaddr_any dst_addr = {{ 0, }, };
@@ -758,6 +759,9 @@ int main(int argc, char *argv[])
                 break;
             }
         }
+        
+        if(probes[0].final)
+            reliable_overall_mtu = 1;
 
         memset(&probes[0], 0x0, sizeof(probe));
         
@@ -1179,6 +1183,13 @@ static void do_it(void)
 
 static void print_trailer()
 {
+    if(overall_mtu > 0) {
+        if(reliable_overall_mtu > 0)
+            printf("\n   Path MTU: %d", overall_mtu);
+        else
+            printf("\n   Path MTU: %d (Potentially overestimated)", overall_mtu);
+    }
+    
     if(check_ecn_tcp) {
         if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
             printf("\nECN mechanism is not supported by the destination");

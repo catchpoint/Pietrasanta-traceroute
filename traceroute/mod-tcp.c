@@ -34,8 +34,10 @@ static int raw_icmp_sk = -1;
 static int raw_sk = -1;
 static int last_ttl = 0;
 
-static uint8_t buf[1024];	    /*  enough, enough...  */
-static size_t csum_len = 0;
+static unsigned pseudo_IP_header_size = 0;
+static uint8_t* buf;
+static uint8_t tmp_buf[1024];	    /*  enough, enough...  */
+static size_t* length_p;
 static sockaddr_any src;
 static struct tcphdr *th = NULL;
 
@@ -213,10 +215,16 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 	    sysctl = 1;
 
 	if(sysctl) {
-	    if(check_sysctl ("ecn"))  flags |= FL_ECN;
-	    if(check_sysctl ("sack"))  flags |= FL_SACK;
-	    if(check_sysctl ("timestamps"))  flags |= FL_TSTAMP;
-	    if(check_sysctl ("window_scaling"))  flags |= FL_WSCALE;
+	    if(check_sysctl ("ecn"))
+	        flags |= FL_ECN;
+	    
+	    // Forcing TCP SACK, timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
+        // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
+        // Please remove this comment once the bug has been fixed.
+	    
+	    flags |= FL_SACK;
+	    flags |= FL_TSTAMP;
+	    flags |= FL_WSCALE;
 	}
 
 	if(!(flags & (FL_FLAGS | 0xff))) {	/*  no any tcp flag set   */
@@ -235,7 +243,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 	    tcpoptions
 	*/
 
-	ptr = buf;
+	ptr = tmp_buf;
 
 	if(af == AF_INET) {
 	    len = sizeof(src.sin.sin_addr);
@@ -260,6 +268,8 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
 	th = (struct tcphdr *) ptr;
 
+    pseudo_IP_header_size = ptr - tmp_buf;
+    
 	th->source = 0;	    /*  temporary   */
 	th->dest = dest_port;
 	th->seq = 0;	    /*  temporary   */
@@ -284,11 +294,11 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
 	if(flags & FL_TSTAMP) {
 	    if(flags & FL_SACK) {
-		*ptr++ = TCPOPT_SACK_PERMITTED;	/*  4   */
-		*ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
+		    *ptr++ = TCPOPT_SACK_PERMITTED;	/*  4   */
+		    *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
 	    } else {
-		*ptr++ = TCPOPT_NOP;	/*  1   */
-		*ptr++ = TCPOPT_NOP;	/*  1   */
+		    *ptr++ = TCPOPT_NOP;	/*  1   */
+		    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    }
 	    *ptr++ = TCPOPT_TIMESTAMP;	/*  8   */
 	    *ptr++ = TCPOLEN_TIMESTAMP;	/*  10  */
@@ -297,8 +307,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 	    ptr += sizeof(uint32_t);
 	    *((uint32_t*) ptr) = (flags & TH_ACK) ? random_seq () : 0;
 	    ptr += sizeof(uint32_t);
-	}
-	else if(flags & FL_SACK) {
+	} else if(flags & FL_SACK) {
 	    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    *ptr++ = TCPOPT_NOP;	/*  1   */
 	    *ptr++ = TCPOPT_SACK_PERMITTED;	/*  4   */
@@ -313,11 +322,6 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 	}
 
 
-	csum_len = ptr - buf;
-
-	if(csum_len > sizeof(buf))
-		error("impossible");	/*  paranoia   */
-
 	len = ptr - (uint8_t*) th;
 	if(len & 0x03)
 	    error("impossible");	/*  as >>2 ...  */
@@ -325,8 +329,16 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 	*lenp = htons (len);
 	th->doff = len >> 2;
 
-	*packet_len_p = len;
+	length_p = packet_len_p;
+    if(*length_p && !(buf = malloc(*length_p+pseudo_IP_header_size)))
+        error("malloc");
 
+    memcpy(buf, tmp_buf, pseudo_IP_header_size+len);
+    th = (struct tcphdr*)(buf + pseudo_IP_header_size);
+
+    for(int i = pseudo_IP_header_size+len; i < pseudo_IP_header_size+*length_p; i++)
+        buf[i] = 0x40 + (i & 0x3f); // Same as in UDP
+    
     raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
     
     if(raw_icmp_sk < 0)
@@ -345,18 +357,18 @@ static void tcp_send_probe(probe* pb, int ttl)
 	sockaddr_any addr;
 	socklen_t len = sizeof(addr);
 
-
 	/*  To make sure we have chosen a free unused "source port",
 	   just create, (auto)bind and hold a socket while the port is needed.
 	*/
 
-	sk = socket (af, SOCK_STREAM, 0);
-	if(sk < 0)  error ("socket");
+	sk = socket(af, SOCK_STREAM, 0);
+	if(sk < 0)
+	    error ("socket");
 
 	if(reuse && setsockopt (sk, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
 		error ("setsockopt SO_REUSEADDR");
 
-	bind_socket (sk);
+	bind_socket(sk);
 
 	if(getsockname (sk, &addr.sa, &len) < 0)
 		error ("getsockname");
@@ -372,26 +384,19 @@ static void tcp_send_probe(probe* pb, int ttl)
 	  send RST in such a situation automatically (we have to do nothing).
 	*/
 
-
 	th->source = addr.sin.sin_port;
-
-	th->seq = random_seq ();
-
+	th->seq = random_seq();
 	th->check = 0;
-	th->check = in_csum (buf, csum_len);
-
+	th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
 
 	if(ttl != last_ttl) {
-
 	    set_ttl (raw_sk, ttl);
-
 	    last_ttl = ttl;
 	}
 
+	pb->send_time = get_time();
 
-	pb->send_time = get_time ();
-
-	if(do_send(raw_sk, th, th->doff << 2, &dest_addr) < 0) {
+	if(do_send(raw_sk, th, *length_p, &dest_addr) < 0) {
 	    close (sk);
 	    pb->send_time = 0;
 	    return;
@@ -399,7 +404,6 @@ static void tcp_send_probe(probe* pb, int ttl)
 
 
 	pb->seq = th->source;
-
 	pb->sk = sk;
 
     // Note that the dest port is incremented for each probe, so we have to specify it explicitly
