@@ -134,6 +134,7 @@ static double here_factor = DEF_HERE_FACTOR;
 static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
 static int mtudisc = 0;
+static int overall_mtu = -1;
 static int backward = 0;
 
 static sockaddr_any dst_addr = {{ 0, }, };
@@ -590,6 +591,11 @@ static void print_header(void)
 
 static void do_it(void);
 
+static void poll_callback(int fd, int revents) 
+{
+    ops->recv_probe(fd, revents);
+}
+
 int main(int argc, char *argv[]) 
 {
     setlocale(LC_ALL, "");
@@ -736,6 +742,28 @@ int main(int argc, char *argv[])
             error("calloc");
     }
 
+    if(mtudisc) {
+        int i = 0;
+        while(!probes[0].final) {
+            i++;
+            ops->send_probe(&probes[0], 255);
+            
+            do_poll(wait_secs, poll_callback);
+            
+            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
+                overall_mtu = atoi(probes[0].err_str+2);
+                memset(&probes[0], 0x0, sizeof(probe));
+            } else if(!probes[0].done && i <= 3) {
+                ops->expire_probe(&probes[0], NULL);
+                break;
+            }
+        }
+
+        memset(&probes[0], 0x0, sizeof(probe));
+        
+        data_len = saved_data_len;
+    }
+    
     print_header();
 
     do_it();
@@ -1055,11 +1083,6 @@ probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest)
     return NULL;
 }
 
-static void poll_callback(int fd, int revents) 
-{
-    ops->recv_probe(fd, revents);
-}
-
 static void do_it(void) 
 {
     int start = (first_hop - 1) * probes_per_hop;
@@ -1082,6 +1105,17 @@ static void do_it(void)
                 else {
                     ops->expire_probe(pb, NULL);
                     check_expired(pb);
+                }
+            }
+            
+            if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+                int mtu_value = atoi(pb->err_str+2);
+                if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
+                    if(overall_mtu > mtu_value)
+                        overall_mtu = mtu_value;
+                    dontfrag = 0;
+                    sim_probes = DEF_SIM_PROBES;
+                    data_len = (strcmp(module, "tcpdata") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
                 }
             }
 
