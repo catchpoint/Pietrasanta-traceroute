@@ -38,13 +38,13 @@
 
         With this initial phase, we are going to be able to infer the path MTU.
         We only need to understand which hop is introducing the bottleneck.
-        To achieve that, we perform traceroute with 1 single simultaneous large
-        probe to destination as in regular traceroute. Every time we notice that
-        a bottleneck is found (using the same logic in original traceroute),
-        we check if we found the bottleneck that caused the path MTU to be
-        narrowed down. If that's the case, we know there won't be any further
-        bottleneck in the path, and we can proceed sending small simultaneous
-        packets to destination, as in regular traceroute mode (without --mtu).
+        To achieve that, we perform traceroute with 1 single large probe to
+        destination as in regular traceroute. Every time we notice that a
+        bottleneck is found (using the same logic in original traceroute), we
+        check if we found the bottleneck that caused the path MTU to be narrowed
+        down. If that's the case, we know there won't be any further bottleneck
+        in the path, and we can proceed sending small simultaneous packets to
+        destination, as in regular traceroute mode (without --mtu).
 
 2023-06-28  Alessandro Improta  <aimprota@catchpoint.com> - 0.0.2
 
