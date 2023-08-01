@@ -3,7 +3,7 @@
         
         Added simple dockerefiles to compile binaries for centos7, debian11 and
         ubuntu22. To run the build use the "build.sh" script into the
-        dockerfiles folder. Binaries will be put into the binaries/ folder
+        dockerfiles folder. Binaries will be put into the binaries/ folder.
         
 2023-07-26  Luca Sani  <lsani@catchpoint.com> - 0.0.3
 
