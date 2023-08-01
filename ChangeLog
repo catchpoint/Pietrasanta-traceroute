@@ -1,3 +1,78 @@
+2023-07-26  Luca Sani  <lsani@catchpoint.com> - 0.0.3
+
+    *  Enhanced Path MTU discovery
+       
+        Traceroute can be launched with --mtu to perform the traceroute
+        measurement with a large packet (initially set to 65000) which is
+        firstly narrowed down by the network interface of the local machine,
+        then by the network itself.
+
+        Whenever a bottleneck is found, traceroute will cut the size of the
+        packet sent to the MTU value indicated by the network, and the
+        measurement will continue to run regularly.
+
+        There are a couple of problems with this approach:
+
+        - It does not work in TCP mode. Whenever traceroute is launched with -T
+        and --mtu, traceroute will ignore --mtu and sends SYN packets without
+        any TCP payload, thus not allowing the tool to discover any bottleneck
+        in the path.
+        - Even if we made that work, the destination is likely to drop packets
+        because TCP SYN probes with a size larger than the TCP header are seen
+        as malicious. That would cause the whole traceroute to not reach
+        destination.
+        - It is slow and expensive. The regular way to proceed with that is to
+        limit the number of simultaneous probes to 1, and send large packets
+        that will be narrowed along the path.
+        
+        To solve that, we changed the way --mtu works inside of traceroute.
+
+        We introduced an initial step performed only when option --mtu is set
+        which consist in inferring the path MTU between source and destination.
+        As in regular traceroute, we start with packet size 65000, which will
+        be narrowed down by the interface and, eventually, by any bottleneck in
+        the path by ICMP/ICMPv6 returning messages. 
+        If our probe times out, we assume that no further bottleneck are present
+        in the network, but the final path MTU discovered is potentially
+        overestimated.
+
+        With this initial phase, we are going to be able to infer the path MTU.
+        We only need to understand which hop is introducing the bottleneck.
+        To achieve that, we perform traceroute with 1 single large probe to
+        destination as in regular traceroute. Every time we notice that a
+        bottleneck is found (using the same logic in original traceroute), we
+        check if we found the bottleneck that caused the path MTU to be narrowed
+        down. If that's the case, we know there won't be any further bottleneck
+        in the path, and we can proceed sending small simultaneous packets to
+        destination, as in regular traceroute mode (without --mtu).
+
+2023-06-28  Alessandro Improta  <aimprota@catchpoint.com> - 0.0.2
+
+    *  Introduced enhanced TOS field report
+    
+       Original traceroute allows to set ToS field in outgoing packets, but 
+       currently does not allow to read the ToS field of the expiring probe 
+       which is contained in the IP header inside the ICMP payload.
+       
+       This can be done by reading returning ICMP packets via a dedicated 
+       raw socket, and then extract the relevant info from the ICMP payload,
+       which contains the IP header of the expired probe.
+       
+       We also added two more options: --dscp and --ecn. These options are 
+       mutually exclusive with option -t (or --tos), but not with each other.
+       
+       When options -t/--tos or --dscp or --ecn are set, each hop will show
+       the content of the ToS field of the expired probe in the following
+       format: <TOS: X, DSCP: Y, ECN: Z>. 
+
+2023-05-25  Alessandro Improta  <aimprota@catchpoint.com> - 0.0.1
+
+    *  Introduced InSession tracerouting
+    
+       More details here: https://www.catchpoint.com/blog/traceroute-insession-catchpoints-effort-towards-a-more-reliable-network-diagnostic-tool
+       
+    *  Discontinued versioning with original traceroute
+
 2023-02-13  Dmitry Butskoy  <Dmitry@Butskoy.name> - 2.1.2
 
 	*  Fix unprivileged ICMP tracerouting with Linux kernel >= 6.1

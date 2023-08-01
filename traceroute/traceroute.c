@@ -104,6 +104,8 @@ int last_probe = -1;
 probe* probes = NULL;
 probe* destination_probes = NULL;
 int print_allowed = 1;
+int check_ecn_tcp = 0;
+int ecn_discovery_result = DESTINATION_DOES_NOT_SUPPORT_ECN;
 
 static char **gateways = NULL;
 static int num_gateways = 0;
@@ -120,6 +122,9 @@ static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
 static unsigned int tos = 0;
+static int tos_input_value = -1;
+static int dscp_input_value = -1;
+static int ecn_input_value = -1;
 static unsigned int flow_label = 0;
 static int noroute = 0;
 static unsigned int fwmark = 0;
@@ -129,6 +134,8 @@ static double here_factor = DEF_HERE_FACTOR;
 static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
 static int mtudisc = 0;
+static int overall_mtu = -1;
+static int reliable_overall_mtu = 0;
 static int backward = 0;
 
 static sockaddr_any dst_addr = {{ 0, }, };
@@ -144,6 +151,13 @@ static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 
 static int af = 0;
+
+static void print_trailer();
+
+static void print_end(void) 
+{
+    printf("\n");
+}
 
 static void ex_error(const char *format, ...) 
 {
@@ -172,6 +186,34 @@ void error_or_perm(const char *str)
     if(errno == EPERM)
         fprintf(stderr, "You do not have enough privileges to use this traceroute method.");
     error(str);
+}
+
+#define SYSCTL_PREFIX	"/proc/sys/net/ipv4/tcp_"
+int check_sysctl(const char* name) 
+{
+    int fd;
+    int res;
+    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
+    uint8_t ch;
+
+    strcpy(buf, SYSCTL_PREFIX);
+    strcat(buf, name);
+
+    fd = open(buf, O_RDONLY, 0);
+    if(fd < 0)
+        return 0;
+
+    res = read(fd, &ch, sizeof(ch));
+    close(fd);
+
+    if(res != sizeof(ch))
+        return 0;
+
+    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
+    if(ch == '1')
+        return 1;
+
+    return 0;
 }
 
 /*  Set initial parameters according to how we was called   */
@@ -505,7 +547,7 @@ static CLIF_option option_list[] = {
     { "N", "sim-queries", "squeries", "Set the number of probes to be tried simultaneously (default is " _TEXT(DEF_SIM_PROBES) ")", CLIF_set_uint, &sim_probes, 0, 0 },
     { "n", 0, 0, "Do not resolve IP addresses to their domain names", CLIF_set_flag, &noresolve, 0, 0 },
     { "p", "port", "port", "Set the destination port to use. It is either initial udp port value for \"default\" method(incremented by each probe, default is " _TEXT(DEF_START_PORT) "), or initial seq for \"icmp\"(incremented as well, default from 1), or some constant destination port for other methods(with default of " _TEXT(DEF_TCP_PORT) " for \"tcp\", " _TEXT(DEF_UDP_PORT) " for \"udp\", etc.)", set_port, &dst_port_seq, 0, 0 },
-    { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets", CLIF_set_uint, &tos, 0, 0 },
+    { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn", CLIF_set_uint, &tos_input_value, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
@@ -527,6 +569,8 @@ static CLIF_option option_list[] = {
     { 0, "mtu", 0, "Discover MTU along the path being traced. Implies `-F -N 1'", CLIF_set_flag, &mtudisc, 0, CLIF_EXTRA },
     { 0, "back", 0, "Guess the number of hops in the backward path and print if it differs", CLIF_set_flag, &backward, 0, CLIF_EXTRA },
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
+    { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
+    { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -548,6 +592,11 @@ static void print_header(void)
 
 static void do_it(void);
 
+static void poll_callback(int fd, int revents) 
+{
+    ops->recv_probe(fd, revents);
+}
+
 int main(int argc, char *argv[]) 
 {
     setlocale(LC_ALL, "");
@@ -560,8 +609,8 @@ int main(int argc, char *argv[])
 
 
     ops = tr_get_module(module);
-    if(!ops)  ex_error("Unknown traceroute module %s", module);
-
+    if(!ops)
+        ex_error("Unknown traceroute module %s", module);
 
     if(!first_hop || first_hop > max_hops)
         ex_error("first hop out of range");
@@ -579,8 +628,29 @@ int main(int argc, char *argv[])
         ex_error("bad sendtime `%g' specified", send_secs);
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
+        
+    if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
+        ex_error("tos cannot be used in conjunction with dscp and ecn");
+    } else if(dscp_input_value != -1 || ecn_input_value != -1) {
+        if(dscp_input_value != -1)
+            tos = dscp_input_value;
+        else
+            tos = 0;
 
-    if(af == AF_INET6 &&(tos || flow_label))
+        tos <<= 2;
+            
+        if(ecn_input_value != -1)
+            tos += ecn_input_value;
+        
+        if(ecn_input_value > 0 && check_sysctl("ecn") && strcmp(module, "tcpdata") == 0)
+            check_ecn_tcp = ecn_input_value;
+            
+        tos_input_value = tos;
+    } else if(tos_input_value != -1) {
+        tos = tos_input_value;
+    }
+    
+    if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
     if(src_port) {
@@ -673,6 +743,31 @@ int main(int argc, char *argv[])
             error("calloc");
     }
 
+    if(mtudisc) {
+        int i = 0;
+        while(!probes[0].final) {
+            i++;
+            ops->send_probe(&probes[0], 255);
+            
+            do_poll(wait_secs, poll_callback);
+            
+            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
+                overall_mtu = atoi(probes[0].err_str+2);
+                memset(&probes[0], 0x0, sizeof(probe));
+            } else if(!probes[0].done && i <= 3) {
+                ops->expire_probe(&probes[0], NULL);
+                break;
+            }
+        }
+        
+        if(probes[0].final)
+            reliable_overall_mtu = 1;
+
+        memset(&probes[0], 0x0, sizeof(probe));
+        
+        data_len = saved_data_len;
+    }
+    
     print_header();
 
     do_it();
@@ -693,6 +788,8 @@ int main(int argc, char *argv[])
     if(ops->close)
         ops->close();
 
+    print_trailer();
+    
     return 0;
 }
 
@@ -757,6 +854,12 @@ void print_probe(probe *pb)
                 if(hops != ttl)
                     printf(" '-%d'", hops);
             }
+        }
+        
+        if(tos_input_value >= 0 && !pb->final) {
+            uint8_t ecn = pb->returned_tos & 3;
+            uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
+            printf(" <TOS:%d,DSCP:%d,ECN:%d>", pb->returned_tos, dscp, ecn);
         }
     }
 
@@ -959,9 +1062,29 @@ probe *probe_by_sk(int sk)
     return NULL;
 }
 
-static void poll_callback(int fd, int revents) 
+int equal_port(const sockaddr_any* a, const sockaddr_any* b) 
 {
-    ops->recv_probe(fd, revents);
+    if(!a->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family != b->sa.sa_family)
+        return 0;
+
+    if(a->sa.sa_family == AF_INET6)
+        return (a->sin6.sin6_port == b->sin6.sin6_port);
+    else
+        return (a->sin.sin_port == b->sin.sin_port);
+    return 0;    /*  not reached   */
+}
+
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest) 
+{
+    for(int n = 0; n < num_probes; n++) {
+        if(equal_sockaddr(src, &probes[n].src) && equal_sockaddr(dest, &probes[n].dest))
+            return &probes[n];
+    }
+    
+    return NULL;
 }
 
 static void do_it(void) 
@@ -984,8 +1107,19 @@ static void do_it(void)
                 if(expire_time > now_time)
                     next_time = expire_time;
                 else {
-                    ops->expire_probe(pb);
+                    ops->expire_probe(pb, NULL);
                     check_expired(pb);
+                }
+            }
+            
+            if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+                int mtu_value = atoi(pb->err_str+2);
+                if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
+                    if(overall_mtu > mtu_value)
+                        overall_mtu = mtu_value;
+                    dontfrag = 0;
+                    sim_probes = DEF_SIM_PROBES;
+                    data_len = (strcmp(module, "tcpdata") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
                 }
             }
 
@@ -1045,6 +1179,35 @@ static void do_it(void)
     }
 
     printf("\n");
+}
+
+static void print_trailer()
+{
+    if(overall_mtu > 0) {
+        if(reliable_overall_mtu > 0)
+            printf("\n   Path MTU: %d", overall_mtu);
+        else
+            printf("\n   Path MTU: %d (Potentially overestimated)", overall_mtu);
+    }
+    
+    if(check_ecn_tcp) {
+        if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
+            printf("\nECN mechanism is not supported by the destination");
+        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
+            printf("\nnECN mechanism is supported by the destination but the congestion is not properly acknowledged");
+        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED)
+            printf("\nECN mechanism is supported by the destination");
+        else if(ecn_discovery_result == ECN_IS_SUPPORTED)
+            printf("\nECN mechanism is supported by the destination and the congestion is properly acknowledged");
+        else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
+           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); // should never happen
+        else
+            printf("\nWeird ECN behavior");
+    }
+    
+    print_end();
+
+    fflush(stdout);
 }
 
 void tune_socket(int sk) 
@@ -1272,17 +1435,65 @@ static void parse_local_res(probe *pb, int ee_errno, int info)
     error("local recverr");
 }
 
-void probe_done(probe *pb) {
+void probe_done(probe* pb, int* what) 
+{
+    if(what != NULL)
+        *what = 1;
+        
+    // Note that we are not interested in TOS for last hop, so if the probe is declared final, we skip it
+    // Note also that what is NULL when probe is considered to be expired, thus we can proceed with closing the socket
+    if(what == NULL || pb->final == 1 || (pb->proto_done == 1 && pb->icmp_done == 1)) {
+        if(pb->sk) {
+            del_poll(pb->sk);
+            if(pb->sk != -1)
+                close(pb->sk);
+            pb->sk = 0;
+        }
 
-    if(pb->sk) {
-        del_poll(pb->sk);
-        close(pb->sk);
-        pb->sk = 0;
+        pb->seq = 0;
+        pb->done = 1;
     }
+}
 
-    pb->seq = 0;
-
-    pb->done = 1;
+void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos)
+{
+    if(family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        
+        *proto = inner_ip->protocol;
+        
+        *offending_probe = (void *)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+        
+        memset(dst, 0, sizeof(sockaddr_any));
+        dst->sin.sin_family = AF_INET;
+        dst->sin.sin_addr.s_addr = inner_ip->daddr;
+        
+        memset(src, 0, sizeof(sockaddr_any));
+        src->sin.sin_family = AF_INET;
+        src->sin.sin_addr.s_addr = inner_ip->saddr;
+        
+        *probe_tos = inner_ip->tos;
+    } else if(family == AF_INET6) {
+        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+        *proto = inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt;
+        
+        *offending_probe = (void *) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
+        
+        memset(dst, 0, sizeof(sockaddr_any));
+        dst->sin6.sin6_family = AF_INET6;
+        memcpy(&dst->sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(dst->sin6.sin6_addr));
+        
+        memset(src, 0, sizeof(sockaddr_any));
+        src->sin6.sin6_family = AF_INET6;
+        memcpy(&src->sin6.sin6_addr, &inner_ip->ip6_src, sizeof(src->sin6.sin6_addr));
+        
+        uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
+        tmp &= 0x0fffffff;
+        tmp >>= 20; 
+        
+        *probe_tos = (uint8_t)tmp;
+    }
 }
 
 void recv_reply(int sk, int err, check_reply_t check_reply) 
@@ -1314,6 +1525,11 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(n < 0)
         return;
 
+    if(ops->is_raw_icmp_sk(sk)) {
+        ops->handle_raw_icmp_packet(bufp);
+        return;
+    }
+    
     /*  when not MSG_ERRQUEUE, AF_INET returns full ipv4 header
         on raw sockets...
     */
@@ -1400,7 +1616,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(ee && mtudisc && ee->ee_info >= header_len && ee->ee_info < header_len + data_len) {
         data_len = ee->ee_info - header_len;
 
-        probe_done(pb);
+        probe_done(pb, &pb->proto_done);
 
         /*  clear this probe(as actually the previous hop answers here)
           but fill its `err_str' by the info obtained. Ugly, but easy...
@@ -1424,7 +1640,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         handle_extensions(pb, bufp + offs, n - offs, step);
     }
 
-    probe_done(pb);
+    probe_done(pb, &pb->proto_done);
 }
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b) 
