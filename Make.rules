@@ -46,9 +46,9 @@ $(call set, INSTALL, cp)
 $(call set, INDENT, true)
 
 gcc = $(findstring gcc,$(CC))
-$(call set, CFLAGS, $(if $(gcc), -g -Wall -std=c99, -O0 -g))
+$(call set, CFLAGS, $(if $(gcc), -Wall -std=c99, -O2))
 $(call set, CPPFLAGS, )
-$(call set, LDFLAGS, -g)
+$(call set, LDFLAGS, -s)
 $(call set, LIBS, )
 
 
