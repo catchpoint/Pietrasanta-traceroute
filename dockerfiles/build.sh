@@ -102,7 +102,7 @@ do
 done
 
 echo "Build completed, see ${SCRIPTPATH}/build.log for more information"
-echo "Traceroute binaries have been copied into ${SCRIPTPATH}/binaries"
+echo "Traceroute binaries have been copied into ${SCRIPTPATH}/../binaries"
 
 exit 0
 
