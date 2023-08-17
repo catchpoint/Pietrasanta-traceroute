@@ -82,6 +82,8 @@ static int info = 0;
 #define FL_TSTAMP 0x0800
 #define FL_WSCALE 0x1000
 
+#define MAX_ALLOWED_SACK_PAYLOAD_LEN 32 // A SACK option that specifies n blocks will have a length of 8*n+2 bytes, so the 40 bytes available for TCP options can specify a maximum of 4 blocks (rfc2018, sec. 3)
+
 static struct 
 {
     const char* name;
@@ -589,7 +591,7 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
         }
         
         uint32_t sack_len = size-2;
-        if(sack_len % 8 != 0 || sack_len > 24)
+        if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN)
             error("Malformed SACK option");
         
         sack_found = 1;
