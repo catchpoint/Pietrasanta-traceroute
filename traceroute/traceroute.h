@@ -109,6 +109,7 @@ typedef struct tr_module_struct tr_module;
 
 void error(const char *str) __attribute__((noreturn));
 void error_or_perm(const char *str) __attribute__((noreturn));
+void ex_error(const char *format, ...);
 
 double get_time(void);
 void tune_socket(int sk);

@@ -154,7 +154,7 @@ static void print_end(void)
     printf("\n");
 }
 
-static void ex_error(const char *format, ...) 
+void ex_error(const char *format, ...) 
 {
     va_list ap;
 
@@ -782,6 +782,11 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Make extra-sure to not leave any FD open
+    for(int i = 0; i < num_probes; i++)
+        if(probes[i].sk > 0)
+            close(probes[i].sk);
+            
     if(ops->close)
         ops->close();
 
