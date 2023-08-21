@@ -58,6 +58,7 @@ static sockaddr_any src;
 static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
+extern int use_additional_raw_icmp_socket;
 
 #define TH_FLAGS(TH) (((uint8_t*)(TH))[13])
 #define TH_FIN 0x01
@@ -81,6 +82,8 @@ static int info = 0;
 #define FL_SACK 0x0400
 #define FL_TSTAMP 0x0800
 #define FL_WSCALE 0x1000
+
+#define MAX_ALLOWED_SACK_PAYLOAD_LEN 32 // A SACK option that specifies n blocks will have a length of 8*n+2 bytes, so the 40 bytes available for TCP options can specify a maximum of 4 blocks (rfc2018, sec. 3)
 
 static struct 
 {
@@ -319,8 +322,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     }
                 }
                 
-                if(SACK_permitted == 0)
-                    error("TCP SACK not permitted from destination");
+                if(SACK_permitted == 0) {
+                    close(sk);
+                    close(raw_sk);
+                    ex_error("TCP SACK not permitted from destination");
+                }
             }
         } else {
             if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
@@ -330,8 +336,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         }
     } while(!found);
     
-    if(!found)
-        error("Cannot complete initial TCP handshake");
+    if(!found) {
+        close(sk);
+        close(raw_sk);
+        ex_error("Cannot complete initial TCP handshake");
+    }
     
     socklen_t len;
     uint8_t* ptr;
@@ -482,14 +491,16 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     header_len = len;
     
-    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-    
-    if(raw_icmp_sk < 0)
-        error("raw icmp socket");
-    
-    lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
-    
-    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error("raw icmp socket");
+        
+        lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
     
     return 0;
 }
@@ -575,8 +586,11 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
         }
         
         uint32_t sack_len = size-2;
-        if(sack_len % 8 != 0 || sack_len > 24)
-            error("Malformed SACK option");
+        if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN) {
+            close(sk);
+            close(raw_sk);
+            ex_error("Malformed SACK option");
+        }
         
         sack_found = 1;
         
@@ -601,10 +615,12 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     }
     
     if(interval == 0) {
+        close(sk);
+        close(raw_sk);
         if(sack_found == 0)
-            error("Missing SACK options");
+            ex_error("Missing SACK options");
         else
-            error("Unexpected overlap of SACK intervals");
+            ex_error("Unexpected overlap of SACK intervals");
     }
     
     // just order them decreasing
@@ -705,16 +721,6 @@ static void tcpinsession_expire_probe(probe* pb, int* what)
     probe_done(pb, what);
 }
 
-void tcpinsession_close()
-{
-    print_allowed = 1;
-    int start = (first_hop - 1) * probes_per_hop;
-    int end = (last_probe == -1) ? num_probes : last_probe;
-    for(int i = start; i < end; i++)
-        print_probe(&probes[i]);
-    close(sk);
-}
-
 static int tcpinsession_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -755,6 +761,19 @@ static void tcpinsession_handle_raw_icmp_packet(char* bufp)
     }
 }
 
+static void tcpinsession_close()
+{
+    print_allowed = 1;
+    int start = (first_hop - 1) * probes_per_hop;
+    int end = (last_probe == -1) ? num_probes : last_probe;
+    for(int i = start; i < end; i++)
+        print_probe(&probes[i]);
+    
+    close(sk);
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
+}
+
 static tr_module tcpinsession_ops = {
     .name = "tcpinsession",
     .init = tcpinsession_init,
@@ -762,9 +781,9 @@ static tr_module tcpinsession_ops = {
     .recv_probe = tcpinsession_recv_probe,
     .expire_probe = tcpinsession_expire_probe,
     .options = tcp_options,
-    .close = tcpinsession_close,
     .is_raw_icmp_sk = tcpinsession_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcpinsession_handle_raw_icmp_packet,
+    .close = tcpinsession_close,
 };
 
 TR_MODULE(tcpinsession_ops);

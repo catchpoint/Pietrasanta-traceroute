@@ -112,10 +112,8 @@ static int num_gateways = 0;
 static unsigned char *rtbuf = NULL;
 static size_t rtbuf_len = 0;
 static unsigned int ipv6_rthdr_type = 2;    /*  IPV6_RTHDR_TYPE_2   */
-
 static size_t header_len = 0;
 static size_t data_len = 0;
-
 static int dontfrag = 0;
 static int noresolve = 0;
 static int extension = 0;
@@ -137,22 +135,19 @@ static int mtudisc = 0;
 static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
-
 static sockaddr_any dst_addr = {{ 0, }, };
 static char *dst_name = NULL;
 static char *device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
-
 static const char *module = "default";
 static const tr_module *ops = NULL;
-
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
-
 static int af = 0;
-
 static void print_trailer();
+
+int use_additional_raw_icmp_socket = 0;
 
 static void print_end(void) 
 {
@@ -646,8 +641,10 @@ int main(int argc, char *argv[])
             check_ecn_tcp = ecn_input_value;
             
         tos_input_value = tos;
+        use_additional_raw_icmp_socket = 1;
     } else if(tos_input_value != -1) {
         tos = tos_input_value;
+        use_additional_raw_icmp_socket = 1;
     }
     
     if(af == AF_INET6 && (tos || flow_label))
@@ -1617,7 +1614,9 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         data_len = ee->ee_info - header_len;
 
         probe_done(pb, &pb->proto_done);
-
+        if(!use_additional_raw_icmp_socket)
+            probe_done(pb, &pb->icmp_done);
+            
         /*  clear this probe(as actually the previous hop answers here)
           but fill its `err_str' by the info obtained. Ugly, but easy...
         */
@@ -1641,6 +1640,8 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     }
 
     probe_done(pb, &pb->proto_done);
+    if(!use_additional_raw_icmp_socket)
+        probe_done(pb, &pb->icmp_done);
 }
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b) 
