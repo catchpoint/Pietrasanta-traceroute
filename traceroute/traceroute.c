@@ -848,8 +848,11 @@ void print_probe(probe *pb)
         if(prn) {
             print_addr(&pb->res);
 
-            if(pb->ext)
+            if(pb->ext) {
                 printf(" <%s>", pb->ext);
+                free(pb->ext);
+                pb->ext = NULL;
+            }
 
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
