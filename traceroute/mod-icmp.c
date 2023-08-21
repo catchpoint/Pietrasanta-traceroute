@@ -78,7 +78,8 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
             dgram = 1;
         } else {
             /*  prefer the traditional "raw" way when possible   */
-            close(icmp_sk);
+            if(icmp_sk > 0)
+                close(icmp_sk);
             icmp_sk = raw_sk;
         }
     }
