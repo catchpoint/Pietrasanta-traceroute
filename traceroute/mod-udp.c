@@ -34,6 +34,7 @@ static unsigned int protocol = IPPROTO_UDP;
 static char *data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
+extern int use_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
 {
@@ -57,12 +58,14 @@ static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, siz
 
     fill_data(packet_len_p);
 
-    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-    
-    if(raw_icmp_sk < 0)
-        error("raw icmp socket");
-    
-    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error("raw icmp socket");
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
     
     return 0;
 }
@@ -223,6 +226,12 @@ static void udp_handle_raw_icmp_packet(char* bufp)
     }
 }
 
+static void udp_close()
+{
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
+}
+
 /*  All three modules share the same methods except the init...  */
 
 static tr_module default_ops = {
@@ -235,6 +244,7 @@ static tr_module default_ops = {
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
+    .close = udp_close
 };
 
 TR_MODULE(default_ops);
@@ -250,10 +260,10 @@ static tr_module udp_ops = {
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
+    .close = udp_close
 };
 
 TR_MODULE(udp_ops);
-
 
 static tr_module udplite_ops = {
     .name = "udplite",
@@ -265,6 +275,7 @@ static tr_module udplite_ops = {
     .options = udplite_options,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
+    .close = udp_close
 };
 
 TR_MODULE(udplite_ops);

@@ -79,6 +79,8 @@ static struct {
     { "cwr", TH_CWR },
 };
 
+extern int use_additional_raw_icmp_socket;
+
 static char* names_by_flags(unsigned int flags)
 {
     int i;
@@ -339,12 +341,14 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     for(int i = pseudo_IP_header_size+len; i < pseudo_IP_header_size+*length_p; i++)
         buf[i] = 0x40 + (i & 0x3f); // Same as in UDP
     
-    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-    
-    if(raw_icmp_sk < 0)
-        error("raw icmp socket");
-    
-    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error("raw icmp socket");
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
     
     return 0;
 }
@@ -502,6 +506,13 @@ static void tcp_handle_raw_icmp_packet(char* bufp)
     }
 }
 
+static void tcp_close()
+{
+    close(raw_sk);
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
+}
+
 static tr_module tcp_ops = {
     .name = "tcp",
     .init = tcp_init,
@@ -510,7 +521,8 @@ static tr_module tcp_ops = {
     .expire_probe = tcp_expire_probe,
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
-    .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet
+    .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
+    .close = tcp_close
 };
 
 TR_MODULE (tcp_ops);
