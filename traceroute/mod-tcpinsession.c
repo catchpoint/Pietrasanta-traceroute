@@ -586,12 +586,13 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
         }
         
         uint32_t sack_len = size-2;
+      
         if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN) {
             close(sk);
             close(raw_sk);
             ex_error("Malformed SACK option");
         }
-        
+      
         sack_found = 1;
         
         while(sack_len > 0) {
