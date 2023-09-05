@@ -1,6 +1,4 @@
 .\" Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
-.\" This software was updated by Catchpoint Systems, Inc. to incorporate
-.\" InSession algorithm functionality.
 .\" Copyright (c)  2006   Dmitry Butskoy (dmitry@butskoy.name)
 .\" License: GPL v2 or any later version
 .\" See COPYING for the status of this software
@@ -29,6 +27,9 @@ traceroute \- print the route packets trace to network host
 .br
 .ti +8
 .BR "" [ "--tcpinsession" "]
+.br
+.ti +8
+.BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
 .br
 .ti +8
 .BR host " [" "packet_len" "]"
@@ -128,7 +129,7 @@ Use ICMP ECHO for probes
 Use TCP SYN for probes
 .TP
 .B \-\-tcpinsession
-Use TCP in session
+Use TCP InSession. See https://www.catchpoint.com/blog/traceroute-insession-catchpoints-effort-towards-a-more-reliable-network-diagnostic-tool
 .TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)
@@ -215,6 +216,20 @@ are 16 (low delay) and 8 (high throughput). Note that in order to use
 some TOS precedence values, you have to be super user.
 .br
 For IPv6, set the Traffic Control value.
+.TP
+.BI \-\-ecn=ecn
+Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
+be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
+report the ECN value for each expiring probe. When running in InSession mode
+and /proc/sys/net/ipv4/tcp_ecn is set to 1, traceroute will perform additional checks
+to verify if the destination supports the ECN mechanism: if ecn is set to ECT(0) or ECT(1)
+it will check if the destination supports the ECN mechanism at the TCP level, while if
+it is set to CE it will also check whether the destination acknowledges properly a
+congestion detection. 
+.TP
+.BI \-\-dscp=dscp
+Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
+0 to 63.
 .TP
 .BI \-l " flow_label" ", --flowlabel=" flow_label
 Use specified flow_label for IPv6 packets.

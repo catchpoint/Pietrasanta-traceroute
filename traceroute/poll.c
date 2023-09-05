@@ -65,25 +65,21 @@ static int cleanup_polls(void)
     return i;
 }
 
+
 void do_poll(double timeout, void(*callback)(int fd, int revents)) 
 {
-    int nfds;
-    int n;
-    int i;
-
-    nfds = cleanup_polls();
-
+    int nfds = cleanup_polls();
     if(!nfds)
         return;
 
-    n = poll(pfd, nfds, ceil(timeout * 1000));
+    int n = poll(pfd, nfds, ceil(timeout * 1000));
     if(n < 0) {
         if(errno == EINTR)
             return;
         error("poll");
     }
 
-    for(i = 0; n && i < num_polls; i++) {
+    for(int i = 0; n && i < num_polls; i++) {
         if(pfd[i].revents) {
             callback(pfd[i].fd, pfd[i].revents);
             n--;

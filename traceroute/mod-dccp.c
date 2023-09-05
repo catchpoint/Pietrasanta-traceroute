@@ -41,7 +41,7 @@ static struct dccp_hdr_request *dhr = NULL;
 static unsigned int service_code = DEF_SERVICE_CODE;
 
 static CLIF_option dccp_options[] = {
-    { 0, "service", "NUM", "Set DCCP service code to %s (default is " _TEXT (DEF_SERVICE_CODE) ")", CLIF_set_uint, &service_code, 0, CLIF_ABBREV },
+    { 0, "service", "NUM", "Set DCCP service code to %s (default is " _TEXT(DEF_SERVICE_CODE) ")", CLIF_set_uint, &service_code, 0, CLIF_ABBREV },
     CLIF_END_OPTION
 };
 
@@ -50,8 +50,8 @@ static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pa
     int af = dest->sa.sa_family;
     sockaddr_any src;
     socklen_t len;
-    uint8_t* ptr;
-    uint16_t* lenp;
+    uint8_t *ptr;
+    uint16_t *lenp;
 
     dest_addr = *dest;
     dest_addr.sin.sin_port = 0;    /*  raw sockets can be confused   */
@@ -84,7 +84,6 @@ static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pa
     }
 
     use_recverr(raw_sk);
-
     add_poll(raw_sk, POLLIN | POLLERR);
 
     /*  Now create the sample packet.  */
@@ -113,13 +112,13 @@ static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pa
         ptr += len;
     }
 
-    lenp = (uint16_t*) ptr;
+    lenp = (uint16_t *) ptr;
     ptr += sizeof(uint16_t);
-    *((uint16_t*) ptr) = htons((uint16_t) IPPROTO_DCCP);
+    *((uint16_t *) ptr) = htons((uint16_t) IPPROTO_DCCP);
     ptr += sizeof(uint16_t);
 
     /*  Construct DCCP header   */
-    dh = (struct dccp_hdr*) ptr;
+    dh = (struct dccp_hdr *) ptr;
 
     dh->dccph_ccval = 0;
     dh->dccph_checksum = 0;
@@ -148,7 +147,8 @@ static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pa
         error("impossible");    /*  paranoia   */
 
     len = ptr - (uint8_t *) dh;
-    if(len & 0x03)  error("impossible");  /*  as >>2 ...  */
+    if(len & 0x03)  
+        error("impossible");  /*  as >>2 ...  */
 
     *lenp = htons(len);
     dh->dccph_doff = len >> 2;
@@ -165,8 +165,9 @@ static void dccp_send_probe(probe *pb, int ttl)
     sockaddr_any addr;
     socklen_t len = sizeof(addr);
 
-    /* To make sure we have chosen a free unused "source port",
-       just create, (auto)bind and hold a socket while the port is needed. */
+    /*  To make sure we have chosen a free unused "source port",
+       just create, (auto)bind and hold a socket while the port is needed.
+    */
 
     sk = socket(af, SOCK_DCCP, IPPROTO_DCCP);
     if(sk < 0)
@@ -177,15 +178,16 @@ static void dccp_send_probe(probe *pb, int ttl)
     if(getsockname(sk, &addr.sa, &len) < 0)
         error("getsockname");
 
-    /* When we reach the target host, it can send us either Reset or Response.
+    /*  When we reach the target host, it can send us either Reset or Response.
       For Reset all is OK (we and kernel just answer nothing), but
       for Response we should reply with our Close.
-      It is well-known "half-open technique", used by port scanners etc.
+        It is well-known "half-open technique", used by port scanners etc.
       This way we do not touch remote applications at all, unlike
       the ordinary connect(2) call.
-      As the port-holding socket neither connect() nor listen(),
+        As the port-holding socket neither connect() nor listen(),
       it means "no such port yet" for remote ends, and kernel always
-      send Reset in such a situation automatically (we have to do nothing).*/
+      send Reset in such a situation automatically (we have to do nothing).
+    */
 
     dh->dccph_sport = addr.sin.sin_port;
     dhe->dccph_seq_low = random_seq();
@@ -212,9 +214,8 @@ static void dccp_send_probe(probe *pb, int ttl)
 static probe *dccp_check_reply(int sk, int err, sockaddr_any *from, char *buf, size_t len) 
 {
     probe *pb;
-    struct dccp_hdr *ndh = (struct dccp_hdr*)buf;
-    uint16_t sport;
-    uint16_t dport;
+    struct dccp_hdr *ndh = (struct dccp_hdr *) buf;
+    uint16_t sport, dport;
 
     if(len < 8)
         return NULL;        /*  too short   */
@@ -226,6 +227,7 @@ static probe *dccp_check_reply(int sk, int err, sockaddr_any *from, char *buf, s
         sport = ndh->dccph_dport;
         dport = ndh->dccph_sport;
     }
+
 
     if(dport != dest_port)
         return NULL;
@@ -251,9 +253,9 @@ static void dccp_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), dccp_check_reply);
 }
 
-static void dccp_expire_probe(probe *pb) 
+static void dccp_expire_probe(probe *pb, int* what) 
 {
-    probe_done(pb);
+    probe_done(pb, what);
 }
 
 static tr_module dccp_ops = {

@@ -8,6 +8,9 @@
     See COPYING for the status of this software.
 */
 
+#ifndef _APPLE_DCCP_H
+#define _APPLE_DCCP_H
+
 #include "types.h"
 
 #define DCCP_PKT_REQUEST 0
@@ -32,3 +35,5 @@ struct dccp_hdr_ext {
 struct dccp_hdr_request {
     __be32 dccph_req_service;
 };
+
+#endif

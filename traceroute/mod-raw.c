@@ -19,136 +19,117 @@
 
 #include "traceroute.h"
 
-
 static sockaddr_any dest_addr = {{ 0, }, };
 static int protocol = DEF_RAW_PROT;
 
-static char *data = NULL;
-static size_t *length_p;
+static char* data = NULL;
+static size_t* length_p;
 
 static int raw_sk = -1;
 static int last_ttl = 0;
 static int seq = 0;
 
+static int set_protocol(CLIF_option* optn, char* arg) 
+{
+    char* q;
 
-static int set_protocol (CLIF_option *optn, char *arg) {
-    char *q;
+    protocol = strtoul(arg, &q, 0);
+    if(q == arg) {
+        struct protoent* p = getprotobyname(arg);
 
-    protocol = strtoul (arg, &q, 0);
-    if (q == arg) {
-        struct protoent *p = getprotobyname (arg);
-
-        if (!p)  return -1;
+        if(!p)
+            return -1;
         protocol = p->p_proto;
     }
 
     return 0;
 }
 
-
 static CLIF_option raw_options[] = {
-    { 0, "protocol", "PROT", "Use protocol %s (default is "
-            _TEXT (DEF_RAW_PROT) ")",
-            set_protocol, 0, 0, CLIF_ABBREV },
+    { 0, "protocol", "PROT", "Use protocol %s (default is " _TEXT(DEF_RAW_PROT) ")", set_protocol, 0, 0, CLIF_ABBREV },
     CLIF_END_OPTION
 };
 
-
-static int raw_init (const sockaddr_any *dest,
-                unsigned int port_seq, size_t *packet_len_p) {
-    int i;
+static int raw_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
+{
     int af = dest->sa.sa_family;
 
     dest_addr = *dest;
     dest_addr.sin.sin_port = 0;
 
-    if (port_seq)  protocol = port_seq;
-
+    if(port_seq)
+        protocol = port_seq;
 
     length_p = packet_len_p;
 
-    if (*length_p &&
-        !(data = malloc (*length_p))
-    )  error ("malloc");
+    if(*length_p && !(data = malloc(*length_p)))
+        error("malloc");
 
-        for (i = 0; i < *length_p; i++)
-                data[i] = 0x40 + (i & 0x3f);
+    for(int i = 0; i < *length_p; i++)
+        data[i] = 0x40 + (i & 0x3f);
 
+    raw_sk = socket(af, SOCK_RAW, protocol);
+    if(raw_sk < 0)
+        error_or_perm("socket");
 
-    raw_sk = socket (af, SOCK_RAW, protocol);
-    if (raw_sk < 0)
-        error_or_perm ("socket");
-
-    tune_socket (raw_sk);
+    tune_socket(raw_sk);
 
     /*  Don't want to catch packets from another hosts   */
-    if (raw_can_connect () &&
-        connect (raw_sk, &dest_addr.sa, sizeof (dest_addr)) < 0
-    )  error ("connect");
+    if(raw_can_connect() && connect(raw_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+        error("connect");
 
-    use_recverr (raw_sk);
-
-
-    add_poll (raw_sk, POLLIN | POLLERR);
+    use_recverr(raw_sk);
+    add_poll(raw_sk, POLLIN | POLLERR);
 
     return 0;
 }
 
-
-static void raw_send_probe (probe *pb, int ttl) {
-
-    if (ttl != last_ttl) {
-
-        set_ttl (raw_sk, ttl);
-
+static void raw_send_probe(probe* pb, int ttl) 
+{
+    if(ttl != last_ttl) {
+        set_ttl(raw_sk, ttl);
         last_ttl = ttl;
     }
 
+    pb->send_time = get_time();
 
-    pb->send_time = get_time ();
-
-    if (do_send (raw_sk, data, *length_p, &dest_addr) < 0) {
+    if(do_send(raw_sk, data, *length_p, &dest_addr) < 0) {
         pb->send_time = 0;
         return;
     }
 
-
     pb->seq = ++seq;
-
-    return;
 }
 
+static probe* raw_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
+{
+    probe* pb;
 
-static probe *raw_check_reply (int sk, int err, sockaddr_any *from,
-                            char *buf, size_t len) {
-    probe *pb;
-
-    if (!equal_addr (&dest_addr, from))
+    if(!equal_addr(&dest_addr, from))
         return NULL;
 
-    pb = probe_by_seq (seq);
-    if (!pb)  return NULL;
+    pb = probe_by_seq(seq);
+    if(!pb)
+        return NULL;
 
-    if (!err)  pb->final = 1;
+    if(!err)
+        pb->final = 1;
 
     return pb;
 }
 
-
-static void raw_recv_probe (int sk, int revents) {
-
-    if (!(revents & (POLLIN | POLLERR)))
+static void raw_recv_probe(int sk, int revents) 
+{
+    if(!(revents & (POLLIN | POLLERR)))
         return;
 
-    recv_reply (sk, !!(revents & POLLERR), raw_check_reply);
+    recv_reply(sk, !!(revents & POLLERR), raw_check_reply);
 }
 
-
-static void raw_expire_probe (probe *pb) {
-
-    probe_done (pb);
+static void raw_expire_probe(probe* pb, int* what)
+{
+    probe_done(pb, what);
 }
-
 
 static tr_module raw_ops = {
     .name = "raw",
@@ -160,4 +141,4 @@ static tr_module raw_ops = {
     .one_per_time = 1,
 };
 
-TR_MODULE (raw_ops);
+TR_MODULE(raw_ops);

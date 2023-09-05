@@ -11,23 +11,25 @@
 
 #include "traceroute.h"
 
-
-uint16_t in_csum (const void *ptr, size_t len) {
-    const uint16_t *p = (const uint16_t *) ptr;
+uint16_t in_csum(const void *ptr, size_t len) 
+{
+    const uint16_t* p = (const uint16_t*)ptr;
     size_t nw = len / 2;
     unsigned int sum = 0;
     uint16_t res;
 
-    while (nw--)  sum += *p++;
+    while(nw--)
+        sum += *p++;
 
-    if (len & 0x1)
-        sum += htons (*((unsigned char *) p) << 8);
+    if(len & 0x1)
+        sum += htons(*((unsigned char*) p) << 8);
 
     sum = (sum >> 16) + (sum & 0xffff);
     sum += (sum >> 16);
 
     res = ~sum;
-    if (!res)  res = ~0;
+    if(!res)
+        res = ~0;
 
     return res;
 }

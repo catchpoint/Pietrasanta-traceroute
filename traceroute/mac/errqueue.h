@@ -8,6 +8,9 @@
     See COPYING for the status of this software.
 */
 
+#ifndef _APPLE_ERRQUEUE_H
+#define _APPLE_ERRQUEUE_H
+
 #include "types.h"
 
 #define SO_EE_ORIGIN_NONE 0
@@ -41,3 +44,5 @@ struct sock_extended_err {
         struct sock_ee_data_rfc4884 ee_rfc4884;
     };
 };
+
+#endif

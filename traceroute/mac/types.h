@@ -8,6 +8,9 @@
     See COPYING for the status of this software.
 */
 
+#ifndef _APPLE_TYPES_H
+#define _APPLE_TYPES_H
+
 #include <stdint.h>
 
 #ifdef __CHECKER__
@@ -39,3 +42,5 @@ typedef uint64_t __bitwise __be64;
 
 typedef uint16_t __bitwise __sum16;
 typedef uint32_t __bitwise __wsum;
+
+#endif

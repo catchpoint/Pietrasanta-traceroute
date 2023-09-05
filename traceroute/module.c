@@ -14,7 +14,7 @@
 
 #include "traceroute.h"
 
-static tr_module* base = NULL;
+static tr_module *base = NULL;
 
 void tr_register_module(tr_module *ops) 
 {
@@ -22,16 +22,17 @@ void tr_register_module(tr_module *ops)
     base = ops;
 }
 
-const tr_module* tr_get_module(const char *name) 
+const tr_module *tr_get_module(const char *name) 
 {
     const tr_module *ops;
 
-    if(!name)
+    if(!name)  
         return 0;
 
-    for(ops = base; ops; ops = ops->next)
+    for(ops = base; ops; ops = ops->next) {
         if(!strcasecmp(name, ops->name))
             return ops;
+    }
 
     return NULL;
 }

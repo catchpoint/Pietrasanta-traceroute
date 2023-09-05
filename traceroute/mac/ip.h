@@ -8,6 +8,9 @@
     See COPYING for the status of this software.
 */
 
+#ifndef _APPLE_IP_H
+#define _APPLE_IP_H
+
 #include "types.h"
 
 #define __struct_group(TAG, NAME, ATTRS, MEMBERS...) \
@@ -53,3 +56,5 @@ struct iphdr {
     );
     /*The options start here. */
 };
+
+#endif
