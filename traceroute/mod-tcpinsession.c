@@ -58,6 +58,7 @@ static sockaddr_any src;
 static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
+extern int use_additional_raw_icmp_socket;
 
 #define TH_FLAGS(TH) (((uint8_t*)(TH))[13])
 #define TH_FIN 0x01
@@ -104,6 +105,8 @@ uint32_t seq_num = 0;
 uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
+extern int ecn_discovery_result;
+extern int check_ecn_tcp;
 
 static char* names_by_flags(unsigned int flags)
 {
@@ -183,34 +186,6 @@ static CLIF_option tcp_options[] = {
     CLIF_END_OPTION
 };
 
-#define SYSCTL_PREFIX "/proc/sys/net/ipv4/tcp_"
-static int check_sysctl(const char* name) 
-{
-    int fd;
-    int res;
-    char buf[sizeof(SYSCTL_PREFIX) + strlen(name) + 1];
-    uint8_t ch;
-
-    strcpy(buf, SYSCTL_PREFIX);
-    strcat(buf, name);
-
-    fd = open(buf, O_RDONLY, 0);
-    if(fd < 0)
-        return 0;
-
-    res = read(fd, &ch, sizeof(ch));
-    close(fd);
-
-    if(res != sizeof(ch))
-        return 0;
-
-    /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
-    if(ch == '1')
-        return 1;
-
-    return 0;
-}
-
 static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
 {
     initial_seq_num = rand();
@@ -278,6 +253,12 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = htons(response_iphdr->tot_len)-sizeof(*response_iphdr)-sizeof(*response_tcp_hdr);
+                            
+                            if(check_ecn_tcp) {
+                                // Check if the SYN+ACK contains the ECN flag
+                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
+                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
+                            }
                         }
                     }
                 }
@@ -291,6 +272,12 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = received-sizeof(*response_tcp_hdr);
+                            
+                            if(check_ecn_tcp) {
+                                // Check if the SYN+ACK contains the ECN flag
+                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
+                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
+                            }
                         }
                     }
                 }
@@ -335,8 +322,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     }
                 }
                 
-                if(SACK_permitted == 0)
-                    error("TCP SACK not permitted from destination");
+                if(SACK_permitted == 0) {
+                    close(sk);
+                    close(raw_sk);
+                    ex_error("TCP SACK not permitted from destination");
+                }
             }
         } else {
             if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
@@ -346,8 +336,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         }
     } while(!found);
     
-    if(!found)
-        error("Cannot complete initial TCP handshake");
+    if(!found) {
+        close(sk);
+        close(raw_sk);
+        ex_error("Cannot complete initial TCP handshake");
+    }
     
     socklen_t len;
     uint8_t* ptr;
@@ -498,14 +491,16 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     header_len = len;
     
-    raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-    
-    if(raw_icmp_sk < 0)
-        error("raw icmp socket");
-    
-    lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
-    
-    add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error("raw icmp socket");
+        
+        lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
     
     return 0;
 }
@@ -591,9 +586,13 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
         }
         
         uint32_t sack_len = size-2;
-        if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN)
-            error("Malformed SACK option");
-        
+      
+        if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN) {
+            close(sk);
+            close(raw_sk);
+            ex_error("Malformed SACK option");
+        }
+      
         sack_found = 1;
         
         while(sack_len > 0) {
@@ -617,10 +616,12 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     }
     
     if(interval == 0) {
+        close(sk);
+        close(raw_sk);
         if(sack_found == 0)
-            error("Missing SACK options");
+            ex_error("Missing SACK options");
         else
-            error("Unexpected overlap of SACK intervals");
+            ex_error("Unexpected overlap of SACK intervals");
     }
     
     // just order them decreasing
@@ -688,6 +689,23 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
    
+    if(check_ecn_tcp) {
+        if(TH_FLAGS(tcp) & TH_ECE) {
+            if(ecn_discovery_result != DESTINATION_SUPPORT_ECN && ecn_discovery_result != ECN_IS_SUPPORTED)
+                ecn_discovery_result = WEIRD_ECN_BEHAVIOR; // ECN was not supported vy TCP dest but data ACK contains ECE (!?!)
+            else
+                ecn_discovery_result = ECN_IS_SUPPORTED;
+        } else {
+            if(ecn_discovery_result == DESTINATION_SUPPORT_ECN) {
+                if(check_ecn_tcp != 3)
+                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED;
+                else
+                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE;
+            }
+            // else the destination does not support ECN
+        }
+    }
+    
     return pb;
 }
 
@@ -699,21 +717,62 @@ static void tcpinsession_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), tcpinsession_check_reply);
 }
 
-static void tcpinsession_expire_probe(probe* pb) 
+static void tcpinsession_expire_probe(probe* pb, int* what) 
 {
-    probe_done(pb);
+    probe_done(pb, what);
 }
 
-void tcpinsession_close()
+static int tcpinsession_is_raw_icmp_sk(int sk)
+{
+    if(sk == raw_icmp_sk)
+        return 1;
+
+    return 0;
+}
+
+/*
+    Here we need to slightly change the logic wrt the same function in other modules.
+    Since in this module all the probes share the same five tuple, we recover the probe by looking at the sequence number of the offending probe and finding the probe with the same value (as in thethe check_reply). Furthermore, to be extrasure that this is a probe for us (since this is a RAW ICMP socket), once the probe is found, we check if the destination and source address of the offendng probe matches the ones that we are using to perform the traceroute
+*/
+static void tcpinsession_handle_raw_icmp_packet(char* bufp)
+{
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct tcphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    
+    if(proto != IPPROTO_TCP)
+        return;
+    
+    offending_probe = (struct tcphdr*)offending_probe;
+    
+    uint32_t probe_seq_num = ntohl(offending_probe->seq);
+    probe* pb = probe_by_seq(probe_seq_num);
+    
+    if(pb) {
+        offending_probe_dest.sin.sin_port = offending_probe->dest;
+        offending_probe_src.sin.sin_port = offending_probe->source;
+        
+        if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+            pb->returned_tos = returned_tos;
+            tcpinsession_expire_probe(pb, &pb->icmp_done);
+        }
+    }
+}
+
+static void tcpinsession_close()
 {
     print_allowed = 1;
     int start = (first_hop - 1) * probes_per_hop;
     int end = (last_probe == -1) ? num_probes : last_probe;
     for(int i = start; i < end; i++)
         print_probe(&probes[i]);
-    close(sk);
     
-    printf("\n");
+    close(sk);
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
 }
 
 static tr_module tcpinsession_ops = {
@@ -723,7 +782,9 @@ static tr_module tcpinsession_ops = {
     .recv_probe = tcpinsession_recv_probe,
     .expire_probe = tcpinsession_expire_probe,
     .options = tcp_options,
-    .close = tcpinsession_close
+    .is_raw_icmp_sk = tcpinsession_is_raw_icmp_sk,
+    .handle_raw_icmp_packet = tcpinsession_handle_raw_icmp_packet,
+    .close = tcpinsession_close,
 };
 
 TR_MODULE(tcpinsession_ops);
