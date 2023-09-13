@@ -78,7 +78,7 @@ DESTDIR =
 
 
 #  layout stuff
-SKIPDIRS = tmp%
+SKIPDIRS = tmp% binaries% dockerfiles%
 INCLUDEDIRS = include%
 LIBDIRS = lib%
 MODDIRS = mod%
