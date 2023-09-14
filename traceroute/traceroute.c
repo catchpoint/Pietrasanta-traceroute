@@ -134,7 +134,6 @@ static int dscp_input_value = -1;
 static int ecn_input_value = -1;
 static unsigned int flow_label = 0;
 static int noroute = 0;
-static unsigned int fwmark = 0;
 static int packet_len = -1;
 static double wait_secs = DEF_WAIT_SECS;
 static double here_factor = DEF_HERE_FACTOR;

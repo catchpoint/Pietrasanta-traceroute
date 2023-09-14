@@ -8,6 +8,9 @@
     See COPYING for the status of this software.
 */
 
+#ifndef _APPLE_ICMP_H
+#define _APPLE_ICMP_H
+
 #include "types.h"
 #define ICMP_ECHOREPLY		0	/* Echo Reply			*/
 #define ICMP_DEST_UNREACH	3	/* Destination Unreachable	*/
@@ -56,9 +59,11 @@ struct icmphdr {
         } echo;
         __be32 gateway;
         struct {
-            __be16 __unused;
+            __be16 unused;
             __be16 mtu;
         } frag;
         __u8 reserved[4];
     } un;
 };
+
+#endif

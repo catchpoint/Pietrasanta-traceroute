@@ -19,6 +19,11 @@
 #include <sys/time.h>
 #include <clif.h>
 
+#ifdef __APPLE__
+#include "mac/icmp.h"
+#include "mac/ip.h"
+#endif
+
 extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;

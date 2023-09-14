@@ -179,9 +179,9 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     dest_addr = *dest;
     dest_addr.sin.sin_port = 0;    /*  raw sockets can be confused   */
 
-    if(!port_seq)  port_seq = DEF_TCP_PORT;
+    if(!port_seq)
+        port_seq = DEF_TCP_PORT;
     dest_port = htons (port_seq);
-
 
     /*  Create raw socket for tcp   */
 

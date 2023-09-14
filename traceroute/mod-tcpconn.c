@@ -22,6 +22,10 @@
 
 #include "traceroute.h"
 
+#ifdef __APPLE__
+#include <string.h>
+#endif
+
 static sockaddr_any dest_addr = {{ 0, }, };
 
 static int icmp_sk = -1;
@@ -140,12 +144,21 @@ static probe *tcp_check_reply(int sk, int err, sockaddr_any *from, char *buf, si
         tcp = (struct tcphdr *)(ip6 + 1);
     }
 
+#ifdef __APPLE__
+    if(tcp->th_dport != dest_addr.sin.sin_port)
+        return NULL;
+
+    pb = probe_by_seq(tcp->th_sport);
+    if(!pb)
+        return NULL;
+#else
     if(tcp->dest != dest_addr.sin.sin_port)
         return NULL;
 
     pb = probe_by_seq(tcp->source);
     if(!pb)
         return NULL;
+#endif
 
     /*  here only, high level has no data to do this   */
     parse_icmp_res(pb, type, code, info);
