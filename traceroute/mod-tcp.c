@@ -18,19 +18,17 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
-
+#include <netinet/tcp.h>
+#include <stdio.h>
 #include "traceroute.h"
 
 #ifdef __APPLE__
 #include "mac/icmp.h"
 #include "mac/ip.h"
-#include "mac/tcp.h"
 #include "mac/types.h"
 #include <string.h>
 #undef TH_FLAGS
-#else
-#include <netinet/tcp.h>
-#endif
+#endif 
 
 #ifndef IP_MTU
 #define IP_MTU    14
@@ -189,14 +187,22 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     if(raw_sk < 0)
         error_or_perm ("socket");
 
-    tune_socket(raw_sk);        /*  including bind, if any   */
+	#ifndef __APPLE__
+		tune_socket(raw_sk);        /*  including bind, if any   */
+		if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+			error ("connect");
+	#endif
 
-    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
-        error ("connect");
-
+    
+	#ifndef __APPLE__
     len = sizeof(struct sockaddr);
     if(getsockname(raw_sk, &src.sa, &len) < 0)
         error ("getsockname");
+	#else
+	if (findsaddr(&dest_addr.sa, &src.sa) != NULL)
+		error("findsaddr");
+	
+	#endif
 
     len = sizeof(mtu);
     if(getsockopt(raw_sk, af == AF_INET ? SOL_IP : SOL_IPV6, af == AF_INET ? IP_MTU : IPV6_MTU, &mtu, &len) < 0 || mtu < 576)
@@ -280,15 +286,27 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
-    th->source = 0;        /*  temporary   */
-    th->dest = dest_port;
-    th->seq = 0;        /*  temporary   */
-    th->ack_seq = 0;
-    th->doff = 0;        /*  later...  */
+#ifdef __APPLE__
+    th->th_sport = 0;        /*  temporary   */
+    th->th_dport = dest_port;
+    th->th_seq = 0;        /*  temporary   */
+    th->th_ack = 0;
+    th->th_off = 0;        /*  later...  */
     TH_FLAGS(th) = flags & 0xff;
-    th->window = htons(5840);//htons (4 * mtu);
+    th->th_win = htons(4 * mtu);
+    th->th_sum = 0;
+    th->th_urp = 0;
+#else
+    th->source = 0;
+    th->dest = dest_port;
+    th->seq = 0;
+    th->ack_seq = 0;
+    th->doff = 0;
+    TH_FLAGS(th) = flags & 0xff;
+    th->window = htons(4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
+#endif
 
 
     /*  Build TCP options   */
@@ -337,7 +355,11 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         error("impossible");    /*  as >>2 ...  */
 
     *lenp = htons (len);
-    th->doff = len >> 2;
+    #ifdef __APPLE__
+		th->th_off = len >> 2;
+	#else
+		th->doff = len >> 2;
+	#endif
 
     length_p = packet_len_p;
     if(*length_p && !(buf = malloc(*length_p+pseudo_IP_header_size)))
@@ -372,6 +394,7 @@ static void tcp_send_probe(probe* pb, int ttl)
        just create, (auto)bind and hold a socket while the port is needed.
     */
 
+#ifndef __APPLE__
     sk = socket(af, SOCK_STREAM, 0);
     if(sk < 0)
         error ("socket");
@@ -381,8 +404,10 @@ static void tcp_send_probe(probe* pb, int ttl)
 
     bind_socket(sk);
 
-    if(getsockname (sk, &addr.sa, &len) < 0)
-        error ("getsockname");
+	
+		if(getsockname (sk, &addr.sa, &len) < 0)
+			error ("getsockname");
+	#endif
 
     /*  When we reach the target host, it can send us either RST or SYN+ACK.
       For RST all is OK (we and kernel just answer nothing), but
@@ -394,11 +419,25 @@ static void tcp_send_probe(probe* pb, int ttl)
       it means "no such port yet" for remote ends, and kernel always
       send RST in such a situation automatically (we have to do nothing).
     */
+	#ifdef __APPLE__
+		if(th->th_sport == 0)
+			th->th_sport = (getpid() & 0xffff) | 0x8000;
+		else
+			th->th_sport++;
+		th->th_seq = random_seq();
+		addr.sin.sin_port = th->th_sport;
+	#else
+		th->source = src.sin.sin_port;
+		th->seq = random_seq();
+	#endif
 
-    th->source = addr.sin.sin_port;
-    th->seq = random_seq();
-    th->check = 0;
-    th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+    #ifdef __APPLE__
+		th->th_sum = 0;
+		th->th_sum = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+	#else
+		th->check = 0;
+		th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+	#endif
 
     if(ttl != last_ttl) {
         set_ttl (raw_sk, ttl);
@@ -413,12 +452,17 @@ static void tcp_send_probe(probe* pb, int ttl)
         return;
     }
 
-    size_t len2 = sizeof(src);
-    if(getsockname(raw_sk, &src.sa, &len2) < 0)
-        error ("getsockname");
-
-    pb->seq = th->source;
-    pb->sk = sk;
+	#ifdef __APPLE__
+		pb->seq = th->th_sport;
+		src.sin.sin_port = th->th_sport;
+	#else
+		size_t len2 = sizeof(src);
+		if(getsockname(raw_sk, &src.sa, &len2) < 0)
+			error ("getsockname");
+		pb->seq = th->source;
+	#endif
+    
+	pb->sk = sk;
 
     // Note that the dest port is incremented for each probe, so we have to specify it explicitly
     // Note also that the source port is changed for each probe (determined by bind) so we have to specify it explicitly too
@@ -440,13 +484,23 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         return NULL;        /*  too short   */
 
 
-    if(err) {
-        sport = tcp->source;
-        dport = tcp->dest;
-    } else {
-        sport = tcp->dest;
-        dport = tcp->source;
-    }
+	#ifdef __APPLE__
+		if(err) {
+			sport = tcp->th_sport;
+			dport = tcp->th_dport;
+		} else {
+			sport = tcp->th_dport;
+			dport = tcp->th_sport;
+		}
+	#else
+		if(err) {
+			sport = tcp->source;
+			dport = tcp->dest;
+		} else {
+			sport = tcp->dest;
+			dport = tcp->source;
+		}
+	#endif
 
     if(dport != dest_port)
         return NULL;
@@ -507,18 +561,24 @@ static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
         sockaddr_any offending_probe_dest;
         memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
         offending_probe_dest.sin.sin_family = AF_INET;
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-        #ifdef __APPLE__
-            offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin); // TODO: correct?
+        #ifndef __APPLE__
+			offending_probe_dest.sin.sin_port = offending_probe->dest;
+			offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
+        #else 
+            offending_probe_dest.sin.sin_port = offending_probe->th_dport;
+			offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
+			offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin); // TODO: correct?
         #endif
 
         sockaddr_any offending_probe_src;
         memset(&offending_probe_src, 0, sizeof(offending_probe_src));
         offending_probe_src.sin.sin_family = AF_INET;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-        #ifdef __APPLE__
+        #ifndef __APPLE__
+			offending_probe_src.sin.sin_port = offending_probe->source;
+			offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
+        #else
+			offending_probe_src.sin.sin_port = offending_probe->th_sport;
+			offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
             offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin); // TODO: correct?
         #endif
         // NOTE on TCP:
@@ -545,18 +605,24 @@ static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
         sockaddr_any offending_probe_dest;
         memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
         offending_probe_dest.sin6.sin6_family = AF_INET6;
-        offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-        memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-        #ifdef __APPLE__
+        #ifndef __APPLE__
+			offending_probe_dest.sin6.sin6_port = offending_probe->dest;
+			memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
+        #else
+			offending_probe_dest.sin6.sin6_port = offending_probe->th_dport;
+			memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
             offending_probe_dest.sin6.sin6_len = sizeof(offending_probe_dest.sin6); // TODO: correct?
         #endif
 
         sockaddr_any offending_probe_src;
         memset(&offending_probe_src, 0, sizeof(offending_probe_src));
         offending_probe_src.sin6.sin6_family = AF_INET6;
-        offending_probe_src.sin6.sin6_port = offending_probe->source;
-        memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-        #ifdef __APPLE__
+        #ifndef __APPLE__
+			offending_probe_src.sin6.sin6_port = offending_probe->source;
+			memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
+        #else
+			offending_probe_src.sin6.sin6_port = offending_probe->th_sport;
+			memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
             offending_probe_src.sin6.sin6_len = sizeof(offending_probe_src.sin6); // TODO: correct?
         #endif
 

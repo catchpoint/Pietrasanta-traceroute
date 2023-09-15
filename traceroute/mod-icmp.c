@@ -200,7 +200,6 @@ static probe *icmp_check_reply(int sk, int err, sockaddr_any *from, char *buf, s
     if(!pb)
         return NULL;
 
-
     if(!err) {
         if(!(af == AF_INET && type == ICMP_ECHOREPLY) && !(af == AF_INET6 && type == ICMP6_ECHO_REPLY)) 
             return NULL;
@@ -210,7 +209,6 @@ static probe *icmp_check_reply(int sk, int err, sockaddr_any *from, char *buf, s
 
     return pb;
 }
-
 
 static void icmp_recv_probe(int sk, int revents)
 {

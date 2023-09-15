@@ -1935,7 +1935,10 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     n = recvmsg(sk, &msg, err ? MSG_ERRQUEUE : 0);
     if(n < 0)
         return;
-printf("Received message\n");
+
+	//if(ops->is_raw_icmp_sk(sk) == 0)
+		printf("\nReceived on NON RAW\n");
+
     if(ops->is_raw_icmp_sk(sk) == 1) {
         struct msghdr cust_msg;
         memset(&cust_msg, 0, sizeof(cust_msg));
@@ -2193,9 +2196,9 @@ int do_send(int sk, const void *data, size_t len, const sockaddr_any *addr)
 {
     int res;
 
-    if(!addr || raw_can_connect())
-        res = send(sk, data, len, 0);
-    else
+    //if(!addr || raw_can_connect())
+    //    res = send(sk, data, len, 0);
+    //else
         res = sendto(sk, data, len, 0, &addr->sa, sizeof(*addr));
 
     if(res < 0) {
@@ -2236,3 +2239,138 @@ int raw_can_connect(void)
 
     return can_connect;
 }
+
+#ifdef __APPLE__
+
+#ifndef HAVE_SOCKADDR_SA_LEN
+static int salen(struct sockaddr *);
+#endif
+
+/*
+ * Return the source address for the given destination address
+ */
+const char *
+findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from)
+{
+	register struct rt_msghdr *rp;
+	register u_char *cp;
+
+	register struct sockaddr_in *sp, *ifa;
+	register struct sockaddr *sa;
+	register int s, size, cc, seq, i;
+	register pid_t pid;
+	static char errbuf[512];
+
+	s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
+	if (s < 0) {
+		snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
+		return (errbuf);
+	}
+
+	seq = 0;
+	pid = getpid();
+
+	rp = &rtmsg.rtmsg;
+	rp->rtm_seq = ++seq;
+	cp = (u_char *)(rp + 1);
+
+	sp = (struct sockaddr_in *)cp;
+	*sp = *to;
+	cp += roundup(SALEN((struct sockaddr *)sp), sizeof(u_int32_t));
+
+	size = cp - (u_char *)rp;
+	rp->rtm_msglen = size;
+
+	cc = write(s, (char *)rp, size);
+	if (cc < 0) {
+		snprintf(errbuf, sizeof(errbuf), "write: %.128s", strerror(errno));
+		close(s);
+		return (errbuf);
+	}
+	if (cc != size) {
+		snprintf(errbuf, sizeof(errbuf), "short write (%d != %d)", cc, size);
+		close(s);
+		return (errbuf);
+	}
+
+	size = sizeof(rtmsg);
+	do {
+		memset(rp, 0, size);
+		cc = read(s, (char *)rp, size);
+		if (cc < 0) {
+			snprintf(errbuf, sizeof(errbuf), "read: %.128s", strerror(errno));
+			close(s);
+			return (errbuf);
+		}
+
+	} while (rp->rtm_seq != seq || rp->rtm_pid != pid);
+	close(s);
+
+
+	if (rp->rtm_version != RTM_VERSION) {
+		snprintf(errbuf, sizeof(errbuf), "bad version %d", rp->rtm_version);
+		return (errbuf);
+	}
+	if (rp->rtm_msglen > cc) {
+		snprintf(errbuf, sizeof(errbuf), "bad msglen %d > %d", rp->rtm_msglen, cc);
+		return (errbuf);
+	}
+	if (rp->rtm_errno != 0) {
+		snprintf(errbuf, sizeof(errbuf), "rtm_errno: %.128s", strerror(rp->rtm_errno));
+		return (errbuf);
+	}
+
+printf("RTA_IFA is %d\n", RTA_IFA);
+
+	/* Find the interface sockaddr */
+	cp = (u_char *)(rp + 1);
+	for (i = 1; i != 0; i <<= 1)
+		if ((i & rp->rtm_addrs) != 0) {
+			sa = (struct sockaddr *)cp;
+			printf("i is %d\n", i);
+			switch (i) {
+
+			case RTA_IFA:
+				printf("family is %d (AF_INET is %d)\n", sa->sa_family, AF_INET);
+				if (sa->sa_family == AF_INET) {
+					ifa = (struct sockaddr_in *)cp;
+					if (ifa->sin_addr.s_addr != 0) {
+						*from = *ifa;
+						return (NULL);
+					}
+				}
+				break;
+
+			default:
+				break;
+				/* empty */
+			}
+
+			if (SALEN(sa) == 0)
+				cp += sizeof (u_int32_t);
+			else
+				cp += roundup(SALEN(sa), sizeof (u_int32_t));
+		}
+
+	return ("failed!");
+}
+
+#ifndef HAVE_SOCKADDR_SA_LEN
+static int
+salen(struct sockaddr *sa)
+{
+	switch (sa->sa_family) {
+
+	case AF_INET:
+		return (sizeof(struct sockaddr_in));
+
+	case AF_LINK:
+		return (sizeof(struct sockaddr_dl));
+
+	default:
+		return (sizeof(struct sockaddr));
+	}
+}
+#endif
+
+#endif
