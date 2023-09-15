@@ -62,7 +62,7 @@ static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, siz
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
-            error("raw icmp socket");
+            error_or_perm("raw icmp socket");
         
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
