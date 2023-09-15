@@ -18,11 +18,6 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <poll.h>
-#include <netinet/icmp6.h>
-#include <netinet/ip_icmp.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <linux/types.h>
 #include <sys/socket.h>
@@ -83,8 +78,6 @@ static int info = 0;
 #define FL_TSTAMP 0x0800
 #define FL_WSCALE 0x1000
 
-#define MAX_ALLOWED_SACK_PAYLOAD_LEN 32 // A SACK option that specifies n blocks will have a length of 8*n+2 bytes, so the 40 bytes available for TCP options can specify a maximum of 4 blocks (rfc2018, sec. 3)
-
 static struct 
 {
     const char* name;
@@ -105,8 +98,6 @@ uint32_t seq_num = 0;
 uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
-extern int ecn_discovery_result;
-extern int check_ecn_tcp;
 
 static char* names_by_flags(unsigned int flags)
 {
@@ -133,9 +124,7 @@ static char* names_by_flags(unsigned int flags)
 
 static int set_tcp_flag(CLIF_option* optn, char* arg) 
 {
-    int i;
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
+    for(int i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
         if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
             flags |= tcp_flags[i].flag;
             return 0;
@@ -147,10 +136,8 @@ static int set_tcp_flag(CLIF_option* optn, char* arg)
 
 static int set_tcp_flags(CLIF_option* optn, char* arg) 
 {
-    char* q;
-    unsigned long value;
-
-    value = strtoul(arg, &q, 0);
+    char* q = NULL;
+    unsigned long value = strtoul(arg, &q, 0);
     if(q == arg)
         return -1;
 
@@ -175,7 +162,6 @@ static CLIF_option tcp_options[] = {
     { 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
     { 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
     { 0, "flags", "NUM", "Set tcp flags exactly to value %s", set_tcp_flags, 0, 0, CLIF_ABBREV },
-    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", set_flag, (void*)FL_ECN, 0, 0 },
     { 0, "sack", 0, "Use sack,", set_flag, (void*)FL_SACK, 0, 0 },
     { 0, "timestamps", 0, "timestamps,", set_flag, (void*)FL_TSTAMP, 0, CLIF_ABBREV },
     { 0, "window_scaling", 0, "window_scaling option for tcp", set_flag, (void*)FL_WSCALE, 0, CLIF_ABBREV },
@@ -253,12 +239,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = htons(response_iphdr->tot_len)-sizeof(*response_iphdr)-sizeof(*response_tcp_hdr);
-                            
-                            if(check_ecn_tcp) {
-                                // Check if the SYN+ACK contains the ECN flag
-                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
-                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
-                            }
                         }
                     }
                 }
@@ -272,12 +252,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
                             option_len = received-sizeof(*response_tcp_hdr);
-                            
-                            if(check_ecn_tcp) {
-                                // Check if the SYN+ACK contains the ECN flag
-                                if(TH_FLAGS(response_tcp_hdr) & TH_ECE)
-                                    ecn_discovery_result = DESTINATION_SUPPORT_ECN;
-                            }
                         }
                     }
                 }
@@ -344,7 +318,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     socklen_t len;
     uint8_t* ptr;
-   
 
     use_recverr(raw_sk);
     add_poll(raw_sk, POLLIN | POLLERR);
@@ -509,7 +482,7 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
 {
     th->source = src.sin.sin_port;
     th->seq = htonl(seq_num);
-    pb->seq = seq_num;
+    pb->seq_num = seq_num;
     
     if(counter_pointer == NULL)
         error("counter pointer uninitialized");
@@ -529,6 +502,7 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
     }
 
     pb->sk = -1;
+    pb->icmp_done = 0;
     pb->send_time = get_time();
     
     int res = do_send(raw_sk, th, *length_p, &dest_addr);
@@ -586,13 +560,9 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
         }
         
         uint32_t sack_len = size-2;
-      
-        if(sack_len % 8 != 0 || sack_len > MAX_ALLOWED_SACK_PAYLOAD_LEN) {
-            close(sk);
-            close(raw_sk);
+        if(sack_len % 8 != 0 || sack_len > 24)
             ex_error("Malformed SACK option");
-        }
-      
+        
         sack_found = 1;
         
         while(sack_len > 0) {
@@ -630,8 +600,8 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     probe* first_avail_probe = NULL;
     
     for(int i = 0; i < num_probes; i++) {
-        if(((probes[i].seq >= curr_sack_blocks.block[0].sle && probes[i].seq < curr_sack_blocks.block[0].sre) || (probes[i].seq >= curr_sack_blocks.block[1].sle && probes[i].seq < curr_sack_blocks.block[1].sre) || (probes[i].seq >= curr_sack_blocks.block[2].sle && probes[i].seq < curr_sack_blocks.block[2].sre)) && (probes[i].seq > 0)) {
-            probes[i].reply_from_destination = 1;
+        if(((probes[i].seq_num >= curr_sack_blocks.block[0].sle && probes[i].seq_num < curr_sack_blocks.block[0].sre) || (probes[i].seq_num >= curr_sack_blocks.block[1].sle && probes[i].seq_num < curr_sack_blocks.block[1].sre) || (probes[i].seq_num >= curr_sack_blocks.block[2].sle && probes[i].seq_num < curr_sack_blocks.block[2].sre)) && (probes[i].seq_num > 0)) {
+            probes[i].tcpinsession_destination_reply = 1;
                 
             if(probes[i].done == 0 && probes[i].final == 0) {
                 first_avail_probe = &probes[i];
@@ -652,14 +622,15 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         return NULL;
         
     struct tcphdr* tcp = (struct tcphdr*)buf;
+    uint32_t seq_num_returned = 0;
     
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
         uint16_t dport = tcp->dest; 
         if(dport != dest_port)
             return NULL;
 
-        uint32_t seq_num_returned = ntohl(tcp->seq);
-        return probe_by_seq(seq_num_returned);
+        seq_num_returned = ntohl(tcp->seq);
+        return probe_by_seq_num(seq_num_returned);
     }
     
     uint16_t dport = tcp->source;
@@ -688,23 +659,6 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         pb->ext = names_by_flags(TH_FLAGS(tcp));
     
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
-   
-    if(check_ecn_tcp) {
-        if(TH_FLAGS(tcp) & TH_ECE) {
-            if(ecn_discovery_result != DESTINATION_SUPPORT_ECN && ecn_discovery_result != ECN_IS_SUPPORTED)
-                ecn_discovery_result = WEIRD_ECN_BEHAVIOR; // ECN was not supported vy TCP dest but data ACK contains ECE (!?!)
-            else
-                ecn_discovery_result = ECN_IS_SUPPORTED;
-        } else {
-            if(ecn_discovery_result == DESTINATION_SUPPORT_ECN) {
-                if(check_ecn_tcp != 3)
-                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED;
-                else
-                    ecn_discovery_result = DATA_ACK_DOES_NOT_CONTAIN_ECE;
-            }
-            // else the destination does not support ECN
-        }
-    }
     
     return pb;
 }
@@ -715,11 +669,6 @@ static void tcpinsession_recv_probe(int sk, int revents)
         return;
 
     recv_reply(sk, !!(revents & POLLERR), tcpinsession_check_reply);
-}
-
-static void tcpinsession_expire_probe(probe* pb, int* what) 
-{
-    probe_done(pb, what);
 }
 
 static int tcpinsession_is_raw_icmp_sk(int sk)
@@ -749,7 +698,7 @@ static void tcpinsession_handle_raw_icmp_packet(char* bufp)
     offending_probe = (struct tcphdr*)offending_probe;
     
     uint32_t probe_seq_num = ntohl(offending_probe->seq);
-    probe* pb = probe_by_seq(probe_seq_num);
+    probe* pb = probe_by_seq_num(probe_seq_num);
     
     if(pb) {
         offending_probe_dest.sin.sin_port = offending_probe->dest;
@@ -757,17 +706,16 @@ static void tcpinsession_handle_raw_icmp_packet(char* bufp)
         
         if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
             pb->returned_tos = returned_tos;
-            tcpinsession_expire_probe(pb, &pb->icmp_done);
+            probe_done(pb, &pb->icmp_done);
         }
     }
 }
 
 static void tcpinsession_close()
 {
-    print_allowed = 1;
+    tcpinsession_print_allowed = 1;
     int start = (first_hop - 1) * probes_per_hop;
-    int end = (last_probe == -1) ? num_probes : last_probe;
-    for(int i = start; i < end; i++)
+    for(int i = start; i < last_probe; i++)
         print_probe(&probes[i]);
     
     close(sk);
@@ -780,11 +728,10 @@ static tr_module tcpinsession_ops = {
     .init = tcpinsession_init,
     .send_probe = tcpinsession_send_probe,
     .recv_probe = tcpinsession_recv_probe,
-    .expire_probe = tcpinsession_expire_probe,
     .options = tcp_options,
     .is_raw_icmp_sk = tcpinsession_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcpinsession_handle_raw_icmp_packet,
-    .close = tcpinsession_close,
+    .close = tcpinsession_close
 };
 
 TR_MODULE(tcpinsession_ops);

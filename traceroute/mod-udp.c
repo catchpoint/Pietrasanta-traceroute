@@ -189,11 +189,6 @@ static void udp_recv_probe(int sk, int revents)
         recv_reply(sk, !!(revents & POLLERR), udp_check_reply);
 }
 
-static void udp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static int udp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -222,7 +217,7 @@ static void udp_handle_raw_icmp_packet(char* bufp)
     
     if(pb) {
         pb->returned_tos = returned_tos;        
-        udp_expire_probe(pb, &pb->icmp_done);
+        probe_done(pb, &pb->icmp_done);
     }
 }
 
@@ -239,7 +234,6 @@ static tr_module default_ops = {
     .init = udp_default_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -249,13 +243,11 @@ static tr_module default_ops = {
 
 TR_MODULE(default_ops);
 
-
 static tr_module udp_ops = {
     .name = "udp",
     .init = udp_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -270,7 +262,6 @@ static tr_module udplite_ops = {
     .init = udplite_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .options = udplite_options,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
