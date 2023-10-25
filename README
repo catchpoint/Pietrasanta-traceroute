@@ -9,6 +9,11 @@ the destination and sends TCP probes within the opened session with incremental
 TTL. The aim is to prevent false packet loss introduced by firewall and
 router configurations related to security and to ensures that packets follow a
 single flow, akin to a normal TCP session, to bypass load-balanced routers.
+ - Introduced enhanced TOS (DSCP/ECN) field report. This new option allows to set 
+ToS field in outgoing packets and read the ToS field of the expiring probes. It
+includes a special output to highlight DSCP and ECN values
+ 
+Full details in ChangeLog [here](https://github.com/catchpoint/Networking.traceroute/blob/develop/ChangeLog).
 
 ## Building & Installation
 ```
@@ -24,10 +29,7 @@ Binaries are provided for convenience [here](https://github.com/catchpoint/Netwo
 
 ## Usage
 
-See `traceroute(8)` for detailed instructions.  Only new Catchpoint features are
-documented here:
-
-* InSession 
+See `traceroute(8)` for detailed instructions.
 
 ## Original Dmitry Butskoy README file
 
@@ -69,4 +71,3 @@ You can try to contact the author at <Dmitry at Butskoy dot name> .
 Good tracerouting!
 
 Dmitry Butskoy
-
