@@ -1,11 +1,35 @@
-This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint 
-to support "TCP InSession" method. This method opens a TCP connection with
+# Catchpoint traceroute
+
+## Introduction
+
+This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint.  
+There are a number of improvements.  The main ones are enumerated here:
+* Support for "TCP InSession" method. This method opens a TCP connection with
 the destination and sends TCP probes within the opened session with incremental
 TTL. The aim is to prevent false packet loss introduced by firewall and
 router configurations related to security and to ensures that packets follow a
 single flow, akin to a normal TCP session, to bypass load-balanced routers.
 
-Hereafter is the original Dmitry README:
+## Building & Installation
+```
+make 
+make install
+```
+
+## Binaries
+
+This tool should build on any modern Linux system.  
+
+Binaries are provided for convenience [here](https://github.com/catchpoint/Networking.traceroute/tree/main/binaries) for common Linux distributions.
+
+## Usage
+
+See `traceroute(8)` for detailed instructions.  Only new Catchpoint features are
+documented here:
+
+* InSession 
+
+## Original Dmitry Butskoy README file
 
 This is a new modern implementation of the traceroute(8)
 utility for Linux systems.
