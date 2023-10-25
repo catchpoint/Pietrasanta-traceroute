@@ -25,7 +25,6 @@ include ./Make.rules
 
 targets = $(EXEDIRS) $(LIBDIRS) $(MODDIRS)
 
-
 # be happy, easy, perfomancy...
 .PHONY: $(subdirs) dummy all force
 .PHONY: depend indent clean distclean libclean release store libs mods
@@ -77,6 +76,7 @@ endif
 $(targets): mkfile = $(if $(wildcard $@/Makefile),,-f $(srcdir)/default.rules)
 
 $(targets): force
+	@echo Doing $@
 	@$(MAKE) $(mkfile) -C $@ $(what) TARGET=$@
 
 force:
