@@ -27,6 +27,8 @@
 #define UDPLITE_RECV_CSCOV    11
 #endif
 
+#define UDP_MAX_TRACEROUTE_PORT_RANGE 91
+
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
@@ -34,6 +36,7 @@ static unsigned int protocol = IPPROTO_UDP;
 static char *data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
+static int port_seq_specified = 0;
 extern int use_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
@@ -51,7 +54,12 @@ static void fill_data(size_t* packet_len_p)
 
 static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
-    curr_port = port_seq ? port_seq : DEF_START_PORT;
+    if(port_seq) {
+        port_seq_specified = 1;
+        curr_port = port_seq;
+    } else {
+        curr_port = DEF_START_PORT;
+    }
 
     dest_addr = *dest;
     dest_addr.sin.sin_port = htons(curr_port);
@@ -76,8 +84,10 @@ static int udp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;
+    else
+        port_seq_specified = 1;   
     
-    dest_addr.sin.sin_port = htons((uint16_t) port_seq);
+    dest_addr.sin.sin_port = htons((uint16_t)port_seq);
     
     fill_data(packet_len_p);
  
@@ -109,6 +119,9 @@ static int udplite_init(const sockaddr_any* dest, unsigned int port_seq, size_t*
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;    /*  XXX: Hmmm...   */
+    else
+        port_seq_specified = 1;
+        
     dest_addr.sin.sin_port = htons((uint16_t) port_seq);
 
     protocol = IPPROTO_UDPLITE;
@@ -162,9 +175,13 @@ static void udp_send_probe(probe* pb, int ttl)
 
     memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
     
-    if(curr_port) {    /*  traditional udp method   */
-        curr_port++;
-        dest_addr.sin.sin_port = htons(curr_port);    /* both ipv4 and ipv6 */
+    if(curr_port) {
+        if(port_seq_specified)
+            curr_port++;
+        else
+            curr_port = (curr_port - DEF_START_PORT + 1) % UDP_MAX_TRACEROUTE_PORT_RANGE + DEF_START_PORT;
+        
+        dest_addr.sin.sin_port = htons(curr_port);    // note that this is valid for both ipv4 and ipv6
     }
 }
 
