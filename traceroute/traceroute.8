@@ -15,6 +15,8 @@ traceroute \- print the route packets trace to network host
 .br
 .ti +8
 .BR "" [ "-q nqueries" "] [" "-N squeries" "] [" "-t tos" ]
+.ti +8
+.BR "" [ "-Q timeout" "] [" "--timeout timeout" "]
 .br
 .ti +8
 .BR "" [ "-l flow_label" "] [" "-w waittimes" "] [" "-z sendwait" "] [" "-UL" "] [" "-D" ]
@@ -137,6 +139,9 @@ Enable socket level debugging (when the Linux kernel supports it)
 .B \-F, --dont-fragment
 Do not fragment probe packets. (For IPv4 it also sets DF bit, which tells
 intermediate routers not to fragment remotely as well).
+.TP
+.B \-Q, --timeout
+Specifies the overall timeout in seconds for the tool execution.
 .br
 
 .br
