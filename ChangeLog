@@ -1,3 +1,16 @@
+2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.0.6
+    *  Introduced multithreading in printing traceroute results
+    
+        Classic traceroute prints results in a single thread fashion. The very same
+        thread has to mark the timing of arrival of probes and reverse resolve the
+        IP address to a name, if the feature is not disabled by the dedicated option.
+        The DNS resolution can take a while in some cases, thus affecting the goodness
+        of the results of probes in traceroute.
+        
+        To avoid this issue we introduced a second thread in the tool totally
+        dedicated to printing probes and DNS reverse resolving the IP addresses, while
+        the probe arrival times are taken on the main thread
+
 2023-08-21  Luca Sani  <lsani@catchpoint.com> - 0.0.5
     *  Fixed privilege requirements and closing sockets once used
         

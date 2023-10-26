@@ -36,6 +36,9 @@
 #include "version.h"
 #include "traceroute.h"
 
+#include <pthread.h>
+#include <semaphore.h>
+
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
 #ifdef ICMP6_DST_UNREACH_NOTNEIGHBOR
 #define ICMP6_DST_UNREACH_BEYONDSCOPE ICMP6_DST_UNREACH_NOTNEIGHBOR
@@ -57,42 +60,41 @@
 #endif
 
 #ifndef AI_IDN
-#define AI_IDN    0
+#define AI_IDN 0
 #endif
 
 #ifndef NI_IDN
-#define NI_IDN    0
+#define NI_IDN 0
 #endif
 
-#define MAX_HOPS    255
-#define MAX_PROBES    10
-#define MAX_GATEWAYS_4    8
-#define MAX_GATEWAYS_6    127
-#define DEF_HOPS    30
-#define DEF_SIM_PROBES    16    /*  including several hops   */
-#define DEF_NUM_PROBES    3
-#define DEF_WAIT_SECS    5.0
-#define DEF_HERE_FACTOR    3
-#define DEF_NEAR_FACTOR    10
+#define MAX_HOPS 255
+#define MAX_PROBES 10
+#define MAX_GATEWAYS_4 8
+#define MAX_GATEWAYS_6 127
+#define MAX_MTU_RETRIES 3
+#define DEF_HOPS 30
+#define DEF_SIM_PROBES 16    /*  including several hops   */
+#define DEF_NUM_PROBES 3
+#define DEF_WAIT_SECS 5.0
+#define DEF_HERE_FACTOR 3
+#define DEF_NEAR_FACTOR 10
 #ifndef DEF_WAIT_PREC
-#define DEF_WAIT_PREC    0.001    /*  +1 ms  to avoid precision issues   */
+#define DEF_WAIT_PREC 0.001    /*  +1 ms  to avoid precision issues   */
 #endif
-#define DEF_SEND_SECS    0
-#define DEF_DATA_LEN    40    /*  all but IP header...  */
+#define DEF_SEND_SECS 0
+#define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
-#define MAX_PACKET_LEN    65000
+#define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
-#define DEF_AF        AF_INET
+#define DEF_AF AF_INET
 #endif
 
-#define ttl2hops(X)    (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
+#define ttl2hops(X) (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
 
-static char version_string[] = "Modern traceroute for Linux, "
-                "version " _TEXT(VERSION)
-                "\nCopyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc."
-    "\nThis software was updated by Catchpoint Systems, Inc. to incorporate InSession algorithm functionality."
-                "\n\nCopyright(c) 2016  Dmitry Butskoy, "
-                "  License: GPL v2 or any later";
+static char version_string[] = "Modern traceroute for Linux, version " _TEXT(VERSION) "\n"
+                               "Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.\n"
+                               "This software was updated by Catchpoint Systems, Inc. to incorporate InSession algorithm functionality\n\n"
+                               "Copyright(c) 2016  Dmitry Butskoy,   License: GPL v2 or any later";
 static int debug = 0;
 unsigned int first_hop = 1;
 
@@ -101,10 +103,9 @@ static unsigned int sim_probes = DEF_SIM_PROBES;
 unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
+int tcpinsession_print_allowed = 0;
 probe* probes = NULL;
-probe* destination_probes = NULL;
-int print_allowed = 1;
-int check_ecn_tcp = 0;
+probe* tcpinsession_destination_probes = NULL;
 int ecn_discovery_result = DESTINATION_DOES_NOT_SUPPORT_ECN;
 
 static char **gateways = NULL;
@@ -136,12 +137,15 @@ static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
 static sockaddr_any dst_addr = {{ 0, }, };
-static char *dst_name = NULL;
-static char *device = NULL;
+static char* dst_name = NULL;
+static char* device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
-static const char *module = "default";
+static unsigned int destination_reached = 0;
+
+static const char* module = "default";
 static const tr_module *ops = NULL;
+
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
@@ -153,6 +157,11 @@ static void print_end(void)
 {
     printf("\n");
 }
+
+struct timeval starttime;
+
+sem_t probe_semaphore;
+pthread_t printer_thr;
 
 void ex_error(const char *format, ...) 
 {
@@ -211,19 +220,70 @@ int check_sysctl(const char* name)
     return 0;
 }
 
+static void check_expired(probe*);
+
+static void poll_callback(int, int);
+
+static void* printer(void* args)
+{
+    int start = (first_hop - 1) * probes_per_hop;
+    int end = num_probes;
+    
+    int replace_idx = 0;
+    
+    for(int idx = start; idx < end; idx++) {
+        sem_wait(&probe_semaphore);
+        
+        probe* pb = &probes[idx];
+
+        if(pb->exit_please > 0) {
+            if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
+                unsigned int n = idx-1;
+                while(n % probes_per_hop != probes_per_hop-1) {
+                    printf(" *"); // Add forced timeouts when overall timeout has been reached
+                    pb = &probes[n];
+                    probe_done(pb, NULL);
+                    check_expired(pb);
+                    n++;
+                }
+            }
+            return NULL;
+        }
+
+        print_probe(pb);
+
+        if(pb->done && pb->final)
+            end = (idx / probes_per_hop + 1) * probes_per_hop;
+    }
+
+    if(strcmp(module, "tcpinsession") == 0) { // Only in tcpinsession we need to replace the destination with the initial ping. Please note that print_probe will not print the probe results if  tcpinsession_destination_reply is set, and the final print is required to be performed at the end of the run
+        int destination_replies = 0;
+        for(int i = last_probe-probes_per_hop; i < last_probe; i++)
+            if(probes[i].tcpinsession_destination_reply == 1)
+                destination_replies++;
+
+        if(destination_replies > 0) {
+            for(int i = last_probe-probes_per_hop; i < last_probe; i++, replace_idx++) {
+                tcpinsession_destination_probes[replace_idx].mtu = probes[i].mtu;
+                tcpinsession_destination_probes[replace_idx].mss = probes[i].mss;
+                memcpy(&probes[i], &tcpinsession_destination_probes[replace_idx], sizeof(probe));
+            }
+        }
+    }
+    
+    return NULL;
+}
+
 /*  Set initial parameters according to how we was called   */
 static void check_progname(const char *name) 
 {
-    const char *p;
-    int l;
-
-    p = strrchr(name, '/');
+    const char* p = strrchr(name, '/');
     if(p)
         p++;
     else
         p = name;
 
-    l = strlen(p);
+    int l = strlen(p);
     if(l <= 0)
         return;
     l--;
@@ -241,14 +301,15 @@ static void check_progname(const char *name)
 
 static int getaddr(const char *name, sockaddr_any *addr) 
 {
-    int ret;
-    struct addrinfo hints, *ai, *res = NULL;
+    struct addrinfo hints;
+    struct addrinfo* ai = NULL;
+    struct addrinfo* res = NULL;
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = af;
     hints.ai_flags = AI_IDN;
 
-    ret = getaddrinfo(name, NULL, &hints, &res);
+    int ret = getaddrinfo(name, NULL, &hints, &res);
     if(ret) {
         fprintf(stderr, "%s: %s\n", name, gai_strerror(ret));
         return -1;
@@ -270,7 +331,7 @@ static int getaddr(const char *name, sockaddr_any *addr)
 
     freeaddrinfo(res);
 
-    /*  No v4mapped addresses in real network, interpret it as ipv4 anyway   */
+    /*  No v4 mapped addresses in real network, interpret it as ipv4 anyway   */
     if(addr->sa.sa_family == AF_INET6 && IN6_IS_ADDR_V4MAPPED(&addr->sin6.sin6_addr)) {
         if(af == AF_INET6)  return -1;
         addr->sa.sa_family = AF_INET;
@@ -282,16 +343,15 @@ static int getaddr(const char *name, sockaddr_any *addr)
 
 static void make_fd_used(int fd) 
 {
-    int nfd;
-
     if(fcntl(fd, F_GETFL) != -1)
         return;
 
     if(errno != EBADF)
         error("fcntl F_GETFL");
 
-    nfd = open("/dev/null", O_RDONLY);
-    if(nfd < 0)  error("open /dev/null");
+    int nfd = open("/dev/null", O_RDONLY);
+    if(nfd < 0)
+        error("open /dev/null");
 
     if(nfd != fd) {
         dup2(nfd, fd);
@@ -313,14 +373,15 @@ static const char *addr2str(const sockaddr_any *addr)
 static void init_ip_options(void) 
 {
     sockaddr_any *gates;
-    int i, max;
+    int i;
+    int max;
 
     if(!num_gateways)
         return;
 
     /*  check for TYPE,ADDR,ADDR... form   */
     if(af == AF_INET6 && num_gateways > 1 && gateways[0]) {
-        char *q;
+        char* q;
         unsigned int value = strtoul(gateways[0], &q, 0);
 
         if(!*q) {
@@ -338,7 +399,8 @@ static void init_ip_options(void)
     gates = alloca(num_gateways * sizeof(*gates));
 
     for(i = 0; i < num_gateways; i++) {
-        if(!gateways[i])  error("strdup");
+        if(!gateways[i])
+            error("strdup");
 
         if(getaddr(gateways[i], &gates[i]) < 0)
             ex_error("");    /*  already reported   */
@@ -378,7 +440,7 @@ static void init_ip_options(void)
         rtbuf = malloc(rtbuf_len);
         if(!rtbuf)  error("malloc");
 
-        rth = (struct ip6_rthdr *) rtbuf;
+        rth = (struct ip6_rthdr*)rtbuf;
         rth->ip6r_nxt = 0;
         rth->ip6r_len = 2 * num_gateways;
         rth->ip6r_type = ipv6_rthdr_type;
@@ -393,7 +455,7 @@ static void init_ip_options(void)
 }
 
 /*    Command line stuff        */
-static int set_af(CLIF_option *optn, char *arg) 
+static int set_af(CLIF_option* optn, char* arg) 
 {
     int vers = (long) optn->data;
 
@@ -602,7 +664,6 @@ int main(int argc, char *argv[])
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
 
-
     ops = tr_get_module(module);
     if(!ops)
         ex_error("Unknown traceroute module %s", module);
@@ -636,9 +697,6 @@ int main(int argc, char *argv[])
             
         if(ecn_input_value != -1)
             tos += ecn_input_value;
-        
-        if(ecn_input_value > 0 && check_sysctl("ecn") && strcmp(module, "tcpdata") == 0)
-            check_ecn_tcp = ecn_input_value;
             
         tos_input_value = tos;
         use_additional_raw_icmp_socket = 1;
@@ -697,9 +755,10 @@ int main(int argc, char *argv[])
         max_hops = 255;
         first_hop = 255;
         sim_probes = 1;
+        tcpinsession_print_allowed = 0;
         
-        destination_probes = calloc(probes_per_hop, sizeof(probe));
-        if(!destination_probes)
+        tcpinsession_destination_probes = calloc(probes_per_hop, sizeof(probe));
+        if(!tcpinsession_destination_probes)
             error("calloc");
     }
 
@@ -707,6 +766,8 @@ int main(int argc, char *argv[])
     probes = calloc(num_probes, sizeof(*probes));
     if(!probes)
         error("calloc");
+
+    sem_init(&probe_semaphore, 0, 0);
 
     if(ops->options && opts_idx > 1) {
         opts[0] = strdup(module);        /*  aka argv[0] ...  */
@@ -718,13 +779,15 @@ int main(int argc, char *argv[])
         ex_error("trace method's init failed");
         
     if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
-        print_allowed = 0;
         data_len = DEF_DATA_LEN_TCPINSESSION;
         do_it();
         
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
-            memcpy(destination_probes+idx, &probes[start+idx], sizeof(probe));
+            memcpy(tcpinsession_destination_probes+idx, &probes[start+idx], sizeof(probe));
+        
+        if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
+            tcpinsession_print_allowed = 1;
                 
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
@@ -738,7 +801,12 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         if(!probes)
             error("calloc");
+        
+        sem_init(&probe_semaphore, 0, 0); // Ignore the destination probes at the moment
     }
+    
+    if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
+        ex_error("printer thread creation failed");
 
     if(mtudisc) {
         int i = 0;
@@ -751,8 +819,8 @@ int main(int argc, char *argv[])
             if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
                 overall_mtu = atoi(probes[0].err_str+2);
                 memset(&probes[0], 0x0, sizeof(probe));
-            } else if(!probes[0].done && i <= 3) {
-                ops->expire_probe(&probes[0], NULL);
+            } else if(!probes[0].done && i <= MAX_MTU_RETRIES) {
+                probe_done(&probes[0], NULL);
                 break;
             }
         }
@@ -768,27 +836,11 @@ int main(int argc, char *argv[])
     print_header();
 
     do_it();
-    
-    if(strcmp(module, "tcpinsession") == 0) {
-        int destination_replies = 0;
-        for(int i = last_probe-probes_per_hop; i < last_probe; i++)
-            if(probes[i].reply_from_destination == 1)
-                destination_replies++;
-
-        if(destination_replies > 0) {
-            int replace_idx = 0;
-            for(int i = last_probe-probes_per_hop; i < last_probe; i++, replace_idx++)
-                memcpy(&probes[i], &destination_probes[replace_idx], sizeof(probe));
-        }
-    }
 
     // Make extra-sure to not leave any FD open
     for(int i = 0; i < num_probes; i++)
         if(probes[i].sk > 0)
             close(probes[i].sk);
-            
-    if(ops->close)
-        ops->close();
 
     print_trailer();
     
@@ -820,7 +872,7 @@ static void print_addr(sockaddr_any *res)
 
 void print_probe(probe *pb) 
 {
-    if(print_allowed == 0)
+    if(strcmp(module, "tcpinsession") == 0 && tcpinsession_print_allowed == 0)
         return;
         
     unsigned int idx = (pb - probes);
@@ -1037,17 +1089,24 @@ replace_by_final:
     fp->send_time = 1.;
 }
 
-probe *probe_by_seq(uint32_t seq) 
+probe *probe_by_seq(int seq) 
 {
-    int n;
-
     if(seq == 0)
         return NULL;
 
-    for(n = 0; n < num_probes; n++) {
+    for(int n = 0; n < num_probes; n++) {
         if(probes[n].seq == seq)
             return &probes[n];
     }
+
+    return NULL;
+}
+
+probe* probe_by_seq_num(uint32_t seq_num) 
+{
+    for(int n = 0; n < num_probes; n++)
+        if(probes[n].seq_num == seq_num)
+            return &probes[n];
 
     return NULL;
 }
@@ -1097,53 +1156,59 @@ static void do_it(void)
     int start = (first_hop - 1) * probes_per_hop;
     int end = num_probes;
     double last_send = 0;
+    
+    gettimeofday(&starttime, NULL);
 
     while(start < end) {
-        int n, num = 0;
+        int n = 0;
+        int num = 0;
         double next_time = 0;
         double now_time = get_time();
+        
+        int exit_please = 0;
 
-        for(n = start; n < end; n++) {
+        for(n = start; n < end && exit_please == 0; n++) {
             probe *pb = &probes[n];
 
             if(n == start && !pb->done && pb->send_time) { /*  probably time to print, but yet not replied   */
                 double expire_time = pb->send_time + get_timeout(pb);
-
-                if(expire_time > now_time)
+                if(expire_time > now_time) {
                     next_time = expire_time;
-                else {
-                    ops->expire_probe(pb, NULL);
+                } else {
+                    probe_done(pb, NULL);
                     check_expired(pb);
                 }
             }
             
             if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+                destination_reached = 0; // Any unreachability means we didn't get to destination!
                 int mtu_value = atoi(pb->err_str+2);
                 if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
                     if(overall_mtu > mtu_value)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
                     sim_probes = DEF_SIM_PROBES;
-                    data_len = (strcmp(module, "tcpdata") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
+                    data_len = (strcmp(module, "tcpinsession") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
                 }
             }
 
             if(pb->done) {
                 if(n == start) {    /*  can print it now   */
-                    print_probe(pb);
+                    if(pb->final && pb->res.sa.sa_family && equal_addr(&pb->res, &dst_addr))
+                        destination_reached = 1;
+
+                    sem_post(&probe_semaphore);
                     start++;
                 }
-
                 if(pb->final) {
                     end = (n / probes_per_hop + 1) * probes_per_hop;
                     last_probe = end;
                 }
-                
+
                 continue;
             }
 
             if(!pb->send_time) {
-                int ttl;
                 double next;
 
                 if(send_secs &&(next = last_send + send_secs) > now_time) {
@@ -1151,7 +1216,10 @@ static void do_it(void)
                     break;
                 }
 
-                ttl = n / probes_per_hop + 1;
+                int ttl = n / probes_per_hop + 1;
+
+                pb->mss = 0;
+                pb->mtu = 0;
 
                 ops->send_probe(pb, ttl);
 
@@ -1173,6 +1241,9 @@ static void do_it(void)
                 break;
         }
 
+        if(exit_please > 0)
+            break;
+
         if(next_time) {
             double timeout = next_time - get_time();
 
@@ -1182,32 +1253,35 @@ static void do_it(void)
             do_poll(timeout, poll_callback);
         }
     }
-
-    printf("\n");
 }
 
 static void print_trailer()
 {
+    struct timeval endtime;
+    gettimeofday(&endtime, NULL);
+    
+    struct timeval elapsedtime;
+    
+    timersub(&endtime, &starttime, &elapsedtime);
+    
+    float msec_elapsed = elapsedtime.tv_usec % 1000;
+    msec_elapsed /= 1000; // Move microseconds
+    msec_elapsed += elapsedtime.tv_sec * 1000; // Add seconds
+    msec_elapsed += elapsedtime.tv_usec / 1000; // Add milliseconds
+    
+    pthread_join(printer_thr, NULL);
+
+    if(ops->close)
+        ops->close();
+
+    printf("\n   Duration: %0.3f ms", msec_elapsed);
+    printf("\n   DestinationReached: %s", (destination_reached == 1) ? "true" : "false");
+
     if(overall_mtu > 0) {
         if(reliable_overall_mtu > 0)
             printf("\n   Path MTU: %d", overall_mtu);
         else
             printf("\n   Path MTU: %d (Potentially overestimated)", overall_mtu);
-    }
-    
-    if(check_ecn_tcp) {
-        if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
-            printf("\nECN mechanism is not supported by the destination");
-        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
-            printf("\nnECN mechanism is supported by the destination but the congestion is not properly acknowledged");
-        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED)
-            printf("\nECN mechanism is supported by the destination");
-        else if(ecn_discovery_result == ECN_IS_SUPPORTED)
-            printf("\nECN mechanism is supported by the destination and the congestion is properly acknowledged");
-        else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
-           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); // should never happen
-        else
-            printf("\nWeird ECN behavior");
     }
     
     print_end();

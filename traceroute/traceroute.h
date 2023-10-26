@@ -23,7 +23,7 @@ extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;
 extern unsigned int first_hop;
-extern int print_allowed;
+extern int tcpinsession_print_allowed;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -44,13 +44,16 @@ struct probe_struct
     double recv_time;
     int recv_ttl;
     int sk;
-    uint32_t seq;
-    int reply_from_destination;
+    int seq;
     char *ext;
+    int mss;
+    int mtu;
+    int returned_tos;
+    int exit_please;
     sockaddr_any src;
     sockaddr_any dest;
     uint32_t seq_num;
-    int returned_tos;
+    int tcpinsession_destination_reply;
     char err_str[16];    /*  assume enough   */
 };
 
@@ -78,7 +81,6 @@ struct tr_module_struct {
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
     void (*send_probe)(probe *pb, int ttl);
     void (*recv_probe)(int fd, int revents);
-    void (*expire_probe)(probe *pb, int* what);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
     size_t header_len;    /*  additional header length (aka for udp)   */
@@ -124,9 +126,10 @@ int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
 void print_probe(probe*);
 
-probe *probe_by_seq(uint32_t seq);
-probe *probe_by_sk(int sk);
+probe* probe_by_seq(int seq);
+probe* probe_by_sk(int sk);
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst);
+probe* probe_by_seq_num(uint32_t seq_num);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);

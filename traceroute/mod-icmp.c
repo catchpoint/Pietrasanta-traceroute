@@ -211,11 +211,6 @@ static void icmp_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), icmp_check_reply);
 }
 
-static void icmp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static int icmp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -243,7 +238,7 @@ static void icmp_handle_raw_icmp_packet(char* bufp)
             probe* pb = probe_by_seq(recv_seq);
             
             if(pb)
-                icmp_expire_probe(pb, &pb->icmp_done);
+                probe_done(pb, &pb->icmp_done);
         } else {
             struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
             if(inner_ip->protocol != IPPROTO_ICMP)
@@ -260,7 +255,7 @@ static void icmp_handle_raw_icmp_packet(char* bufp)
         
             if(pb) {
                 pb->returned_tos = inner_ip->tos;
-                icmp_expire_probe(pb, &pb->icmp_done);
+                probe_done(pb, &pb->icmp_done);
             }
         }
     } else if(dest_addr.sa.sa_family == AF_INET6) {
@@ -279,7 +274,7 @@ static void icmp_handle_raw_icmp_packet(char* bufp)
             probe* pb = probe_by_seq(recv_seq);
         
             if(pb)
-                icmp_expire_probe(pb, &pb->icmp_done);
+                probe_done(pb, &pb->icmp_done);
         } else {
             struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));            
             struct icmp6_hdr* offending_probe = (struct icmp6_hdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
@@ -300,7 +295,7 @@ static void icmp_handle_raw_icmp_packet(char* bufp)
                 tmp &= 0x0fffffff;
                 tmp >>= 20; 
                 pb->returned_tos = (uint8_t)tmp;
-                icmp_expire_probe(pb, &pb->icmp_done);
+                probe_done(pb, &pb->icmp_done);
             }
         }
     }
@@ -318,7 +313,6 @@ static tr_module icmp_ops = {
     .init = icmp_init,
     .send_probe = icmp_send_probe,
     .recv_probe = icmp_recv_probe,
-    .expire_probe = icmp_expire_probe,
     .options = icmp_options,
     .is_raw_icmp_sk = icmp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = icmp_handle_raw_icmp_packet,

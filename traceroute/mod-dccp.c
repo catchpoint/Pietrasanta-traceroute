@@ -248,17 +248,11 @@ static void dccp_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), dccp_check_reply);
 }
 
-static void dccp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static tr_module dccp_ops = {
     .name = "dccp",
     .init = dccp_init,
     .send_probe = dccp_send_probe,
     .recv_probe = dccp_recv_probe,
-    .expire_probe = dccp_expire_probe,
     .options = dccp_options,
 };
 

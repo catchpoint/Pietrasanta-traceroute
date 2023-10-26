@@ -49,7 +49,7 @@ gcc = $(findstring gcc,$(CC))
 $(call set, CFLAGS, $(if $(gcc), -g -Wall -std=c99, -O0))
 $(call set, CPPFLAGS, )
 $(call set, LDFLAGS, -g)
-$(call set, LIBS, )
+$(call set, LIBS, -lpthread)
 
 
 #  install stuff

@@ -18,14 +18,11 @@
 #include <netinet/ip6.h>
 #include <netinet/tcp.h>
 
-
 #include "traceroute.h"
-
 
 #ifndef IP_MTU
 #define IP_MTU    14
 #endif
-
 
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
@@ -261,14 +258,14 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         ptr += len;
     }
 
-    lenp = (uint16_t *) ptr;
+    lenp = (uint16_t*)ptr;
     ptr += sizeof(uint16_t);
-    *((uint16_t *) ptr) = htons ((uint16_t) IPPROTO_TCP);
+    *((uint16_t*)ptr) = htons((uint16_t)IPPROTO_TCP);
     ptr += sizeof(uint16_t);
 
     /*  Construct TCP header   */
 
-    th = (struct tcphdr *) ptr;
+    th = (struct tcphdr*)ptr;
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
@@ -464,21 +461,13 @@ static void tcp_recv_probe(int sk, int revents)
 {
     if(!(revents & (POLLIN | POLLERR)))
         return;
-
     recv_reply(sk, !!(revents & POLLERR), tcp_check_reply);
-}
-
-
-static void tcp_expire_probe(probe* pb, int* what)
-{
-    probe_done (pb, what);
 }
 
 static int tcp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
         return 1;
-
     return 0;
 }
 
@@ -502,7 +491,7 @@ static void tcp_handle_raw_icmp_packet(char* bufp)
     
     if(pb) {
         pb->returned_tos = returned_tos;
-        tcp_expire_probe(pb, &pb->icmp_done);
+        probe_done(pb, &pb->icmp_done);
     }
 }
 
@@ -518,7 +507,6 @@ static tr_module tcp_ops = {
     .init = tcp_init,
     .send_probe = tcp_send_probe,
     .recv_probe = tcp_recv_probe,
-    .expire_probe = tcp_expire_probe,
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
