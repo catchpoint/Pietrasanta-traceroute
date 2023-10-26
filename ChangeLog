@@ -17,6 +17,16 @@
         Introduced the possibility to stop traceroute after a maximum number of
         hop failures is reached. By default this value is set to max_hops (30)
         but it can be changed via the -h (--failures) option.
+    
+    * Reuse UDP ports
+        When running in UDP mode the destination port is incremented for each probe
+        sent starting by default from port 33434. Several firewalls have been found
+        to filter packets having an UDP destination port greater than 33534,
+        so they assume a maximum of 90 probes can be received for the same
+        destination IP. With this version of traceroute, if the user does not provide
+        any destination UDP port, the port used will wrap-up and restart from 33434
+        after reaching port 33534. UDP source ports will still be decided by the OS
+        via the bind syscall.
 
 2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.1
     *  Introduced multithreading in printing traceroute results
