@@ -3,7 +3,7 @@
         
         We introduced a global starting timeout for the tool to have an hard limit 
         about the duration of the traceroute. The overall timeout is by default 60
-        seconds and can be changed via the -Q option.
+        seconds and can be changed via the -Q (or --timeout) option.
         To recognize whether a traceroute was terminated due to the reach of the
         overall timeout, an additional trailing output in the form 
         `Timedout: true/false` has been introduced.
