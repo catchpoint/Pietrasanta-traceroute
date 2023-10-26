@@ -68,6 +68,7 @@
 #endif
 
 #define MAX_HOPS 255
+#define MAX_HOP_FAILURES MAX_HOPS
 #define MAX_PROBES 10
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
@@ -142,6 +143,8 @@ static char* device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
 static unsigned int destination_reached = 0;
+static int consecutive_probe_failures = 0;
+static int max_consecutive_hop_failures = MAX_HOPS;
 
 static const char* module = "default";
 static const tr_module *ops = NULL;
@@ -596,8 +599,8 @@ static CLIF_option option_list[] = {
     { "F", "dont-fragment", 0, "Do not fragment packets", CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
     { "f", "first", "first_ttl", "Start from the %s hop (instead from 1)", CLIF_set_uint, &first_hop, 0, 0 },
     { "g", "gateway", "gate", "Route packets through the specified gateway (maximum " _TEXT(MAX_GATEWAYS_4) " for IPv4 and " _TEXT(MAX_GATEWAYS_6) " for IPv6)", add_gateway, 0, 0, CLIF_SEVERAL },
+    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting", CLIF_set_uint, &max_consecutive_hop_failures, 0, 0 },
     { "I", "icmp", 0, "Use ICMP ECHO for tracerouting", set_module, "icmp", 0, 0 },
-    { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
     { "i", "interface", "device", "Specify a network interface to operate with", CLIF_set_string, &device, 0, 0 },
     { "m", "max-hops", "max_ttl", "Set the max number of hops (max TTL to be reached). Default is " _TEXT(DEF_HOPS) ,
             CLIF_set_uint, &max_hops, 0, 0 },
@@ -610,6 +613,7 @@ static CLIF_option option_list[] = {
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
+    { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
     { "z", "sendwait", "sendwait", "Minimal time interval between probes (default " _TEXT(DEF_SEND_SECS) "). If the value is more than 10, then it specifies a number in milliseconds, else it is a number of seconds (float point values allowed too)", CLIF_set_double, &send_secs, 0, 0 },
     { "e", "extensions", 0, "Show ICMP extensions(if present), including MPLS", CLIF_set_flag, &extension, 0, CLIF_ABBREV },
     { "A", "as-path-lookups", 0, "Perform AS path lookups in routing registries and print results directly after the corresponding addresses", CLIF_set_flag, &as_lookups, 0, 0 },
@@ -684,6 +688,10 @@ int main(int argc, char *argv[])
         ex_error("bad sendtime `%g' specified", send_secs);
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
+    if(max_consecutive_hop_failures <= 0 || max_consecutive_hop_failures > MAX_HOP_FAILURES)
+        ex_error("max consecutive hop failures out of range");
+    if(max_consecutive_hop_failures > 0)
+        sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
         
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");
@@ -1196,8 +1204,26 @@ static void do_it(void)
                 if(n == start) {    /*  can print it now   */
                     if(pb->final && pb->res.sa.sa_family && equal_addr(&pb->res, &dst_addr))
                         destination_reached = 1;
-
+                    
+                    if(!pb->res.sa.sa_family)
+                        consecutive_probe_failures++;
+                    else
+                        consecutive_probe_failures = 0;
+                        
                     sem_post(&probe_semaphore);
+                    
+                    if(max_consecutive_hop_failures >= 0 && max_consecutive_hop_failures <= (consecutive_probe_failures/probes_per_hop)) {
+                        if(n+1 < end) {
+                            probes[n+1].exit_please = 1;
+                            sem_post(&probe_semaphore);
+                        }
+                        
+                        if(strcmp(module, "tcpinsession") == 0)
+                            destination_reached = 0;
+                        
+                        exit_please = 1;
+                    }                    
+                    
                     start++;
                 }
                 if(pb->final) {
