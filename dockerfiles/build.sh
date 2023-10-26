@@ -34,6 +34,24 @@ build()
     fi
     
     CONTAINER_ID=$(docker run -d traceroute:"$1")
+
+    MAX_TIMEOUT_SEC=30
+    TIMEOUT=$MAX_TIMEOUT_SEC
+    while true
+    do
+        sleep 1
+        if [ "$( docker container inspect -f '{{.State.Status}}' ${CONTAINER_ID} )" = "running" ]
+        then
+            break;
+        fi
+        TIMEOUT=$((TIMEOUT-1))
+        
+        if [ $TIMEOUT -eq 0 ]
+        then
+            echo "${CONTAINER_ID} did not start in ${MAX_TIMEOUT_SEC} sec, giving up"
+            return 1
+        fi
+    done
     
     if ! docker exec -it "$CONTAINER_ID" /bin/bash -c "cd traceroute && make clean && make traceroute"
     then
