@@ -11,6 +11,8 @@ traceroute \- print the route packets trace to network host
 .BR traceroute " [" \-46dFITUnreAV "] [" "\-f first_ttl" "] [" "\-g gate,..." ]
 .br
 .ti +8
+.BR "" [ "-H max_consecutive_hop_failures" "] [" "--failures max_consecutive_hop_failures" "]
+.ti +8
 .BR "" [ "-i device" "] [" "-m max_ttl" "] [" "-p port" "] [" "-s src_addr" ]
 .br
 .ti +8
@@ -143,6 +145,11 @@ intermediate routers not to fragment remotely as well).
 .B \-Q, --timeout
 Specifies the overall timeout in seconds for the tool execution.
 .br
+.B \-H, --failures
+Sets the max number of consecutive hops that can fail before terminating traceroute.
+By default this limit is set to max_hops, but it can be changed via this option.
+An hop is considered to be "failed" when all the probes within the probe timeout.
+.TP
 
 .br
 Varying the size of the probing packet by the
