@@ -1,3 +1,8 @@
+2023-10-26  Luca Sani  <lsani@catchpoint.com> - 0.1.3
+    *  Introduce Overall Timeout
+        
+        Alpine binary available.
+
 2023-10-26  Luca Sani  <lsani@catchpoint.com> - 0.1.2
     *  Introduce Overall Timeout
         
