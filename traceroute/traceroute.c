@@ -142,6 +142,8 @@ static char* dst_name = NULL;
 static char* device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
+static unsigned int overall_timeout = 0;
+static unsigned int timedout = 0;
 static unsigned int destination_reached = 0;
 static int consecutive_probe_failures = 0;
 static int max_consecutive_hop_failures = MAX_HOPS;
@@ -610,6 +612,7 @@ static CLIF_option option_list[] = {
     { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn", CLIF_set_uint, &tos_input_value, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
+    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint, &overall_timeout, 0, 0 },
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
@@ -648,6 +651,12 @@ static void print_header(void)
 {
     /*  Note, without ending new-line!  */
     printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    
+    if(overall_timeout > 0)
+        printf("%us overall timeout", overall_timeout);
+    else
+        printf("overall timeout not set");
+        
     fflush(stdout);
 }
 
@@ -867,11 +876,22 @@ static void print_addr(sockaddr_any *res)
     if(noresolve) {
         printf(" %s", str);
     } else {
+        unsigned int do_not_resolve_due_to_timeout = 0;
+        if(overall_timeout > 0) {
+            struct timeval currtime;
+            gettimeofday(&currtime, NULL);
+            
+            if(currtime.tv_sec-starttime.tv_sec >= overall_timeout)
+                do_not_resolve_due_to_timeout = 1;
+        }
+        
         char buf[1024];
 
         buf[0] = '\0';
-        getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
-        printf(" %s(%s)", buf[0] ? buf : str, str);
+        
+        if(do_not_resolve_due_to_timeout == 0)
+            getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
+        printf(" %s (%s)", buf[0] ? buf : str, str);
     }
 
     if(as_lookups)
@@ -1176,6 +1196,20 @@ static void do_it(void)
         int exit_please = 0;
 
         for(n = start; n < end && exit_please == 0; n++) {
+            if(overall_timeout > 0) {
+                struct timeval currtime;
+                gettimeofday(&currtime, NULL);
+                
+                if(currtime.tv_sec-starttime.tv_sec >= overall_timeout) {
+                    if(n < end) {
+                        probes[n].exit_please = 1;
+                        sem_post(&probe_semaphore);
+                    }
+                    timedout = 1;
+                    break;
+                }
+            }
+            
             probe *pb = &probes[n];
 
             if(n == start && !pb->done && pb->send_time) { /*  probably time to print, but yet not replied   */
@@ -1267,16 +1301,36 @@ static void do_it(void)
                 break;
         }
 
-        if(exit_please > 0)
+        if(timedout > 0 || exit_please > 0)
             break;
 
         if(next_time) {
             double timeout = next_time - get_time();
-
             if(timeout < 0)
                 timeout = 0;
 
-            do_poll(timeout, poll_callback);
+            if(overall_timeout > 0) {
+                struct timeval currtime;
+                gettimeofday(&currtime, NULL);
+
+                double missing_time = overall_timeout;
+                missing_time -= currtime.tv_sec-starttime.tv_sec;
+                double decimals = 0;
+                if(currtime.tv_usec < starttime.tv_usec) {
+                    missing_time -= 1;
+                    decimals = starttime.tv_usec - currtime.tv_usec;
+                } else {
+                    decimals = currtime.tv_usec - starttime.tv_usec;
+                }
+                decimals /= 1000;
+                decimals /= 1000;
+                missing_time -= decimals;
+
+                missing_time = (missing_time < 0) ? 0 : missing_time;
+                do_poll((missing_time > timeout) ? timeout : missing_time, poll_callback);                
+            } else {
+                do_poll(timeout, poll_callback);
+            }
         }
     }
 }
@@ -1300,6 +1354,7 @@ static void print_trailer()
     if(ops->close)
         ops->close();
 
+    printf("\n   Timedout: %s", (timedout == 1) ? "true" : "false");
     printf("\n   Duration: %0.3f ms", msec_elapsed);
     printf("\n   DestinationReached: %s", (destination_reached == 1) ? "true" : "false");
 
