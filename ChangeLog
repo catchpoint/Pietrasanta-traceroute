@@ -1,4 +1,4 @@
-2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.0.6
+2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.1
     *  Introduced multithreading in printing traceroute results
     
         Classic traceroute prints results in a single thread fashion. The very same
