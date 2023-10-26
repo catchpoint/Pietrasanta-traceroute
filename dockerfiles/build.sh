@@ -70,7 +70,7 @@ build()
 
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 
-for PLATFORM in $(echo "alpine")
+for PLATFORM in $(echo "centos7 debian11 ubuntu22 alpine")
 do
     echo "Building for $PLATFORM"
     SAVE_DIR="${SCRIPTPATH}/${PLATFORM}"
