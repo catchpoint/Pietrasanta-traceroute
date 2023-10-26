@@ -50,8 +50,6 @@ struct probe_struct
     int mtu;
     int returned_tos;
     int exit_please;
-    struct timeval starttime;
-    struct timeval endtime;
     sockaddr_any src;
     sockaddr_any dest;
     uint32_t seq_num;

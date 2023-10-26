@@ -220,8 +220,6 @@ int check_sysctl(const char* name)
     return 0;
 }
 
-static void print_round_time(int);
-
 static void check_expired(probe*);
 
 static void poll_callback(int, int);
@@ -248,8 +246,6 @@ static void* printer(void* args)
                     check_expired(pb);
                     n++;
                 }
-                
-                print_round_time(n);
             }
             return NULL;
         }
@@ -874,34 +870,6 @@ static void print_addr(sockaddr_any *res)
         printf(" [%s]", get_as_path(str));
 }
 
-static void print_round_time(int idx)
-{
-    unsigned int ttl = idx / probes_per_hop + 1;
-    unsigned int start_idx = (ttl-1)*probes_per_hop;
-    unsigned int end_idx = start_idx+probes_per_hop;
-    
-    struct timeval* first_start_time = NULL;
-    struct timeval* last_end_time = NULL;
-    
-    for(unsigned int i = start_idx; i < end_idx; i++) { // Check previous N probes to retrieve the first firsttime and the last lasttime
-        probe* pb = &probes[i];
-        if(pb->starttime.tv_sec == 0) // Probe not launched yet. ignore it
-            continue;
-
-        if(first_start_time == NULL) {
-            first_start_time = &(pb->starttime);
-            last_end_time = &(pb->endtime);
-            continue;
-        }
-        
-        if(pb->endtime.tv_sec > last_end_time->tv_sec || (pb->endtime.tv_sec == last_end_time->tv_sec && pb->endtime.tv_usec > last_end_time->tv_usec))
-            last_end_time = &pb->endtime;
-        
-        if(pb->starttime.tv_sec < first_start_time->tv_sec || (pb->starttime.tv_sec == first_start_time->tv_sec && pb->starttime.tv_usec < first_start_time->tv_usec))
-            first_start_time = &pb->starttime;
-    }
-}
-
 void print_probe(probe *pb) 
 {
     if(strcmp(module, "tcpinsession") == 0 && tcpinsession_print_allowed == 0)
@@ -1250,7 +1218,6 @@ static void do_it(void)
 
                 int ttl = n / probes_per_hop + 1;
 
-                gettimeofday(&pb->starttime, NULL);
                 pb->mss = 0;
                 pb->mtu = 0;
 
@@ -1563,7 +1530,6 @@ void probe_done(probe* pb, int* what)
         }
 
         pb->seq = 0;
-        gettimeofday(&pb->endtime, NULL);
         pb->done = 1;
     }
 }
