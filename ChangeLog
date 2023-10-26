@@ -1,3 +1,23 @@
+2023-10-26  Luca Sani  <lsani@catchpoint.com> - 0.1.2
+    *  Introduce Overall Timeout
+        
+        We introduced a global starting timeout for the tool to have an hard limit 
+        about the duration of the traceroute. The overall timeout is by default 0
+        (unlimited) and can be changed via the -Q (or --timeout) option.
+        To recognize whether a traceroute was terminated due to the reach of the
+        overall timeout, an additional trailing output in the form 
+        `Timedout: true/false` has been introduced.
+     
+     *  Alpine support
+        
+        Alpine 3.15 binary available.
+    
+    *  Max Consecutive Hop Failures
+        
+        Introduced the possibility to stop traceroute after a maximum number of
+        hop failures is reached. By default this value is set to max_hops (30)
+        but it can be changed via the -h (--failures) option.
+
 2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.1
     *  Introduced multithreading in printing traceroute results
     
