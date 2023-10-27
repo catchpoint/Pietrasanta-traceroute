@@ -786,9 +786,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
             }
             
             if(quic_version == 0x00)
-                sprintf(proto_details, "Version Negotiation");
+                sprintf(proto_details, "Q:Version Negotiation");
             else
-                sprintf(proto_details, "Unhandled packet type %d", packet_type);
+                sprintf(proto_details, "Q:Unhandled packet type %d", packet_type);
             
             pb->proto_details = strdup(proto_details);
             
@@ -796,9 +796,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         }
         
         if(pb->retry_token != NULL)
-            sprintf(proto_details, "Retry,Initial");
+            sprintf(proto_details, "Q:Retry,Initial");
         else
-            sprintf(proto_details, "Initial");
+            sprintf(proto_details, "Q:Initial");
         
         pb->proto_details = strdup(proto_details);
         
