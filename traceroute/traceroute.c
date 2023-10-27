@@ -85,6 +85,7 @@
 #define DEF_SEND_SECS 0
 #define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
+#define MIN_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
 #define DEF_AF AF_INET
@@ -107,7 +108,6 @@ int last_probe = -1;
 int tcpinsession_print_allowed = 0;
 probe* probes = NULL;
 probe* tcpinsession_destination_probes = NULL;
-int ecn_discovery_result = DESTINATION_DOES_NOT_SUPPORT_ECN;
 
 static char **gateways = NULL;
 static int num_gateways = 0;
@@ -124,7 +124,6 @@ static unsigned int dst_port_seq = 0;
 static unsigned int tos = 0;
 static int tos_input_value = -1;
 static int dscp_input_value = -1;
-static int ecn_input_value = -1;
 static unsigned int flow_label = 0;
 static int noroute = 0;
 static unsigned int fwmark = 0;
@@ -157,6 +156,7 @@ static int af = 0;
 static void print_trailer();
 
 int use_additional_raw_icmp_socket = 0;
+int ecn_input_value = -1;
 
 static void print_end(void) 
 {
@@ -635,6 +635,7 @@ static CLIF_option option_list[] = {
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
     { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
+    { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -762,6 +763,9 @@ int main(int argc, char *argv[])
         if(packet_len >= header_len)
             data_len = packet_len - header_len;
     }
+    
+    if(!mtudisc && strcmp(module, "quic") == 0)
+        data_len = MIN_DATA_LEN_QUIC;
 
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;
@@ -932,6 +936,12 @@ void print_probe(probe *pb)
                 printf(" <%s>", pb->ext);
                 free(pb->ext);
                 pb->ext = NULL;
+            }
+            
+            if(pb->ecn_info) {
+                printf(" <%s>", pb->ecn_info);
+                free(pb->ecn_info);
+                pb->ecn_info = NULL;
             }
 
             if(backward && pb->recv_ttl) {

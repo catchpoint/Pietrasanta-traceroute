@@ -34,7 +34,6 @@ static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
 static int raw_icmp_sk = -1;
 extern int use_additional_raw_icmp_socket; 
-extern int check_transport_ecn_support;
 extern int ecn_input_value;
 
 static uint8_t initial_packet_header[INITIAL_PACKET_HEADER_LEN];
@@ -546,7 +545,7 @@ void generate_quic_initial_packet(uint8_t* dcid, uint8_t dcid_len, uint8_t* fram
     packet_number++;    
 }
 
-static int quic_init(const sockaddr_any* dest, unsigned int port, size_t* packet_len_p, int tos) 
+static int quic_init(const sockaddr_any* dest, unsigned int port, size_t* packet_len_p) 
 {
     if(port) 
         curr_port = port;
@@ -605,9 +604,6 @@ static void quic_send_probe(probe* pb, int ttl)
     // save the dcid so we can re-generate the secrets if and when we receive the Initial packet from the server
     memcpy(pb->dcid, dcid, sizeof(dcid));
     pb->dcid_len = sizeof(dcid);
-    if(check_transport_ecn_support)
-        pb->ecn_discovery_result = QUIC_DOES_NOT_SUPPORT_ECN; // Initialize without support. Then we'll see.
-        
     pb->send_time = get_time();
     if(do_send(sk, (uint8_t*)encrypted_packet, *length_p, NULL) < 0) {
         close(sk);
@@ -689,6 +685,8 @@ size_t get_vlint(uint8_t* buf, uint8_t* len_size)
             ex_error("Got an impossible vlint size\n");
         }
     }
+    
+    return 0;
 }
 
 
@@ -779,7 +777,6 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         // See also https://www.rfc-editor.org/rfc/rfc9000.html#section-6.2-2
         
         if(packet_type != QUIC_INITIAL_PACKET || quic_version != SUPPORTED_QUIC_VERSION) {
-            pb->ecn_discovery_result = QUIC_REPLIED_NOT_INITIAL;
             if(pb->retry_token != NULL) {
                 free(pb->retry_token);
                 pb->retry_token_len = 0;
@@ -810,7 +807,7 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         
         // If we don't have to care about ECN support we can stop here.
         // Otherwise we need to inspect the packet looking for an ACK_ECN frame (type 0x03)
-        if(!check_transport_ecn_support)
+        if(!ecn_input_value)
             return pb;
           
         // Try to decrypt the packet to find an ACK_ECN to determine if the destination supports ECN
@@ -968,54 +965,6 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
                         
                         sprintf(ecn_add_info, "ECT0:%zu,ECT1:%zu,ECN-CE:%zu", ect0_count, ect1_count, ecn_ce_count);
                         pb->ecn_info = strdup(ecn_add_info);
-                        
-                        if((ect0_count + ect1_count + ecn_ce_count) != 1) { // Ensure that one and only one counter has value equal to 1 and the others are 0
-                            pb->ecn_discovery_result = QUIC_SUPPORT_ECN_WEIRD_COUNT_SUM;
-                        } else {
-                            switch(ecn_input_value)
-                            {
-                                case ECN_ECT_0:
-                                {
-                                    if(ect0_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN;
-                                    else if(ecn_ce_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_AND_CE; // Means that despite the packet was sent with ECN = 1, it reached the destination with CE = 1, thus a congestion was experienced
-                                    else if(ect1_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_WEIRD_COUNT_VAL; // Means that despite the packet was sent with ECN = 1, it reached the destination with ECN = 2, thus something fishy happened along the path
-                                    
-                                    break;
-                                }
-                                case ECN_ECT_1:
-                                {
-                                    if(ect1_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN;
-                                    else if(ecn_ce_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_AND_CE; // Means that despite the packet was sent with ECN = 2, it reached the destination with CE = 1, thus a congestion was experienced
-                                    else if(ect0_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_WEIRD_COUNT_VAL; // Means that despite the packet was sent with ECN = 2, it reached the destination with ECN = 1, thus something fishy happened along the path
-                                    
-                                    break;
-                                }
-                                case ECN_CE:
-                                {
-                                    if(ecn_ce_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_AND_CE;
-                                    else if(ect0_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_WEIRD_COUNT_VAL; // Means that despite the packet was sent with ECN = 3, it reached the destination with ECN = 1, thus something fishy happened along the path
-                                    else if(ect1_count == 1)
-                                        pb->ecn_discovery_result = QUIC_SUPPORT_ECN_WEIRD_COUNT_VAL; // Means that despite the packet was sent with ECN = 3, it reached the destination with ECN = 2, thus something fishy happened along the path
-                                    
-                                    break;
-                                }
-                                default:
-                                {
-                                    ex_error("Unhandled ECN supplied value: %d\n", ecn_input_value);                                  
-                                    break;
-                                }
-                            }
-                        }
-                    } else { // This is a normal ACK so either ECN was bleached along the path, or the destination does not support ECN
-                        pb->ecn_discovery_result = QUIC_DOES_NOT_SUPPORT_ECN;   
                     }
                     
                     break;
@@ -1051,9 +1000,6 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
                 }
             }
         } while(frame_type != ACK_ECN && frame_type != ACK && decrypted_payload < end);
-        
-        if(frame_type != ACK && frame_type != ACK_ECN)
-            pb->ecn_discovery_result = QUIC_REPLIED_WITHOUT_ACK;
     } // if(!err)
     
     return pb;
