@@ -2,7 +2,7 @@
 .\" Copyright (c)  2006   Dmitry Butskoy (dmitry@butskoy.name)
 .\" License: GPL v2 or any later version
 .\" See COPYING for the status of this software
-.TH TRACEROUTE 8 "11 October 2006" "Traceroute" "Traceroute For Linux"
+.TH TRACEROUTE 8 "27 October 2023" "Traceroute" "Traceroute For Linux"
 .\" .UC 6
 .SH NAME
 traceroute \- print the route packets trace to network host
@@ -36,6 +36,8 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
 .br
 .ti +8
+BR "" [ "--quic ]
+.br
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -428,6 +430,17 @@ Print the number of backward hops when it seems different with the forward
 direction. This number is guessed in assumption that remote hops send reply
 packets with initial ttl set to either 64, or 128 or 255 (which seems
 a common practice). It is printed as a negate value in a form of '-NUM' .
+.TP
+.BI \--quic
+Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
+frame are used as probes. If the destination is reached and replies with a 
+QUIC packet, its type is included into the probe output to distinguish it from 
+an ICMP error that can be returned by the destination too (typically a port unreachable).
+QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
+according to RFC9000/RFC90001. Retry packets are handled as per RFC, to maximize
+the possiiblity to get an Initial packet from the destination and the ECN
+counters. Encryption is dependent on openssl3.
+
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
 .BR \-M\ name ,

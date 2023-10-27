@@ -3,6 +3,9 @@
         
         We introduced the QUIC module to perform QUIC traceroute via the --quic
         option. This requires openssl3 library to be present on the system.
+        If the destination replies with a QUIC packet, its type will be included
+        into the output in order to distinguish an ICMP error returned by the
+        destination (typically port unreachable).
         
 2023-10-26  Luca Sani  <lsani@catchpoint.com> - 0.1.2
     *  Introduce Overall Timeout
