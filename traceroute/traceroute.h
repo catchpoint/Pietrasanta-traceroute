@@ -64,6 +64,7 @@ struct probe_struct
     uint8_t dcid_len;
     uint8_t* retry_token;
     uint8_t retry_token_len;
+    char* proto_details;
     ///
     char* ecn_info;
     int tcpinsession_destination_reply;

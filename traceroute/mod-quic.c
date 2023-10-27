@@ -542,7 +542,7 @@ void generate_quic_initial_packet(uint8_t* dcid, uint8_t dcid_len, uint8_t* fram
     memcpy(encrypted_packet, initial_packet_header, header_len);
     protect_header(encrypted_packet, mask, encrypted_packet + header_len - sizeof(uint32_t), sizeof(uint32_t));
     
-    packet_number++;    
+    packet_number++;
 }
 
 static int quic_init(const sockaddr_any* dest, unsigned int port, size_t* packet_len_p) 
@@ -769,7 +769,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         
         uint32_t quic_version = ntohl(*((uint32_t*)&buf[1])); // Note that is valid also for Version negotiation packets (which will contain Version = 0, see https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-3)
         
-        // Note about Version negotiation packet: RFC says that a client MUST discard a Veersion negotiation packet if it contains the the QUIC version selected by the client.
+        char proto_details[100];
+        
+        // Note about Version negotiation packet: RFC says that a client MUST discard a Version negotiation packet if it contains the the QUIC version selected by the client.
         // This means that if we receive a Version negotiation packet either the Server does not support our version (1) or anyway that we need to discard it.
         // So we treat the reception of a Version negotiation packet as an indication that we cannot proceed with the connection attempt
         // Note also that the packet type of a Version negotation is zero
@@ -779,10 +781,26 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         if(packet_type != QUIC_INITIAL_PACKET || quic_version != SUPPORTED_QUIC_VERSION) {
             if(pb->retry_token != NULL) {
                 free(pb->retry_token);
+                pb->retry_token = NULL;
                 pb->retry_token_len = 0;
             }
+            
+            if(quic_version == 0x00)
+                sprintf(proto_details, "Version Negotiation");
+            else
+                sprintf(proto_details, "Unhandled packet type %d", packet_type);
+            
+            pb->proto_details = strdup(proto_details);
+            
             return pb;
         }
+        
+        if(pb->retry_token != NULL)
+            sprintf(proto_details, "Retry,Initial");
+        else
+            sprintf(proto_details, "Initial");
+        
+        pb->proto_details = strdup(proto_details);
         
         // "buf" is the UDP payload and thus points to the first QUIC Packet, which at this point we know it is an Initial packet
         uint8_t* ptr = (uint8_t*)&buf[DCID_LEN_OFFSET];

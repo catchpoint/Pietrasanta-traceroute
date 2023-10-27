@@ -938,12 +938,6 @@ void print_probe(probe *pb)
                 pb->ext = NULL;
             }
             
-            if(pb->ecn_info) {
-                printf(" <%s>", pb->ecn_info);
-                free(pb->ecn_info);
-                pb->ecn_info = NULL;
-            }
-
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
                 if(hops != ttl)
@@ -951,6 +945,18 @@ void print_probe(probe *pb)
             }
         }
         
+        if(pb->proto_details) {
+            printf(" <%s>", pb->proto_details);
+            free(pb->proto_details);
+            pb->proto_details = NULL;
+        }
+        
+        if(pb->ecn_info) {
+            printf(" <%s>", pb->ecn_info);
+            free(pb->ecn_info);
+            pb->ecn_info = NULL;
+        }
+
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
