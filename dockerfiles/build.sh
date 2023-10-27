@@ -1,3 +1,4 @@
+set -x
 #!/bin/bash
 
 clean_folder()
@@ -33,6 +34,8 @@ build()
         return 1
     fi
     
+    OPENSSL3_FOLDER=$2
+    
     CONTAINER_ID=$(docker run -d traceroute:"$1")
 
     MAX_TIMEOUT_SEC=30
@@ -53,7 +56,7 @@ build()
         fi
     done
     
-    if ! docker exec -it "$CONTAINER_ID" /bin/bash -c "cd traceroute && make clean && make traceroute"
+    if ! docker exec -it "$CONTAINER_ID" /bin/bash -c "cd traceroute; cd openssl3; ./config && make && make install; cd..; make clean && make traceroute"
     then
         echo "Failed to execute docker container ${CONTAINER_ID} for platform $1"
         return 1
@@ -87,6 +90,19 @@ build()
 }
 
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
+OPENSSL3_FOLDER=$1
+
+if [ $# -ne 1 ]
+then
+    echo "Usage: $0 <openssl3 folder>"
+    exit 1
+fi
+
+if [ ! -e "$OPENSSL3_FOLDER" ]
+then
+    echo "openssl3 folder does not exist"
+    exit 1
+fi
 
 for PLATFORM in $(echo "centos7 debian11 ubuntu22 alpine")
 do
@@ -104,7 +120,7 @@ do
     clean_folder
     copy_files
     
-    if ! build "$PLATFORM" >> "${SCRIPTPATH}/build.log" 2>&1
+    if ! build "$PLATFORM" "$OPENSSL3_FOLDER" >> "${SCRIPTPATH}/build.log" 2>&1
     then
         echo "An error occurred while building for platform $PLATFORM, see ${SCRIPTPATH}/build.log for more information"
         exit 1

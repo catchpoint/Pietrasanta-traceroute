@@ -1,3 +1,4 @@
+ARG openssl3_folder
 FROM centos:7
 RUN yum install -y make systemd gcc
 RUN mkdir traceroute
@@ -9,5 +10,6 @@ ADD Make.rules traceroute/
 ADD Make.defines traceroute/
 ADD default.rules traceroute/
 ADD VERSION traceroute/
+ADD openssl3_folder traceroute/
 
 CMD ["/sbin/init"]
