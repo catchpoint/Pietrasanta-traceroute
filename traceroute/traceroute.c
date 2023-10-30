@@ -943,7 +943,7 @@ void print_probe(probe *pb)
                 free(pb->ext);
                 pb->ext = NULL;
             }
-            
+
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
                 if(hops != ttl)
