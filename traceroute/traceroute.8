@@ -439,7 +439,7 @@ an ICMP error that can be returned by the destination too (typically a port unre
 QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
 according to RFC9000/RFC90001. Retry packets are handled as per RFC, to maximize
 the possiiblity to get an Initial packet from the destination and the ECN
-counters. Encryption is dependent on openssl3.
+counters. Encryption and decryption are leverage openssl3.
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
