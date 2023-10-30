@@ -1,4 +1,3 @@
-#set -x
 #!/bin/bash
 
 # NOTE: This requires GNU getopt. On Mac OSX and FreeBSD, you can install in this way
