@@ -85,7 +85,9 @@
 #define DEF_SEND_SECS 0
 #define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
+#ifdef HAVE_OPENSSL3
 #define MIN_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#endif
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
 #define DEF_AF AF_INET
@@ -635,7 +637,9 @@ static CLIF_option option_list[] = {
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
     { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
+#ifdef HAVE_OPENSSL3
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
+#endif
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -764,8 +768,10 @@ int main(int argc, char *argv[])
             data_len = packet_len - header_len;
     }
     
+#ifdef HAVE_OPENSSL3
     if(!mtudisc && strcmp(module, "quic") == 0)
         data_len = MIN_DATA_LEN_QUIC;
+#endif
 
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;

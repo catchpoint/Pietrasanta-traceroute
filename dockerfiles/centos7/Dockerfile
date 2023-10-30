@@ -1,6 +1,6 @@
-ARG openssl3_folder
 FROM centos:7
-RUN yum install -y make systemd gcc
+ARG disable_openssl
+RUN yum install -y make systemd gcc perl-IPC-Cmd
 RUN mkdir traceroute
 ADD libsupp traceroute/libsupp/
 ADD include traceroute/include
@@ -10,6 +10,7 @@ ADD Make.rules traceroute/
 ADD Make.defines traceroute/
 ADD default.rules traceroute/
 ADD VERSION traceroute/
-ADD openssl3_folder traceroute/
-
-CMD ["/sbin/init"]
+COPY placeholder_openssl openssl* /openssl
+ADD compile.sh /
+RUN chmod +x ./compile.sh
+RUN ./compile.sh ${disable_openssl}

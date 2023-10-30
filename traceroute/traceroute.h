@@ -60,12 +60,13 @@ struct probe_struct
     sockaddr_any dest;
     uint32_t seq_num;
     // quic stuff
+#ifdef HAVE_OPENSSL3
     uint8_t dcid[MAX_QUIC_ID_LEN];
     uint8_t dcid_len;
     uint8_t* retry_token;
     uint8_t retry_token_len;
+#endif
     char* proto_details;
-    ///
     char* ecn_info;
     int tcpinsession_destination_reply;
     char err_str[16];    /*  assume enough   */
@@ -113,7 +114,9 @@ typedef struct tr_module_struct tr_module;
 #define DEF_TCP_PORT    80    /*  web   */
 #define DEF_DCCP_PORT    DEF_START_PORT    /*  is it a good choice?...  */
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
+#ifdef HAVE_OPENSSL3
 #define DEF_QUIC_PORT 443
+#endif
 
 void error(const char *str) __attribute__((noreturn));
 void error_or_perm(const char *str) __attribute__((noreturn));

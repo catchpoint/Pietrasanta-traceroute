@@ -8,6 +8,7 @@
     See COPYING for the status of this software.
 */
 
+#ifdef HAVE_OPENSSL3
 #include <openssl/core_names.h>
 #include <openssl/kdf.h>
 #include <openssl/rand.h>
@@ -1079,4 +1080,4 @@ static tr_module quic_ops = {
 };
 
 TR_MODULE(quic_ops);
-
+#endif
