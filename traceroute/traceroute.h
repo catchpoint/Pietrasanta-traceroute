@@ -23,7 +23,10 @@
 #define ECN_ECT_0 0x02
 #define ECN_ECT_1 0x01
 #define ECN_CE    0x03
+
+#ifdef HAVE_OPENSSL3
 #define MAX_QUIC_ID_LEN 20 // Source and Dest connection ID MUST not exceed 20 bytes https://www.rfc-editor.org/rfc/rfc9000#section-17.2-3.12.1
+#endif
 
 extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
