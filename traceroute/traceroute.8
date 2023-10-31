@@ -440,6 +440,22 @@ QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
 according to RFC9000/RFC9001. Retry packets are handled as per RFC, to maximize
 the possiblity to get an Initial packet from the destination and the ECN
 counters. Encryption and decryption leverage openssl3.
+.br
+
+.br
+When a QUIC packet is received, additional information about the packet type
+is reported within `< >`. The format is `<Q:packet type>`, for example
+<Q:Initial>. Since this version of traceroute handles also Retry packets,
+when a Retry packet is received the format will be <Q:Retry,Initial>.
+.br
+
+.br
+When a non-zero ECN value is provided in input and the destination replies
+with a packet (typically an INitial) containing an ACK frame that includes
+ECN counters (0x03), information about the value of the counters are reported
+within `< >`. The format is <ECT0:val,ECT1:val,ECN-CE:val>, where ECT0, ECT1
+and ECN-CE are respectively the counters for the ECN codepoints ECT(0) (0x02),
+ECT(1) (0x01) and CE (0x03).
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
