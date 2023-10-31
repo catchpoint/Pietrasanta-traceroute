@@ -637,9 +637,7 @@ static CLIF_option option_list[] = {
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
     { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
-#ifdef HAVE_OPENSSL3
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
-#endif
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -682,6 +680,13 @@ int main(int argc, char *argv[])
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
 
+#ifndef HAVE_OPENSSL3
+    if(strcmp(module, "quic") == 0) {
+        printf("QUIC is not available as this binary was compiled without openssl3 linking\n");
+        exit(1);
+    }
+#endif
+
     ops = tr_get_module(module);
     if(!ops)
         ex_error("Unknown traceroute module %s", module);
@@ -706,7 +711,7 @@ int main(int argc, char *argv[])
         ex_error("max consecutive hop failures out of range");
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
-        
+
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");
     } else if(dscp_input_value != -1 || ecn_input_value != -1) {
@@ -951,7 +956,7 @@ void print_probe(probe *pb)
             }
         }
         
-        if(pb->proto_details) {
+        if(pb->proto_details != NULL) {
             printf(" <%s>", pb->proto_details);
             free(pb->proto_details);
             pb->proto_details = NULL;
