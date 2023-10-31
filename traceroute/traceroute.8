@@ -450,8 +450,8 @@ when a Retry packet is received the format will be <Q:Retry,Initial>.
 .br
 
 .br
-When a non-zero ECN value is provided in input and the destination replies
-with a packet (typically an INitial) containing an ACK frame that includes
+When a non-zero ECN value is provided as input and the destination replies
+with a packet (typically an Initial packet) containing an ACK frame that includes
 ECN counters (0x03), information about the value of the counters are reported
 within `< >`. The format is <ECT0:val,ECT1:val,ECN-CE:val>, where ECT0, ECT1
 and ECN-CE are respectively the counters for the ECN codepoints ECT(0) (0x02),
