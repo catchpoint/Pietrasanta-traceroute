@@ -437,7 +437,7 @@ frame are used as probes. If the destination is reached and replies with a
 QUIC packet, its type is included into the probe output to distinguish it from 
 an ICMP error that can be returned by the destination too (typically a port unreachable).
 QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
-according to RFC9000/RFC90001. Retry packets are handled as per RFC, to maximize
+according to RFC9000/RFC9001. Retry packets are handled as per RFC, to maximize
 the possiblity to get an Initial packet from the destination and the ECN
 counters. Encryption and decryption leverage openssl3.
 
