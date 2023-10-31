@@ -682,7 +682,7 @@ int main(int argc, char *argv[])
 
 #ifndef HAVE_OPENSSL3
     if(strcmp(module, "quic") == 0) {
-        printf("QUIC is not available as this binary was compiled without openssl3 linking\n");
+        printf("QUIC is not available as this binary was compiled without openssl3 linking.\n");
         exit(1);
     }
 #endif
