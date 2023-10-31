@@ -700,326 +700,327 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
     if(pb->seq != from->sin.sin_port)
         return NULL;
 
-    if(!err) { 
-        pb->final = 1;
+    if(err)
+        return pb;
         
-        uint8_t server_scid[MAX_QUIC_ID_LEN];
-        memset(server_scid, 0, MAX_QUIC_ID_LEN);
-        uint8_t server_scid_len = 0;
-            
-        uint8_t packet_type = (buf[0] & 0x30) >> 4;
-        // If a Retry packet was received, we need to take the token and send another Initial packet with that token included
-        // Retry packet format: https://www.rfc-editor.org/rfc/rfc9000.html#name-retry-packet
-        if(packet_type == QUIC_RETRY_PACKET) {
-            // the "len" argument is the length of the QUIC retry packet
-            // thus we can infer the Token length (which is not specified by other means)
-            // keep in mind that Retry packets do not have header protection (nor any payload to encrypt) https://www.rfc-editor.org/rfc/rfc9001#section-5.4-4
-            uint8_t* ptr = (uint8_t*)buf + 5; // skip first byte and QUIC version
-            uint8_t dcid_len = *ptr;
-            ptr += 1; // skip DCID len
-            ptr += dcid_len; // skip DCID
-            server_scid_len = *ptr;
-            ptr += 1; // skip SCID len
-            memcpy(server_scid, ptr, server_scid_len);
-            ptr += server_scid_len; // skip SCID
-            
-            // Now we have the token followed by 16 bytes of Integrity tag
-            // Thus the length of the token is what remains to reach the end of the QUIC packet minus 16 bytes
-            uint8_t* end = (uint8_t*)buf + len;
-            size_t token_len = end - ptr - 16; 
-            uint8_t* token = ptr;
-            ptr += token_len;
-            // Now `ptr` points to the Integrity Tag. This tag is used to 1) verify the integrity of the packet 2) Verify that the entity that sends the packet is the same that saw our Initial packet. Since the Integrity is also provided by UDP (via the checksum) and since the Initial packet can be decrypted by anyone, here we skip this check that seems not useful for the purpose of tracerouting.
-            
-            // When we will send another Initial packet with the CONNECTION_CLOSE frame we will need to include the Retry token: https://www.rfc-editor.org/rfc/rfc9000#section-8.1.2-1
-            pb->retry_token = calloc(1, token_len);
-            if(!pb->retry_token)
-                error("calloc");
-            memcpy(pb->retry_token, token, token_len);
-            pb->retry_token_len = token_len;
-            
-            // Here we also need to change the DCID on the basis of what we received from the server
-            // In particular, we need to use the SCID sent by the server into the Retry packet: https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7
-            // See also https://www.rfc-editor.org/rfc/rfc9001.html#section-5.2-6
-            generate_quic_initial_packet(server_scid, server_scid_len, crypto, sizeof(crypto), token, token_len, 1);
-            pb->send_time = get_time(); // Consider the time since now (as we are going to do the handshake with a new Initial packet)
-            if(do_send(sk, (uint8_t*)encrypted_packet, *length_p, NULL) < 0) {
-                free(pb->retry_token);
-                error("do_send");
-            }
-            
-            // Update the dcid so that when we will send the final Initial packet (the one with the connection close) we can use that as input for the (new) secrets
-            // https://www.rfc-editor.org/rfc/rfc9000#section-7.2-4
-            memcpy(pb->dcid, server_scid, server_scid_len);
-            pb->dcid_len = server_scid_len;
-            
-            return NULL; // Return NULL and defer to next reception on the same sk (ideally we should receive an Initial packet)
-        }
+    pb->final = 1;
+    
+    uint8_t server_scid[MAX_QUIC_ID_LEN];
+    memset(server_scid, 0, MAX_QUIC_ID_LEN);
+    uint8_t server_scid_len = 0;
         
-        // If we reached the destination, send also a CONNECTION_CLOSE frame within an Initial QUIC packet
-        // However, we need to extract the SCID from the Initial packet sent by the server, because we need to use as DCID the SCID sent by the server.
-        // See https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7
-        // Note that sending a CONNECTION_CLOSE into an Initial packet to abandon the handshake is legitimate as per https://www.rfc-editor.org/rfc/rfc9000#section-19.19-7
-        // See also:
-        //    - https://www.rfc-editor.org/rfc/rfc9000#section-10.2.3-3
-        //    - https://www.rfc-editor.org/rfc/rfc9000#section-10.2.3-5
-        //    - https://www.rfc-editor.org/rfc/rfc9000#section-17.2.2-8
-        //    - https://www.rfc-editor.org/rfc/rfc9000#section-12.4-11.10.1
-        //    - https://www.rfc-editor.org/rfc/rfc9000#name-example-1-rtt-handshake (here a "third" Initial packet is sent by the Client)
-        // Note: if we received a Retry packet, we need to include it also the Initial packet we are going to send carrying the CONNECTION_CLOSE: https://www.rfc-editor.org/rfc/rfc9000#section-8.1.2-1
-        
-        uint32_t quic_version = ntohl(*((uint32_t*)&buf[1])); // Note that is valid also for Version negotiation packets (which will contain Version = 0, see https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-3)
-        
-        char proto_details[100];
-        
-        // Note about Version negotiation packet: RFC says that a client MUST discard a Version negotiation packet if it contains the the QUIC version selected by the client.
-        // This means that if we receive a Version negotiation packet either the Server does not support our version (1) or anyway that we need to discard it.
-        // So we treat the reception of a Version negotiation packet as an indication that we cannot proceed with the connection attempt
-        // Note also that the packet type of a Version negotation is zero
-        // Please also note that the packet type does not make sense for a Version negotiation, because the two bits of the type are included into the 7 Unused bits, which are set to an arbitrary value by the server (see https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-5). Thus is might even happen that the type of a Version negotation is 0x00 (i.e. Initial), for this reason we also check for the version being returned. Indeed, a Version negotiation packet is recognized by checking whether the carried version is zero (https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-1)
-        // See also https://www.rfc-editor.org/rfc/rfc9000.html#section-6.2-2
-        
-        if(packet_type != QUIC_INITIAL_PACKET || quic_version != SUPPORTED_QUIC_VERSION) {
-            if(pb->retry_token != NULL) {
-                free(pb->retry_token);
-                pb->retry_token = NULL;
-                pb->retry_token_len = 0;
-            }
-            
-            if(quic_version == 0x00)
-                sprintf(proto_details, "Q:Version Negotiation");
-            else
-                sprintf(proto_details, "Q:Unhandled packet type %d", packet_type);
-            
-            pb->proto_details = strdup(proto_details);
-            
-            return pb;
-        }
-        
-        if(pb->retry_token != NULL)
-            sprintf(proto_details, "Q:Retry,Initial");
-        else
-            sprintf(proto_details, "Q:Initial");
-        
-        pb->proto_details = strdup(proto_details);
-        
-        // "buf" is the UDP payload and thus points to the first QUIC Packet, which at this point we know it is an Initial packet
-        uint8_t* ptr = (uint8_t*)&buf[DCID_LEN_OFFSET];
-        ptr += (1 + *ptr); // Skip DCID len and DCID
+    uint8_t packet_type = (buf[0] & 0x30) >> 4;
+    // If a Retry packet was received, we need to take the token and send another Initial packet with that token included
+    // Retry packet format: https://www.rfc-editor.org/rfc/rfc9000.html#name-retry-packet
+    if(packet_type == QUIC_RETRY_PACKET) {
+        // the "len" argument is the length of the QUIC retry packet
+        // thus we can infer the Token length (which is not specified by other means)
+        // keep in mind that Retry packets do not have header protection (nor any payload to encrypt) https://www.rfc-editor.org/rfc/rfc9001#section-5.4-4
+        uint8_t* ptr = (uint8_t*)buf + 5; // skip first byte and QUIC version
+        uint8_t dcid_len = *ptr;
+        ptr += 1; // skip DCID len
+        ptr += dcid_len; // skip DCID
         server_scid_len = *ptr;
-        ptr++;
+        ptr += 1; // skip SCID len
         memcpy(server_scid, ptr, server_scid_len);
+        ptr += server_scid_len; // skip SCID
         
-        // Despite we need to use the server SCID as DCID for the connection close (https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7), we need to keep the same secrets used so far (unless a Retry packet has been received): https://www.rfc-editor.org/rfc/rfc9000#section-7.2-4
-        generate_secrets(pb->dcid, pb->dcid_len);
-        generate_quic_initial_packet(server_scid, server_scid_len, connection_close, sizeof(connection_close), pb->retry_token, pb->retry_token_len, 0);
+        // Now we have the token followed by 16 bytes of Integrity tag
+        // Thus the length of the token is what remains to reach the end of the QUIC packet minus 16 bytes
+        uint8_t* end = (uint8_t*)buf + len;
+        size_t token_len = end - ptr - 16; 
+        uint8_t* token = ptr;
+        ptr += token_len;
+        // Now `ptr` points to the Integrity Tag. This tag is used to 1) verify the integrity of the packet 2) Verify that the entity that sends the packet is the same that saw our Initial packet. Since the Integrity is also provided by UDP (via the checksum) and since the Initial packet can be decrypted by anyone, here we skip this check that seems not useful for the purpose of tracerouting.
+        
+        // When we will send another Initial packet with the CONNECTION_CLOSE frame we will need to include the Retry token: https://www.rfc-editor.org/rfc/rfc9000#section-8.1.2-1
+        pb->retry_token = calloc(1, token_len);
+        if(!pb->retry_token)
+            error("calloc");
+        memcpy(pb->retry_token, token, token_len);
+        pb->retry_token_len = token_len;
+        
+        // Here we also need to change the DCID on the basis of what we received from the server
+        // In particular, we need to use the SCID sent by the server into the Retry packet: https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7
+        // See also https://www.rfc-editor.org/rfc/rfc9001.html#section-5.2-6
+        generate_quic_initial_packet(server_scid, server_scid_len, crypto, sizeof(crypto), token, token_len, 1);
+        pb->send_time = get_time(); // Consider the time since now (as we are going to do the handshake with a new Initial packet)
         if(do_send(sk, (uint8_t*)encrypted_packet, *length_p, NULL) < 0) {
             free(pb->retry_token);
             error("do_send");
         }
-            
+        
+        // Update the dcid so that when we will send the final Initial packet (the one with the connection close) we can use that as input for the (new) secrets
+        // https://www.rfc-editor.org/rfc/rfc9000#section-7.2-4
+        memcpy(pb->dcid, server_scid, server_scid_len);
+        pb->dcid_len = server_scid_len;
+        
+        return NULL; // Return NULL and defer to next reception on the same sk (ideally we should receive an Initial packet)
+    }
+    
+    // If we reached the destination, send also a CONNECTION_CLOSE frame within an Initial QUIC packet
+    // However, we need to extract the SCID from the Initial packet sent by the server, because we need to use as DCID the SCID sent by the server.
+    // See https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7
+    // Note that sending a CONNECTION_CLOSE into an Initial packet to abandon the handshake is legitimate as per https://www.rfc-editor.org/rfc/rfc9000#section-19.19-7
+    // See also:
+    //    - https://www.rfc-editor.org/rfc/rfc9000#section-10.2.3-3
+    //    - https://www.rfc-editor.org/rfc/rfc9000#section-10.2.3-5
+    //    - https://www.rfc-editor.org/rfc/rfc9000#section-17.2.2-8
+    //    - https://www.rfc-editor.org/rfc/rfc9000#section-12.4-11.10.1
+    //    - https://www.rfc-editor.org/rfc/rfc9000#name-example-1-rtt-handshake (here a "third" Initial packet is sent by the Client)
+    // Note: if we received a Retry packet, we need to include it also the Initial packet we are going to send carrying the CONNECTION_CLOSE: https://www.rfc-editor.org/rfc/rfc9000#section-8.1.2-1
+    
+    uint32_t quic_version = ntohl(*((uint32_t*)&buf[1])); // Note that is valid also for Version negotiation packets (which will contain Version = 0, see https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-3)
+    
+    char proto_details[100];
+    
+    // Note about Version negotiation packet: RFC says that a client MUST discard a Version negotiation packet if it contains the the QUIC version selected by the client.
+    // This means that if we receive a Version negotiation packet either the Server does not support our version (1) or anyway that we need to discard it.
+    // So we treat the reception of a Version negotiation packet as an indication that we cannot proceed with the connection attempt
+    // Note also that the packet type of a Version negotation is zero
+    // Please also note that the packet type does not make sense for a Version negotiation, because the two bits of the type are included into the 7 Unused bits, which are set to an arbitrary value by the server (see https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-5). Thus is might even happen that the type of a Version negotation is 0x00 (i.e. Initial), for this reason we also check for the version being returned. Indeed, a Version negotiation packet is recognized by checking whether the carried version is zero (https://www.rfc-editor.org/rfc/rfc9000.html#section-17.2.1-1)
+    // See also https://www.rfc-editor.org/rfc/rfc9000.html#section-6.2-2
+    
+    if(packet_type != QUIC_INITIAL_PACKET || quic_version != SUPPORTED_QUIC_VERSION) {
         if(pb->retry_token != NULL) {
             free(pb->retry_token);
             pb->retry_token = NULL;
             pb->retry_token_len = 0;
         }
         
-        // If we don't have to care about ECN support we can stop here.
-        // Otherwise we need to inspect the packet looking for an ACK_ECN frame (type 0x03)
-        if(!ecn_input_value)
-            return pb;
-          
-        // Try to decrypt the packet to find an ACK_ECN to determine if the destination supports ECN
-        //
-        // Note that an Inital packet containing a CRYPTO frame (like the one we sent initially) is an ACK-eliciting packet, thus it is legitimate
-        // that we look for an ACK frame into the Initial packet we receive from the server. In partcular see:
-        // - https://www.rfc-editor.org/rfc/rfc9000#section-1.2-3.12.1
-        // - https://www.rfc-editor.org/rfc/rfc9000#section-13.2.1-2
-        
-        uint8_t plaintext[INITIAL_PACKET_BUFFER];
-        memset(plaintext, 0, sizeof(plaintext));
-        memcpy(plaintext, buf, len); // copy all the protected+encrypted QUIC packet there
-        
-        // Now we need to do two macro-steps:
-        // 1) Remove header protection
-        // 2) Decrypt the packet payload
-        
-        // In order to do 1), we first need to determine the length of the header. 
-        // This because we need to take the 16 bytes immediately after the header and use them as sample to perform header protection removal (https://www.rfc-editor.org/rfc/rfc9001.html#section-5.4.1-3)
-        // Note that despite we used a "22 byte" long header, the server might have used different lengths (e.g. a longer cid, a longer pn etc.), thus we cannot assume the header is 22-byte long.
-        // While doing this computation we also record the header Length field (https://www.rfc-editor.org/rfc/rfc9001#section-a.2-3)
-        // Note that the length of the header and the Length field into the header are two different things
-        // Here we add sizes according to "Long header" definition (https://www.rfc-editor.org/rfc/rfc9000#section-17.2) because an Initial packet has a long header (https://www.rfc-editor.org/rfc/rfc9000#name-initial-packet)
-        size_t server_header_size = sizeof(uint8_t); // flags
-        server_header_size += sizeof(uint32_t); // version
-        server_header_size += sizeof(uint8_t); // dcid len
-        server_header_size += buf[server_header_size - sizeof(uint8_t)]; // dcid
-        server_header_size += sizeof(uint8_t); // scid len
-        server_header_size += buf[server_header_size - sizeof(uint8_t)]; // scid
-        server_header_size += sizeof(uint8_t); // token len
-        server_header_size += buf[server_header_size - sizeof(uint8_t)]; // token
-        // Here the amount of server_header_size is such that we are pointing to the Length field, so before proceeding we decode the Length 
-        // Again, here we are talking about the Length field within the packet header and not the length of the header we are trying to determine: https://www.rfc-editor.org/rfc/rfc9001#section-a.2-3
-        // Determine on how much bytes the length is encoded
-        uint8_t len_size = 0;
-        size_t packet_len = get_vlint((uint8_t*)buf + server_header_size, &len_size); // Remember that this Length includes also the packet number and the authentication tag
-        
-        // Now continue to compute the length of the pakcet header
-        server_header_size += len_size; // length
-        
-        // Here another interruption: save the pointer to the encoded packet number, because it will be useful later
-        uint8_t* server_pn_ptr = plaintext + server_header_size;
-        
-        // Proceed with computation of the length of the header
-        // Here we need to add the amount occupied by the packet number. Since the packet number is a variable-length integer and it is protected, we don't know its actual length.
-        // However, when doing header protection the packet number is always considered to be encoded on four bytes (https://www.rfc-editor.org/rfc/rfc9001#section-5.4.2-2)
-        // This means that the sample will be taken starting four-bytes from here, either if it is the actual "first" encrypted byte or not
-        // Note that this also means that when doing header protection we must take the sample in the same way. Since we used a four-byte packet number, we are ok.
-        server_header_size += sizeof(uint32_t); // packet number 
-        
-        // Now we can finally take the sample and thus get the mask to remove the header protection
-        uint8_t* sample = (uint8_t*)buf + server_header_size;
-        size_t sample_len = 16; // Initial packets are protected with AEAD_AES_128_GCM thus the sample is 16 bytes (https://www.rfc-editor.org/rfc/rfc9001#section-5.4.3-2)  
-        uint8_t mask[5]; // The mask is composed by 5 bytes: https://www.rfc-editor.org/rfc/rfc9001#section-5.4.1-2
-        get_protection_header_mask(sample, sample_len, server_hp, mask);
-        
-        // Remove header protection. We also get the length of the packet number as byproduct
-        size_t server_pn_len = unprotect_header(plaintext, mask, server_pn_ptr);
-        
-        // So now we know the exact length o the QUIC header received from the server and we can also extract the server pn:
-        server_header_size -= sizeof(uint32_t); // Remove the four-bytes "allowance" ...
-        server_header_size += server_pn_len; // ... and include the actual space occupied by the packet number
-        
-        // Now time to gather all we need to decrypt the payalod (2nd macrostep):
-        // - Packet number: we need to combine it with the server_iv to get the nonce 
-        // - Additional data: the unprotected quic header
-        // - The length of the encrypted payload (i.e. what we need to decrypt)
-        // - The authentication tag, which is the last 16 bytes of the encrypted payload
-        
-        // Get the packet number.
-        // Note that the packet number is *not* encoded as a variable-length integer so we cannot use the get_vlint* functions
-        // Note also that the packet number max size is four-bytes https://www.rfc-editor.org/rfc/rfc9000#section-17.2-8.8.1 
-        uint32_t server_pn = 0;
-        if(server_pn_len == 1)
-            server_pn = *server_pn_ptr;
-        else if(server_pn_len == 2)
-            server_pn = ntohs(*((uint16_t*)server_pn_ptr));
-        else if(server_pn_len == 3) // need to change endianness on three bytes(!)
-            server_pn = (((uint32_t) server_pn_ptr[0]) << 16) | (((uint32_t) server_pn_ptr[1]) << 8) | ((uint32_t) server_pn_ptr[2]);
-        else if(server_pn_len == 4)
-            server_pn = ntohl(*((uint32_t*)server_pn_ptr));
+        if(quic_version == 0x00)
+            sprintf(proto_details, "Q:Version Negotiation");
         else
-            ex_error("Got an impossible server pn len: %d\n", server_pn_len);
-                
-        // Record also the associated data as we need that to perform the decryption
-        // Remember that the associated data is the content of the QUIC header, starting from the first byte of either the short or long header, up to and including the unprotected packet number (https://www.rfc-editor.org/rfc/rfc9001.html#section-5.3-6)
-        // So here we already have everything we need, we just need to record the pointer and the length
-        uint8_t* aad = plaintext;
-        size_t aad_len = server_header_size;
+            sprintf(proto_details, "Q:Unhandled packet type %d", packet_type);
         
-        // Remember that the Length field includes also the packet number
-        size_t encrypted_payload_len = packet_len - server_pn_len;
+        pb->proto_details = strdup(proto_details);
         
-        // The authentication tag is composed by the last 16 bytes of the encrypted payload
-        uint8_t* tag = (uint8_t*)buf + server_header_size + encrypted_payload_len - 16;
+        return pb;
+    }
+    
+    if(pb->retry_token != NULL)
+        sprintf(proto_details, "Q:Retry,Initial");
+    else
+        sprintf(proto_details, "Q:Initial");
+    
+    pb->proto_details = strdup(proto_details);
+    
+    // "buf" is the UDP payload and thus points to the first QUIC Packet, which at this point we know it is an Initial packet
+    uint8_t* ptr = (uint8_t*)&buf[DCID_LEN_OFFSET];
+    ptr += (1 + *ptr); // Skip DCID len and DCID
+    server_scid_len = *ptr;
+    ptr++;
+    memcpy(server_scid, ptr, server_scid_len);
+    
+    // Despite we need to use the server SCID as DCID for the connection close (https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7), we need to keep the same secrets used so far (unless a Retry packet has been received): https://www.rfc-editor.org/rfc/rfc9000#section-7.2-4
+    generate_secrets(pb->dcid, pb->dcid_len);
+    generate_quic_initial_packet(server_scid, server_scid_len, connection_close, sizeof(connection_close), pb->retry_token, pb->retry_token_len, 0);
+    if(do_send(sk, (uint8_t*)encrypted_packet, *length_p, NULL) < 0) {
+        free(pb->retry_token);
+        error("do_send");
+    }
         
-        // Generate the nonce combining the "server iv" with the packet number
-        uint8_t nonce[sizeof(server_iv)];
-        uint8_t nonce_len = sizeof(nonce);
-        generate_nonce(server_iv, server_pn, nonce, nonce_len);
-        
-        // Now can finally decrypt the packet
-        // Note that we declare that we need to decrypt "encrypted_payload_len - 16" bytes, because the last 16 bytes of the encrypted packet are the "authentication ta"g that was added during encryption (like we did) for authentication check purposes
-        // The return value "dec_len" indicates how many bytes the "clear" payload is long
-        int dec_len = aead_aes_gcm_128_decrypt((uint8_t*)buf + server_header_size, encrypted_payload_len - 16, aad, aad_len, tag, server_key, nonce, nonce_len, plaintext + server_header_size);
-        
-        if(dec_len == -1)
-            ex_error("Error while decrypting packet from server\n");
-        
-        // Now scan frame by frame looking for an ACK_ECN frame
-        uint8_t* decrypted_payload = plaintext + server_header_size;
-        uint8_t* end = decrypted_payload + dec_len;
-        uint8_t frame_type = 0;
-        char ecn_add_info[1024];
-        
-        do {
-            frame_type = *decrypted_payload;
-            decrypted_payload++;
+    if(pb->retry_token != NULL) {
+        free(pb->retry_token);
+        pb->retry_token = NULL;
+        pb->retry_token_len = 0;
+    }
+    
+    // If we don't have to care about ECN support we can stop here.
+    // Otherwise we need to inspect the packet looking for an ACK_ECN frame (type 0x03)
+    if(!ecn_input_value)
+        return pb;
+      
+    // Try to decrypt the packet to find an ACK_ECN to determine if the destination supports ECN
+    //
+    // Note that an Inital packet containing a CRYPTO frame (like the one we sent initially) is an ACK-eliciting packet, thus it is legitimate
+    // that we look for an ACK frame into the Initial packet we receive from the server. In partcular see:
+    // - https://www.rfc-editor.org/rfc/rfc9000#section-1.2-3.12.1
+    // - https://www.rfc-editor.org/rfc/rfc9000#section-13.2.1-2
+    
+    uint8_t plaintext[INITIAL_PACKET_BUFFER];
+    memset(plaintext, 0, sizeof(plaintext));
+    memcpy(plaintext, buf, len); // copy all the protected+encrypted QUIC packet there
+    
+    // Now we need to do two macro-steps:
+    // 1) Remove header protection
+    // 2) Decrypt the packet payload
+    
+    // In order to do 1), we first need to determine the length of the header. 
+    // This because we need to take the 16 bytes immediately after the header and use them as sample to perform header protection removal (https://www.rfc-editor.org/rfc/rfc9001.html#section-5.4.1-3)
+    // Note that despite we used a "22 byte" long header, the server might have used different lengths (e.g. a longer cid, a longer pn etc.), thus we cannot assume the header is 22-byte long.
+    // While doing this computation we also record the header Length field (https://www.rfc-editor.org/rfc/rfc9001#section-a.2-3)
+    // Note that the length of the header and the Length field into the header are two different things
+    // Here we add sizes according to "Long header" definition (https://www.rfc-editor.org/rfc/rfc9000#section-17.2) because an Initial packet has a long header (https://www.rfc-editor.org/rfc/rfc9000#name-initial-packet)
+    size_t server_header_size = sizeof(uint8_t); // flags
+    server_header_size += sizeof(uint32_t); // version
+    server_header_size += sizeof(uint8_t); // dcid len
+    server_header_size += buf[server_header_size - sizeof(uint8_t)]; // dcid
+    server_header_size += sizeof(uint8_t); // scid len
+    server_header_size += buf[server_header_size - sizeof(uint8_t)]; // scid
+    server_header_size += sizeof(uint8_t); // token len
+    server_header_size += buf[server_header_size - sizeof(uint8_t)]; // token
+    // Here the amount of server_header_size is such that we are pointing to the Length field, so before proceeding we decode the Length 
+    // Again, here we are talking about the Length field within the packet header and not the length of the header we are trying to determine: https://www.rfc-editor.org/rfc/rfc9001#section-a.2-3
+    // Determine on how much bytes the length is encoded
+    uint8_t len_size = 0;
+    size_t packet_len = get_vlint((uint8_t*)buf + server_header_size, &len_size); // Remember that this Length includes also the packet number and the authentication tag
+    
+    // Now continue to compute the length of the pakcet header
+    server_header_size += len_size; // length
+    
+    // Here another interruption: save the pointer to the encoded packet number, because it will be useful later
+    uint8_t* server_pn_ptr = plaintext + server_header_size;
+    
+    // Proceed with computation of the length of the header
+    // Here we need to add the amount occupied by the packet number. Since the packet number is a variable-length integer and it is protected, we don't know its actual length.
+    // However, when doing header protection the packet number is always considered to be encoded on four bytes (https://www.rfc-editor.org/rfc/rfc9001#section-5.4.2-2)
+    // This means that the sample will be taken starting four-bytes from here, either if it is the actual "first" encrypted byte or not
+    // Note that this also means that when doing header protection we must take the sample in the same way. Since we used a four-byte packet number, we are ok.
+    server_header_size += sizeof(uint32_t); // packet number 
+    
+    // Now we can finally take the sample and thus get the mask to remove the header protection
+    uint8_t* sample = (uint8_t*)buf + server_header_size;
+    size_t sample_len = 16; // Initial packets are protected with AEAD_AES_128_GCM thus the sample is 16 bytes (https://www.rfc-editor.org/rfc/rfc9001#section-5.4.3-2)  
+    uint8_t mask[5]; // The mask is composed by 5 bytes: https://www.rfc-editor.org/rfc/rfc9001#section-5.4.1-2
+    get_protection_header_mask(sample, sample_len, server_hp, mask);
+    
+    // Remove header protection. We also get the length of the packet number as byproduct
+    size_t server_pn_len = unprotect_header(plaintext, mask, server_pn_ptr);
+    
+    // So now we know the exact length o the QUIC header received from the server and we can also extract the server pn:
+    server_header_size -= sizeof(uint32_t); // Remove the four-bytes "allowance" ...
+    server_header_size += server_pn_len; // ... and include the actual space occupied by the packet number
+    
+    // Now time to gather all we need to decrypt the payalod (2nd macrostep):
+    // - Packet number: we need to combine it with the server_iv to get the nonce 
+    // - Additional data: the unprotected quic header
+    // - The length of the encrypted payload (i.e. what we need to decrypt)
+    // - The authentication tag, which is the last 16 bytes of the encrypted payload
+    
+    // Get the packet number.
+    // Note that the packet number is *not* encoded as a variable-length integer so we cannot use the get_vlint* functions
+    // Note also that the packet number max size is four-bytes https://www.rfc-editor.org/rfc/rfc9000#section-17.2-8.8.1 
+    uint32_t server_pn = 0;
+    if(server_pn_len == 1)
+        server_pn = *server_pn_ptr;
+    else if(server_pn_len == 2)
+        server_pn = ntohs(*((uint16_t*)server_pn_ptr));
+    else if(server_pn_len == 3) // need to change endianness on three bytes(!)
+        server_pn = (((uint32_t) server_pn_ptr[0]) << 16) | (((uint32_t) server_pn_ptr[1]) << 8) | ((uint32_t) server_pn_ptr[2]);
+    else if(server_pn_len == 4)
+        server_pn = ntohl(*((uint32_t*)server_pn_ptr));
+    else
+        ex_error("Got an impossible server pn len: %d\n", server_pn_len);
             
-            switch(frame_type)
+    // Record also the associated data as we need that to perform the decryption
+    // Remember that the associated data is the content of the QUIC header, starting from the first byte of either the short or long header, up to and including the unprotected packet number (https://www.rfc-editor.org/rfc/rfc9001.html#section-5.3-6)
+    // So here we already have everything we need, we just need to record the pointer and the length
+    uint8_t* aad = plaintext;
+    size_t aad_len = server_header_size;
+    
+    // Remember that the Length field includes also the packet number
+    size_t encrypted_payload_len = packet_len - server_pn_len;
+    
+    // The authentication tag is composed by the last 16 bytes of the encrypted payload
+    uint8_t* tag = (uint8_t*)buf + server_header_size + encrypted_payload_len - 16;
+    
+    // Generate the nonce combining the "server iv" with the packet number
+    uint8_t nonce[sizeof(server_iv)];
+    uint8_t nonce_len = sizeof(nonce);
+    generate_nonce(server_iv, server_pn, nonce, nonce_len);
+    
+    // Now can finally decrypt the packet
+    // Note that we declare that we need to decrypt "encrypted_payload_len - 16" bytes, because the last 16 bytes of the encrypted packet are the "authentication ta"g that was added during encryption (like we did) for authentication check purposes
+    // The return value "dec_len" indicates how many bytes the "clear" payload is long
+    int dec_len = aead_aes_gcm_128_decrypt((uint8_t*)buf + server_header_size, encrypted_payload_len - 16, aad, aad_len, tag, server_key, nonce, nonce_len, plaintext + server_header_size);
+    
+    if(dec_len == -1)
+        ex_error("Error while decrypting packet from server\n");
+    
+    // Now scan frame by frame looking for an ACK_ECN frame
+    uint8_t* decrypted_payload = plaintext + server_header_size;
+    uint8_t* end = decrypted_payload + dec_len;
+    uint8_t frame_type = 0;
+    char ecn_add_info[1024];
+    
+    do {
+        frame_type = *decrypted_payload;
+        decrypted_payload++;
+        
+        switch(frame_type)
+        {
+            case PADDING: // https://www.rfc-editor.org/rfc/rfc9000#name-padding-frames
             {
-                case PADDING: // https://www.rfc-editor.org/rfc/rfc9000#name-padding-frames
-                {
-                    decrypted_payload++;
-                    
-                    break;
-                }
-                case ACK: // https://www.rfc-editor.org/rfc/rfc9000#name-ack-frames
-                case ACK_ECN:
-                {   
-                    uint8_t field_len = 0;
-                    get_vlint(decrypted_payload, &field_len); // largest ack
-                    decrypted_payload += field_len;
-                    get_vlint(decrypted_payload, &field_len); // ack delay
-                    decrypted_payload += field_len;
-                    size_t ack_range_count = get_vlint(decrypted_payload, &field_len); // ack range count
-                    decrypted_payload += field_len;
-                    get_vlint(decrypted_payload, &field_len); // first ack range
-                    decrypted_payload += field_len;
-                    
-                    for(size_t i = 0; i < ack_range_count; ++i) {
-                        get_vlint(decrypted_payload, &field_len); // gap
-                        decrypted_payload += field_len;
-                        get_vlint(decrypted_payload, &field_len); // ack range length
-                        decrypted_payload += field_len;
-                    }
-                    
-                    if(frame_type == ACK_ECN) { // https://www.rfc-editor.org/rfc/rfc9000#name-ecn-counts
-                        size_t ect0_count = get_vlint(decrypted_payload, &field_len); // ect0_count
-                        decrypted_payload += field_len;
-                        size_t ect1_count = get_vlint(decrypted_payload, &field_len); // ect1_count
-                        decrypted_payload += field_len;
-                        size_t ecn_ce_count = get_vlint(decrypted_payload, &field_len); // ecn_ce_count
-                        decrypted_payload += field_len;
-                        
-                        sprintf(ecn_add_info, "ECT0:%zu,ECT1:%zu,ECN-CE:%zu", ect0_count, ect1_count, ecn_ce_count);
-                        pb->ecn_info = strdup(ecn_add_info);
-                    }
-                    
-                    break;
-                }
-                case CRYPTO: // https://www.rfc-editor.org/rfc/rfc9000#name-crypto-frames
-                {
-                    uint8_t field_len = 0;
-                    get_vlint(decrypted_payload, &field_len); // offset
-                    decrypted_payload += field_len;
-                    size_t crypto_data_len = get_vlint(decrypted_payload, &field_len); // length
-                    decrypted_payload += field_len;
-                    decrypted_payload += crypto_data_len;
-                    
-                    break;
-                }
-                case CONNECTION_CLOSE: // https://www.rfc-editor.org/rfc/rfc9000#name-connection_close-frames
-                {
-                    uint8_t field_len = 0;
-                    get_vlint(decrypted_payload, &field_len); // error code
-                    decrypted_payload += field_len;
-                    get_vlint(decrypted_payload, &field_len); // frame type
-                    decrypted_payload += field_len;
-                    size_t rp_len = get_vlint(decrypted_payload, &field_len); // reason phrase len
-                    decrypted_payload += field_len;
-                    decrypted_payload += rp_len;
-                    
-                    break;
-                }
-                default:
-                {
-                    ex_error("Got an unexpected frame of type %d into an Initial packet\n", frame_type);
-                    break;
-                }
+                decrypted_payload++;
+                
+                break;
             }
-        } while(frame_type != ACK_ECN && frame_type != ACK && decrypted_payload < end);
-    } // if(!err)
+            case ACK: // https://www.rfc-editor.org/rfc/rfc9000#name-ack-frames
+            case ACK_ECN:
+            {   
+                uint8_t field_len = 0;
+                get_vlint(decrypted_payload, &field_len); // largest ack
+                decrypted_payload += field_len;
+                get_vlint(decrypted_payload, &field_len); // ack delay
+                decrypted_payload += field_len;
+                size_t ack_range_count = get_vlint(decrypted_payload, &field_len); // ack range count
+                decrypted_payload += field_len;
+                get_vlint(decrypted_payload, &field_len); // first ack range
+                decrypted_payload += field_len;
+                
+                for(size_t i = 0; i < ack_range_count; ++i) {
+                    get_vlint(decrypted_payload, &field_len); // gap
+                    decrypted_payload += field_len;
+                    get_vlint(decrypted_payload, &field_len); // ack range length
+                    decrypted_payload += field_len;
+                }
+                
+                if(frame_type == ACK_ECN) { // https://www.rfc-editor.org/rfc/rfc9000#name-ecn-counts
+                    size_t ect0_count = get_vlint(decrypted_payload, &field_len); // ect0_count
+                    decrypted_payload += field_len;
+                    size_t ect1_count = get_vlint(decrypted_payload, &field_len); // ect1_count
+                    decrypted_payload += field_len;
+                    size_t ecn_ce_count = get_vlint(decrypted_payload, &field_len); // ecn_ce_count
+                    decrypted_payload += field_len;
+                    
+                    sprintf(ecn_add_info, "ECT0:%zu,ECT1:%zu,ECN-CE:%zu", ect0_count, ect1_count, ecn_ce_count);
+                    pb->ecn_info = strdup(ecn_add_info);
+                }
+                
+                break;
+            }
+            case CRYPTO: // https://www.rfc-editor.org/rfc/rfc9000#name-crypto-frames
+            {
+                uint8_t field_len = 0;
+                get_vlint(decrypted_payload, &field_len); // offset
+                decrypted_payload += field_len;
+                size_t crypto_data_len = get_vlint(decrypted_payload, &field_len); // length
+                decrypted_payload += field_len;
+                decrypted_payload += crypto_data_len;
+                
+                break;
+            }
+            case CONNECTION_CLOSE: // https://www.rfc-editor.org/rfc/rfc9000#name-connection_close-frames
+            {
+                uint8_t field_len = 0;
+                get_vlint(decrypted_payload, &field_len); // error code
+                decrypted_payload += field_len;
+                get_vlint(decrypted_payload, &field_len); // frame type
+                decrypted_payload += field_len;
+                size_t rp_len = get_vlint(decrypted_payload, &field_len); // reason phrase len
+                decrypted_payload += field_len;
+                decrypted_payload += rp_len;
+                
+                break;
+            }
+            default:
+            {
+                ex_error("Got an unexpected frame of type %d into an Initial packet\n", frame_type);
+                break;
+            }
+        }
+    } while(frame_type != ACK_ECN && frame_type != ACK && decrypted_payload < end);
     
     return pb;
 }
