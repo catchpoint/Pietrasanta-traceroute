@@ -21,11 +21,11 @@ make
 make install
 ```
 
+### OpenSSL 3 dependency
+
 Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
 traceroute. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
 QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
-
-### OpenSSL 3 dependency
 
 At compile time openssl3 header files are searched by default in `/usr/local/include` 
 but the path can be changed via the `LIBSSL3_CFLAGS` argument. 
