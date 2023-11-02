@@ -160,6 +160,10 @@ static void print_trailer();
 int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 
+#ifdef HAVE_OPENSSL3
+extern int quic_print_dest_rtt_mode;
+#endif
+
 static void print_end(void) 
 {
     printf("\n");
@@ -978,7 +982,42 @@ void print_probe(probe *pb)
 
     if(pb->recv_time) {
         double diff = pb->recv_time - pb->send_time;
-        printf("  %.3f ms", diff * 1000);
+        #ifdef HAVE_OPENSSL3
+            if(pb->retry_rtt) {
+                switch(quic_print_dest_rtt_mode)
+                {
+                    case QUIC_PRINT_DEST_RTT_ALL:
+                    {
+                        printf("  %.3f+%.3f ms", diff * 1000, pb->retry_rtt*1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_FIRST:
+                    {
+                        printf("  %.3f ms", pb->retry_rtt*1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_LAST:
+                    {
+                        printf("  %.3f ms", diff * 1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_SUM:
+                    {
+                        printf("  %.3f ms", (diff + pb->retry_rtt)* 1000);
+                        break;
+                    }
+                    default:
+                    {
+                        printf("  %.3f+%.3f ms", diff * 1000, pb->retry_rtt*1000);
+                        break;
+                    }
+                }
+            } else {
+                printf("  %.3f ms", diff * 1000);
+            }
+        #else
+            printf("  %.3f ms", diff * 1000);
+        #endif
     }
 
     if(pb->err_str[0])

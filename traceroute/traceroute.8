@@ -432,30 +432,7 @@ packets with initial ttl set to either 64, or 128 or 255 (which seems
 a common practice). It is printed as a negate value in a form of '-NUM' .
 .TP
 .BI \--quic
-Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
-frame are used as probes. If the destination is reached and replies with a 
-QUIC packet, its type is included into the probe output to distinguish it from 
-an ICMP error that can be returned by the destination too (typically a port unreachable).
-QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
-according to RFC9000/RFC9001. Retry packets are handled as per RFC, to maximize
-the possiblity to get an Initial packet from the destination and the ECN
-counters. Encryption and decryption leverage openssl3.
-.br
-
-.br
-When a QUIC packet is received, additional information about the packet type
-is reported within `< >`. The format is `<Q:packet type>`, for example
-<Q:Initial>. Since this version of traceroute handles also Retry packets,
-when a Retry packet is received the format will be <Q:Retry,Initial>.
-.br
-
-.br
-When a non-zero ECN value is provided as input and the destination replies
-with a packet (typically an Initial packet) containing an ACK frame that includes
-ECN counters (0x03), information about the value of the counters are reported
-within `< >`. The format is <ECT0:val,ECT1:val,ECN-CE:val>, where ECT0, ECT1
-and ECN-CE are respectively the counters for the ECN codepoints ECT(0) (0x02),
-ECT(1) (0x01) and CE (0x03).
+Use QUIC Initial packets for probes
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
@@ -623,7 +600,83 @@ Opens a TCP connection with the destination and sends TCP probes within the open
 The default destination port is 80.
 .P
 This method prevents false packet loss introduced by firewall and router configurations related to
-security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers. 
+security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
+.SS quic
+Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
+frame are used as probes. If the destination is reached and replies with a 
+QUIC packet, its type is included into the probe output to distinguish it from 
+an ICMP error that can be returned by the destination too (typically a port unreachable).
+QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
+according to RFC9000/RFC9001. Retry packets are handled as per RFC, to maximize
+the possiblity to get an Initial packet from the destination and the ECN
+counters. Encryption and decryption routeines leverage openssl3, which is a required
+dependency to run and compile the tool. If openssl3 is not available the tool
+can still be compiled, but the QUIC method will not be available.
+.br
+
+.br
+When a QUIC packet is received, additional information about the packet type
+is reported within `< >`. The format is `<Q:packet type>`, where the following
+packet types are expected:
+.P
+.RS
+.BI I 
+Initial packet.
+.br
+
+.br
+.BI R 
+Retry packet.
+.br
+
+.br
+.BI V 
+Version Negotiation packet.
+.br
+
+.br
+.BI U
+(type)
+Unexpected QUIC packet with its hex type.
+.RE
+
+Since this version of traceroute handles also Retry packets,
+when a Retry packet is received the format will be <Q:R+I>.
+.br
+
+.br
+When a non-zero ECN value is provided as input and the destination replies
+with a packet (typically an Initial packet) containing an ACK frame that includes
+ECN counters (0x03), information about the value of the counters are reported
+within `< >`. The format is <ECT0:val,ECT1:val,ECN-CE:val>, where ECT0, ECT1
+and ECN-CE are respectively the counters for the ECN codepoints ECT(0) (0x02),
+ECT(1) (0x01) and CE (0x03).
+.br
+Options:
+.TP
+.B print_dest_rtt_mode\fR=\fImode
+Controls which RTT(s) to print when a Retry packet is received. Possible modes are:
+.br
+
+.br
+.BI all 
+(deafult): prints the RTT of both the Retry and Initial packets. The two RTTs are separated by a `+`.
+.br
+
+.br
+.BI first
+prints the RTT of the Initial packet.
+.br
+
+.br
+.BI last
+prints the RTT of the Retry packet.
+.br
+
+.br
+.BI sum
+prints the RTT as the sum of the Retry and Initial packets RTT.
+
 .SH NOTES
 .PP
 To speed up work, normally several probes are sent simultaneously.

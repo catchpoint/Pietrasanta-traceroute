@@ -68,6 +68,7 @@ struct probe_struct
     uint8_t dcid_len;
     uint8_t* retry_token;
     uint8_t retry_token_len;
+    double retry_rtt;
 #endif
     char* proto_details;
     char* ecn_info;
@@ -119,6 +120,14 @@ typedef struct tr_module_struct tr_module;
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
 #ifdef HAVE_OPENSSL3
 #define DEF_QUIC_PORT 443
+
+enum {
+    QUIC_PRINT_DEST_RTT_ALL = 0,
+    QUIC_PRINT_DEST_RTT_FIRST = 1,
+    QUIC_PRINT_DEST_RTT_LAST = 2,
+    QUIC_PRINT_DEST_RTT_SUM = 3
+};
+
 #endif
 
 void error(const char *str) __attribute__((noreturn));

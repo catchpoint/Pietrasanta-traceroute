@@ -62,6 +62,8 @@ static uint8_t server_key[16];
 static uint8_t server_iv[12];
 static uint8_t server_hp[16];
 
+int quic_print_dest_rtt_mode = QUIC_PRINT_DEST_RTT_ALL;
+
 enum { // These are the only QUIC packets we care of
     QUIC_INITIAL_PACKET = 0x00,
     QUIC_RETRY_PACKET = 0x03
@@ -158,6 +160,35 @@ enum {
     DCID_LEN_OFFSET = 5,
     DCID_OFFSET = 6
 };
+
+// custom options handling
+
+static int set_print_dest_rtt_mode(CLIF_option* optn, char* arg) 
+{
+    quic_print_dest_rtt_mode = -1;
+    
+    if(strcmp(arg, "sum") == 0) {
+        quic_print_dest_rtt_mode = QUIC_PRINT_DEST_RTT_SUM;
+    } else if(strcmp(arg, "first") == 0) {
+        quic_print_dest_rtt_mode = QUIC_PRINT_DEST_RTT_FIRST;
+    } else if(strcmp(arg, "last") == 0) {
+        quic_print_dest_rtt_mode = QUIC_PRINT_DEST_RTT_LAST;
+    } else if(strcmp(arg, "all") == 0) {
+        quic_print_dest_rtt_mode = QUIC_PRINT_DEST_RTT_ALL;
+    }
+    
+    if(quic_print_dest_rtt_mode == -1)
+        return -1;
+    
+    return 0;
+}
+
+static CLIF_option quic_options[] = {
+    { 0, "print_dest_rtt_mode", "mode", "Specify how to print the destination RTT in case a Retry is performed. Possible values are first, last, all, sum (default all). `first` and `last` means respectively that only the RTT of the Retry and only the RTT of the Initial are printed. `all` means that both are printed separated by a `+` character. `sum` means that the sum of the two are printed.", set_print_dest_rtt_mode, &quic_print_dest_rtt_mode, 0, 0 },
+    CLIF_END_OPTION
+};
+
+/////
 
 void init_quic_header()
 {
@@ -744,6 +775,7 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         // In particular, we need to use the SCID sent by the server into the Retry packet: https://www.rfc-editor.org/rfc/rfc9000#section-7.2-7
         // See also https://www.rfc-editor.org/rfc/rfc9001.html#section-5.2-6
         generate_quic_initial_packet(server_scid, server_scid_len, crypto, sizeof(crypto), token, token_len, 1);
+        pb->retry_rtt = get_time() - pb->send_time; // store the retry_rtt as it will be printed
         pb->send_time = get_time(); // Consider the time since now (as we are going to do the handshake with a new Initial packet)
         if(do_send(sk, (uint8_t*)encrypted_packet, *length_p, NULL) < 0) {
             free(pb->retry_token);
@@ -789,9 +821,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         }
         
         if(quic_version == 0x00)
-            sprintf(proto_details, "Q:Version Negotiation");
+            sprintf(proto_details, "Q:V");
         else
-            sprintf(proto_details, "Q:Unhandled packet type %d", packet_type);
+            sprintf(proto_details, "Q:U (0x%02X)", packet_type);
         
         pb->proto_details = strdup(proto_details);
         
@@ -799,9 +831,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
     }
     
     if(pb->retry_token != NULL)
-        sprintf(proto_details, "Q:Retry,Initial");
+        sprintf(proto_details, "Q:R+I");
     else
-        sprintf(proto_details, "Q:Initial");
+        sprintf(proto_details, "Q:I");
     
     pb->proto_details = strdup(proto_details);
     
@@ -1074,6 +1106,7 @@ static tr_module quic_ops = {
     .init = quic_init,
     .send_probe = quic_send_probe,
     .recv_probe = quic_recv_probe,
+    .options = quic_options,
     .header_len = sizeof(struct udphdr),
     .is_raw_icmp_sk = quic_is_raw_icmp_sk,
     .handle_raw_icmp_packet = quic_handle_raw_icmp_packet,
