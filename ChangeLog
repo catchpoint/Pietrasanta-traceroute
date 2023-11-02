@@ -1,4 +1,4 @@
-2023-11-02  Luca Sani  <lsani@catchpoint.com> - 0.2.1
+2023-11-02  Luca Sani  <lsani@catchpoint.com> - 0.1.3
     *  Introduce QUIC module
         
         We introduced the QUIC module to perform QUIC traceroute via the --quic
