@@ -38,7 +38,7 @@ At linking time and runtime openssl3 libraries are searched in
 
 This tool should build on any modern Linux system.  
 
-Binaries are provided for convenience [here](https://github.com/catchpoint/Networking.traceroute/tree/main/binaries) for common Linux distributions.
+Binaries are provided for convenience [here](binaries) for common Linux distributions.
 
 ### Building with docker
 
