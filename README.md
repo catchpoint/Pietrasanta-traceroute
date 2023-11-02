@@ -38,18 +38,20 @@ This tool should build on any modern Linux system.
 
 Binaries are provided for convenience [here](https://github.com/catchpoint/Networking.traceroute/tree/main/binaries) for common Linux distributions.
 
-### Build with docker
+### Building with docker
 
 The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
 For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
 To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
 Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
+If no folder is provided, traceroute binaries with QUIC disabled will be produced (this is like passing `DISABLE_OPENSSL=1` to `make`)
 
 The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
-* `--platform "<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+* `--openssl3=<openssl3_folder>`: The folder containing openssl3 source code.
 
 The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
 
