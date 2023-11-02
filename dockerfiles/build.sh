@@ -123,7 +123,7 @@ build()
 BUILD=0
 CLEAN=0
 OPENSSL3_FOLDER=""
-PLATFORM="centos7 debian11 ubuntu22 alpine"
+PLATFORM="centos7 debian11 ubuntu22 alpine3.15"
 
 if ! args=$(getopt --long openssl3:,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
