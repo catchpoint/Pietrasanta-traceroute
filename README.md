@@ -15,7 +15,7 @@ includes a special output to highlight DSCP and ECN values.
 - Introduced the QUIC module to perform QUIC traceroute via the --quic. This mode
 uses QUIC Initial packets as probes.
  
-Full details in ChangeLog [here](https://github.com/catchpoint/Networking.traceroute/blob/develop/ChangeLog).
+Full details in ChangeLog [here](ChangeLog).
 
 ## Building & Installation
 ```
