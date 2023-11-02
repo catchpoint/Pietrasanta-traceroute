@@ -151,10 +151,14 @@ while true; do
     esac
 done
 
-echo "BUILD=${BUILD}, CLEAN=${CLEAN}, OPENSSL3_FOLDER=${OPENSSL3_FOLDER}, PLATFORM=${PLATFORM}"
+echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
+echo "OPENSSL3_FOLDER=${OPENSSL3_FOLDER}"
+echo "PLATFORM=${PLATFORM}"
 
 for PLATFORM in $(echo $PLATFORM)
 do
+    echo "Doing $PLATFORM"
+    
     if [ "${BUILD}" =  1 ]
     then
         build ${PLATFORM} ${OPENSSL3_FOLDER}
