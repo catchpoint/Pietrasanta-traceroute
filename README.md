@@ -36,9 +36,9 @@ At linking time and runtime openssl3 libraries are searched in
 
 ## Binaries
 
-This tool should build on any modern Linux system.  
+This tool should build and run on any Linux system running a kernel version 2.6 or higher. This includes systems running on containers, VMs and on the Windows Subsystem for Linux (WSL).
 
-Binaries are provided for convenience [here](binaries) for common Linux distributions.
+Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
 
 ### Building with docker
 
