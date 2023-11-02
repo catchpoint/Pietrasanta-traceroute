@@ -47,9 +47,9 @@ Typically this will be a branch of the official OpenSSL github repositorty conta
 
 The build script takes these options:
 
-`--build`: build the binaries.
-`--clean`: clean docker images and containers created during the build process.
-`--platform <space separated list of platforms>`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+* `--build`: build the binaries.
+* `--clean`: clean docker images and containers created during the build process.
+* `--platform <space separated list of platforms>`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
 
 Example:
 
