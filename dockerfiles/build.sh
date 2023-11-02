@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# NOTE: This requires GNU getopt. On Mac OSX and FreeBSD, you can install in this way:
-# - Mac OSX: install MacPorts (http://www.macports.org) and then do `sudo port install getopt`. Ensure that /opt/local/bin is in your shell path ahead of /usr/bin because it is where the gnu getopt is installed by default. 
-# - FreeBSD: install misc/getopt.
-
 # Sample usage: ./build.sh - --clean --build -openssl3=<openssl3 folder>
 
 clean_folder()

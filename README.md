@@ -41,7 +41,7 @@ Binaries are provided for convenience [here](https://github.com/catchpoint/Netwo
 ### Build with docker
 
 The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
-For convenience these dockerfiles are included into the `dockerfiles` folder and a build script called `build.sh` is provided.
+For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
 To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
 Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
 
@@ -49,7 +49,9 @@ The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
-* `--platform <space separated list of platforms>`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+* `--platform "<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+
+The build script requires GNU getopt (which is available by default on Linux).
 
 Example:
 
