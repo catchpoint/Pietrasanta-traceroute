@@ -44,7 +44,7 @@ The binaries provided in the `binaries` folder are obtained compiling the tool o
 For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
 To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
 Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
-If no folder is provided, traceroute binaries with QUIC disabled will be produced (this is like passing `DISABLE_OPENSSL=1` to `make`)
+If no folder is provided, traceroute binaries with QUIC disabled will be produced (like passing `DISABLE_OPENSSL=1` to `make`)
 
 The build script takes these options:
 
