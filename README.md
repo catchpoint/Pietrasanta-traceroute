@@ -40,10 +40,10 @@ Binaries are provided for convenience [here](https://github.com/catchpoint/Netwo
 
 ### Build with docker
 
-The binaries provided in the `binaries` folder are obtaining compiling the tool on OS-specific dockerfiles.
+The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
 For convenience these dockerfiles are included into the `dockerfiles` folder and a build script called `build.sh` is provided.
-To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested.
-Typically this will be a branch of the official OpenSSL github repositorty containing openssl 3.2 version.
+To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
+Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
 
 The build script takes these options:
 
