@@ -51,7 +51,7 @@ The build script takes these options:
 * `--clean`: clean docker images and containers created during the build process.
 * `--platform "<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
 
-The build script requires GNU getopt (which is available by default on Linux).
+The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
 
 Example:
 
