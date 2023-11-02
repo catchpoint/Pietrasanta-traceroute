@@ -96,7 +96,7 @@ build()
     echo "Building for $PLATFORM"
     
     SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
-    SAVE_DIR="${SCRIPTPATH}/${PLATFORM}"
+    SAVE_DIR="${SCRIPTPATH}"
     
     if ! cd "${SCRIPTPATH}/${PLATFORM}"
     then
@@ -155,7 +155,7 @@ while true; do
     esac
 done
 
-echo "BUILD=${BUILD}, CLEAN=${CLEAN}, OPENSSL3_FOLDER=${OPENSSL3_FOLDER}"
+echo "BUILD=${BUILD}, CLEAN=${CLEAN}, OPENSSL3_FOLDER=${OPENSSL3_FOLDER}, PLATFORM=${PLATFORM}"
 
 for PLATFORM in $(echo $PLATFORM)
 do

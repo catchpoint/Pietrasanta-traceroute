@@ -11,7 +11,7 @@ router configurations related to security and to ensures that packets follow a
 single flow, akin to a normal TCP session, to bypass load-balanced routers.
  - Introduced enhanced TOS (DSCP/ECN) field report. This new option allows to set 
 ToS field in outgoing packets and read the ToS field of the expiring probes. It
-includes a special output to highlight DSCP and ECN values
+includes a special output to highlight DSCP and ECN values.
  
 Full details in ChangeLog [here](https://github.com/catchpoint/Networking.traceroute/blob/develop/ChangeLog).
 
@@ -23,7 +23,13 @@ make install
 
 Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
 traceroute. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
-QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. By default openssl3 libraries are searched in
+QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
+
+### OpenSSL 3 dependency
+
+At compile time openssl3 header files are searched by default in `/usr/local/include` 
+but the path can be changed via the `LIBSSL3_CFLAGS` argument. 
+At linking time and runtime openssl3 libraries are searched in
 `/usr/local/lib64` but the path can be changed via the `LIBSSL3_LDFLAGS` argument.
 
 ## Binaries
@@ -31,6 +37,27 @@ QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. By default openssl3 
 This tool should build on any modern Linux system.  
 
 Binaries are provided for convenience [here](https://github.com/catchpoint/Networking.traceroute/tree/main/binaries) for common Linux distributions.
+
+### Build with docker
+
+The binaries provided in the `binaries` folder are obtaining compiling the tool on OS-specific dockerfiles.
+For convenience these dockerfiles are included into the `dockerfiles` folder and a build script called `build.sh` is provided.
+To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested.
+Typically this will be a branch of the official OpenSSL github repositorty containing openssl 3.2 version.
+
+The build script takes these options:
+
+`--build`: build the binaries.
+`--clean`: clean docker images and containers created during the build process.
+`--platform <space separated list of platforms>`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine` (Alpine 3.15). By default they are all enabled.
+
+Example:
+
+```
+./build.sh - --build --clean --openssl3=/home/user/openssl3
+```
+
+This will produce the binaries for CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, and place them into the `binaries` folder.
 
 ## Usage
 
