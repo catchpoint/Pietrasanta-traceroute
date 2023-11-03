@@ -80,7 +80,7 @@ This will produce the binaries for CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, 
 
 ## Usage
 
-See `traceroute(8)` for detailed instructions.
+See [traceroute(8)][traceroute/traceroute.8] for detailed instructions.
 
 ## Original Dmitry Butskoy README file
 
@@ -108,7 +108,7 @@ Main features:
 - perform path MTU discovery automatically
 - show guessed number of hops in backward direction
 - command line compatible with the original traceroute
-- and much more, see traceroute(8)
+- and much more, see [traceroute(8)][traceroute/traceroute.8]
 
 This code was written from the scratch, using some ideas of
 Olaf Kirch's traceroute, the original implementation of Van Jacobson
