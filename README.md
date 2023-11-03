@@ -12,7 +12,7 @@ single flow, akin to a normal TCP session, to bypass load-balanced routers.
  - Introduced enhanced TOS (DSCP/ECN) field report. This new option allows to set 
 ToS field in outgoing packets and read the ToS field of the expiring probes. It
 includes a special output to highlight DSCP and ECN values.
-- Introduced the QUIC module to perform QUIC traceroute via the --quic. This mode
+- Introduced the QUIC module to perform QUIC traceroute using --quic. This mode
 uses QUIC Initial packets as probes.
  
 Full details in ChangeLog [here](ChangeLog).
