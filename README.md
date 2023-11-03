@@ -34,6 +34,18 @@ but the path can be changed via the `LIBSSL3_CFLAGS` argument.
 At linking time and runtime openssl3 libraries are searched in
 `/usr/local/lib64` but the path can be changed via the `LIBSSL3_LDFLAGS` argument.
 
+A way to obtain openssl3 libraries is to compile them  from source.
+As an example these are the steps to get shared objects in `/usr/local/lib64` and
+header files in `/usr/local/include`:
+
+```
+git clone -b openssl-3.2 https://github.com/openssl/openssl.git
+cd openssl
+./Configure
+make
+make install
+```
+
 ## Binaries
 
 This tool should build and run on any Linux system running a kernel version 2.6 or higher. This includes systems running on containers, VMs and on the Windows Subsystem for Linux (WSL).
