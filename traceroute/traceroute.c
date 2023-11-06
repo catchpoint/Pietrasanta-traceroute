@@ -159,10 +159,8 @@ int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
 
-// This is taken from net/ipv4/icmp.c
-// Names have been adapted.
-/* An array of errno for error messages from dest unreach. */
-/* RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'. */
+// The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
+// RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
 
 struct icmp4_err {
   int error;
@@ -171,105 +169,103 @@ struct icmp4_err {
 
 const struct icmp4_err icmp4_err_convert[] = {
     {
-        .error = ENETUNREACH,    /* ICMP_NET_UNREACH */
+        .error = ENETUNREACH,    // ICMP_NET_UNREACH
         .fatal = 0,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_UNREACH */
+        .error = EHOSTUNREACH,    // ICMP_HOST_UNREACH
         .fatal = 0,
     },
     {
-        .error = ENOPROTOOPT    /* ICMP_PROT_UNREACH */,
+        .error = ENOPROTOOPT,    // ICMP_PROT_UNREACH
         .fatal = 1,
     },
     {
-        .error = ECONNREFUSED,    /* ICMP_PORT_UNREACH */
+        .error = ECONNREFUSED,    // ICMP_PORT_UNREACH
         .fatal = 1,
     },
     {
-        .error = EMSGSIZE,    /* ICMP_FRAG_NEEDED */
+        .error = EMSGSIZE,    // ICMP_FRAG_NEEDED
         .fatal = 0,
     },
     {
-        .error = EOPNOTSUPP,    /* ICMP_SR_FAILED */
+        .error = EOPNOTSUPP,    // ICMP_SR_FAILED
         .fatal = 0,
     },
     {
-        .error = ENETUNREACH,    /* ICMP_NET_UNKNOWN */
+        .error = ENETUNREACH,    // ICMP_NET_UNKNOWN
         .fatal = 1,
     },
     {
-        .error = EHOSTDOWN,    /* ICMP_HOST_UNKNOWN */
+        .error = EHOSTDOWN,    // ICMP_HOST_UNKNOWN
         .fatal = 1,
     },
     {
-        .error = ENONET,    /* ICMP_HOST_ISOLATED */
+        .error = ENONET,    // ICMP_HOST_ISOLATED
         .fatal = 1,
     },
     {
-        .error = ENETUNREACH,    /* ICMP_NET_ANO    */
+        .error = ENETUNREACH,    // ICMP_NET_ANO
         .fatal = 1,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_ANO */
+        .error = EHOSTUNREACH,    // ICMP_HOST_ANO
         .fatal = 1,
     },
     {
-        .error = ENETUNREACH,    /* ICMP_NET_UNR_TOS */
+        .error = ENETUNREACH,    // ICMP_NET_UNR_TOS
         .fatal = 0,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_UNR_TOS */
+        .error = EHOSTUNREACH,    // ICMP_HOST_UNR_TOS
         .fatal = 0,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_PKT_FILTERED */
+        .error = EHOSTUNREACH,    // ICMP_PKT_FILTERED
         .fatal = 1,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_PREC_VIOLATION */
+        .error = EHOSTUNREACH,    // ICMP_PREC_VIOLATION
         .fatal = 1,
     },
     {
-        .error = EHOSTUNREACH,    /* ICMP_PREC_CUTOFF */
+        .error = EHOSTUNREACH,    // ICMP_PREC_CUTOFF
         .fatal = 1,
     },
 };
 
-// Same but for IPv6 (see net/ipv6/icmp.c)
-// Names have been adapted.
 struct icmp6_err {
     int err;
     int fatal;
 };
 
 const struct icmp6_err icmp6_err_convert[] = {
-    {    /* NOROUTE */
-        .err = ENETUNREACH,
+    {    
+        .err = ENETUNREACH,    // NOROUTE */
         .fatal = 0,
     },
-    {    /* ADM_PROHIBITED */
-        .err = EACCES,
+    {    
+        .err = EACCES,    // ADM_PROHIBITED */
         .fatal = 1,
     },
-    {    /* Was NOT_NEIGHBOUR, now reserved */
-        .err = EHOSTUNREACH,
+    {    
+        .err = EHOSTUNREACH,    // Was NOT_NEIGHBOUR, now reserved
         .fatal = 0,
     },
-    {    /* ADDR_UNREACH    */
-        .err = EHOSTUNREACH,
+    {    
+        .err = EHOSTUNREACH,    // ADDR_UNREACH
         .fatal = 0,
     },
-    {    /* PORT_UNREACH    */
-        .err = ECONNREFUSED,
+    {    
+        .err = ECONNREFUSED,    // PORT_UNREACH
         .fatal = 1,
     },
-    {    /* POLICY_FAIL */
-        .err = EACCES,
+    {    
+        .err = EACCES,    // POLICY_FAIL
         .fatal = 1,
     },
-    {    /* REJECT_ROUTE    */
-        .err = EACCES,
+    {    
+        .err = EACCES,    // REJECT_ROUTE
         .fatal = 1,
     },
 };
