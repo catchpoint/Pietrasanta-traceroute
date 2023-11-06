@@ -19,6 +19,15 @@
 #include <sys/time.h>
 #include <clif.h>
 
+#define ECN_NOT_ECT 0x00
+#define ECN_ECT_0 0x02
+#define ECN_ECT_1 0x01
+#define ECN_CE    0x03
+
+#ifdef HAVE_OPENSSL3
+#define MAX_QUIC_ID_LEN 20 // Source and Dest connection ID MUST not exceed 20 bytes https://www.rfc-editor.org/rfc/rfc9000#section-17.2-3.12.1
+#endif
+
 extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;
@@ -53,6 +62,16 @@ struct probe_struct
     sockaddr_any src;
     sockaddr_any dest;
     uint32_t seq_num;
+    // quic stuff
+#ifdef HAVE_OPENSSL3
+    uint8_t dcid[MAX_QUIC_ID_LEN];
+    uint8_t dcid_len;
+    uint8_t* retry_token;
+    uint8_t retry_token_len;
+    double retry_rtt;
+#endif
+    char* proto_details;
+    char* ecn_info;
     int tcpinsession_destination_reply;
     char err_str[16];    /*  assume enough   */
 };
@@ -89,15 +108,6 @@ struct tr_module_struct {
     void (*handle_raw_icmp_packet)(char* bufp);
 };
 
-enum {
-    DESTINATION_DOES_NOT_SUPPORT_ECN = 0, // We found that during the 3-way handshake the destination does not support ECN (ECE is not set into the SYN+ACK)
-    DESTINATION_SUPPORT_ECN = 1, // SYN+ACK contains ECE
-    DATA_ACK_DOES_NOT_CONTAIN_ECE = 2, // The handshake said that TCP dest supports ECN but despite we send a data packet with CE (11) in the IP header the (S)ACK of that packet does not econtain the ECE flag
-    ECN_IS_SUPPORTED = 3,
-    WEIRD_ECN_BEHAVIOR = 4,
-    DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED = 5 //  The handshake said that TCP dest supports ECN but since the given ECN is not (CE) 11 we couldn't do the full check
-};
-
 typedef struct tr_module_struct tr_module;
 
 #define __TEXT(X)       #X
@@ -108,6 +118,17 @@ typedef struct tr_module_struct tr_module;
 #define DEF_TCP_PORT    80    /*  web   */
 #define DEF_DCCP_PORT    DEF_START_PORT    /*  is it a good choice?...  */
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
+#ifdef HAVE_OPENSSL3
+#define DEF_QUIC_PORT 443
+
+enum {
+    QUIC_PRINT_DEST_RTT_ALL = 0,
+    QUIC_PRINT_DEST_RTT_FIRST = 1,
+    QUIC_PRINT_DEST_RTT_LAST = 2,
+    QUIC_PRINT_DEST_RTT_SUM = 3
+};
+
+#endif
 
 void error(const char *str) __attribute__((noreturn));
 void error_or_perm(const char *str) __attribute__((noreturn));

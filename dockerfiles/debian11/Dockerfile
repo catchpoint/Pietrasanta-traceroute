@@ -1,5 +1,6 @@
 FROM debian:11
-RUN apt-get update && apt-get install -y make init gcc
+ARG disable_openssl
+RUN apt-get update && apt-get install -y make init gcc libipc-run-perl
 RUN mkdir traceroute
 ADD libsupp traceroute/libsupp/
 ADD include traceroute/include
@@ -9,5 +10,7 @@ ADD Make.rules traceroute/
 ADD Make.defines traceroute/
 ADD default.rules traceroute/
 ADD VERSION traceroute/
-
-CMD ["/sbin/init"]
+COPY placeholder_openssl openssl* /openssl
+ADD compile.sh /
+RUN chmod +x ./compile.sh
+RUN ./compile.sh ${disable_openssl}
