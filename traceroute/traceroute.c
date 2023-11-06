@@ -148,10 +148,8 @@ static unsigned int timedout = 0;
 static unsigned int destination_reached = 0;
 static int consecutive_probe_failures = 0;
 static int max_consecutive_hop_failures = MAX_HOPS;
-
 static const char* module = "default";
 static const tr_module *ops = NULL;
-
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
@@ -159,6 +157,122 @@ static void print_trailer();
 
 int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
+int loose_match = 0;
+
+// This is taken from net/ipv4/icmp.c
+// Names have been adapted.
+/* An array of errno for error messages from dest unreach. */
+/* RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'. */
+
+struct icmp4_err {
+  int error;
+  unsigned int fatal;
+};
+
+const struct icmp4_err icmp4_err_convert[] = {
+    {
+        .error = ENETUNREACH,    /* ICMP_NET_UNREACH */
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_HOST_UNREACH */
+        .fatal = 0,
+    },
+    {
+        .error = ENOPROTOOPT    /* ICMP_PROT_UNREACH */,
+        .fatal = 1,
+    },
+    {
+        .error = ECONNREFUSED,    /* ICMP_PORT_UNREACH */
+        .fatal = 1,
+    },
+    {
+        .error = EMSGSIZE,    /* ICMP_FRAG_NEEDED */
+        .fatal = 0,
+    },
+    {
+        .error = EOPNOTSUPP,    /* ICMP_SR_FAILED */
+        .fatal = 0,
+    },
+    {
+        .error = ENETUNREACH,    /* ICMP_NET_UNKNOWN */
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTDOWN,    /* ICMP_HOST_UNKNOWN */
+        .fatal = 1,
+    },
+    {
+        .error = ENONET,    /* ICMP_HOST_ISOLATED */
+        .fatal = 1,
+    },
+    {
+        .error = ENETUNREACH,    /* ICMP_NET_ANO    */
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_HOST_ANO */
+        .fatal = 1,
+    },
+    {
+        .error = ENETUNREACH,    /* ICMP_NET_UNR_TOS */
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_HOST_UNR_TOS */
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_PKT_FILTERED */
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_PREC_VIOLATION */
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    /* ICMP_PREC_CUTOFF */
+        .fatal = 1,
+    },
+};
+
+// Same but for IPv6 (see net/ipv6/icmp.c)
+// Names have been adapted.
+struct icmp6_err {
+    int err;
+    int fatal;
+};
+
+const struct icmp6_err icmp6_err_convert[] = {
+    {    /* NOROUTE */
+        .err = ENETUNREACH,
+        .fatal = 0,
+    },
+    {    /* ADM_PROHIBITED */
+        .err = EACCES,
+        .fatal = 1,
+    },
+    {    /* Was NOT_NEIGHBOUR, now reserved */
+        .err = EHOSTUNREACH,
+        .fatal = 0,
+    },
+    {    /* ADDR_UNREACH    */
+        .err = EHOSTUNREACH,
+        .fatal = 0,
+    },
+    {    /* PORT_UNREACH    */
+        .err = ECONNREFUSED,
+        .fatal = 1,
+    },
+    {    /* POLICY_FAIL */
+        .err = EACCES,
+        .fatal = 1,
+    },
+    {    /* REJECT_ROUTE    */
+        .err = EACCES,
+        .fatal = 1,
+    },
+};
 
 #ifdef HAVE_OPENSSL3
 extern int quic_print_dest_rtt_mode;
@@ -642,6 +756,7 @@ static CLIF_option option_list[] = {
     { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
+    { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -735,6 +850,9 @@ int main(int argc, char *argv[])
         tos = tos_input_value;
         use_additional_raw_icmp_socket = 1;
     }
+    
+    if(loose_match)
+        use_additional_raw_icmp_socket = 1;
     
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
@@ -1235,12 +1353,11 @@ int equal_port(const sockaddr_any* a, const sockaddr_any* b)
     return 0;    /*  not reached   */
 }
 
-probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest) 
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_source_addr) 
 {
-    for(int n = 0; n < num_probes; n++) {
-        if(equal_sockaddr(src, &probes[n].src) && equal_sockaddr(dest, &probes[n].dest))
+    for(int n = 0; n < num_probes; n++)
+        if(((!check_source_addr && equal_port(src, &probes[n].src)) || equal_sockaddr(src, &probes[n].src)) && (!dest || equal_sockaddr(dest, &probes[n].dest)))
             return &probes[n];
-    }
     
     return NULL;
 }
@@ -1722,6 +1839,304 @@ void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sock
     }
 }
 
+uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender)
+{
+    if(family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
+        
+        // pre-alloc for all the errors that tr is handling, which are [SOL_SOCKET-SO_TIMESTAMP] + [SOL_IP-IP_TTL] + [SOL_IP-IP_RECVERR]
+        // IP_RECVERR data is composed by a sock_extended_err followed by a sockaddr_in (the address of the offender), see ip_recv_error@ip_sockglue.c.
+        // About the spaced occupied by IP_TTL: The cmsglen is 20, but the actual data is 24 bytes, (because CMSG_SPACE(sizeof(int)) = 24, while CMSG_LEN(sizeof(int)) = 20. See put_cmsg@net/core/scm.c
+        // Also the global msg_controllen contains the computation with CMSG_SPACE, while the individual cmsg_len the actual data to read, which is the result of CMSG_LEN See put_cmsg@net/core/scm.c
+        // In summary, CMSG_LEN is used to indicate the amount to read, while CMSG_SPACE is used to reserve the actual space 
+        ret->msg_controllen = CMSG_SPACE(sizeof(struct timeval)) + CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in));
+
+        // prepare the pointers to respective headers and data
+        struct cmsghdr* cmsghdr_so_timestamp = (struct cmsghdr*)ret->msg_control;
+        struct cmsghdr* cmsghdr_ip_ttl = (struct cmsghdr*)(((char *)cmsghdr_so_timestamp) + CMSG_SPACE(sizeof(struct timeval)));
+        struct cmsghdr* cmsghdr_so_ip_recverr = (struct cmsghdr*)(((char *)cmsghdr_ip_ttl) + CMSG_SPACE(sizeof(int)));
+        
+        // data pointers
+        struct timeval* data_so_timestamp = (struct timeval*)((char *)cmsghdr_so_timestamp + sizeof(struct cmsghdr));
+        int* data_ip_ttl = (int *)((char *)cmsghdr_ip_ttl + sizeof(struct cmsghdr));
+        struct sock_extended_err* data_ip_recv_err_serr = (struct sock_extended_err*)((char *)cmsghdr_so_ip_recverr + sizeof(struct cmsghdr));
+        struct sockaddr_in* data_ip_recv_err_offender = (struct sockaddr_in*)(data_ip_recv_err_serr+1);
+        
+        // SO_TIMESTAMP
+        // See __sock_recv_timestamp@socket.c
+        cmsghdr_so_timestamp->cmsg_len = CMSG_LEN(sizeof(struct timeval));
+        cmsghdr_so_timestamp->cmsg_level = SOL_SOCKET;
+        cmsghdr_so_timestamp->cmsg_type = SO_TIMESTAMP;
+        gettimeofday(data_so_timestamp, NULL);
+        
+        // IP_TTL
+        cmsghdr_ip_ttl->cmsg_len = CMSG_LEN(sizeof(int));
+        cmsghdr_ip_ttl->cmsg_level = SOL_IP;
+        cmsghdr_ip_ttl->cmsg_type = IP_TTL;
+        // In kernel this is done by ip_cmsg_recv_ttl @net/ipv4/ip_sockglue.c
+        // The trace looks like this: SYS_recvmsg->inet_recvmsg->raw_recvmsg->ip_recv_error->ip_cmsg_recv_ttl (inferred as it is a static function)
+        // Note that we need to put the outer_ip TTL (not the ojne of the encapsulated probe)
+        *data_ip_ttl = outer_ip->ttl;
+        
+        // IP_RECVERR 
+        cmsghdr_so_ip_recverr->cmsg_len = CMSG_LEN(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in));
+        cmsghdr_so_ip_recverr->cmsg_level = SOL_IP;
+        cmsghdr_so_ip_recverr->cmsg_type = IP_RECVERR;
+        // In kernel this is filled by the ip_icmp_error @net/ipv4/ip_sockglue.c
+        // NOTE: this is executed independently from the recvmsg.
+        // The trace looks like this: ip_rcv->ip_rcv_finish->ip_local_deliver->ip_local_deliver_finish->icmp_rcv->icmp_unreach->icmp_socket_deliver->raw_icmp_error->raw_err->ip_icmp_error
+        
+        // Set data_ip_recv_err->ee_errno like raw_err@raw.c:232
+        // Also, set `info` like icmp_unreach@icmp.c:801
+        // Note that this info is propagated up to ip_icmp_error as argument
+        int err = 0;
+        uint32_t info = 0;
+        int has_recv_err = 1;
+        switch(outer_icmp->type)
+        {
+            case ICMP_ECHOREPLY:
+            {
+                // No IP_RECVERR in case of ECHO REPLY
+                has_recv_err = 0;
+                ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in)); // Do not return the ee if there is no error (this would be a mistake)
+                break;
+            }
+            case ICMP_TIME_EXCEEDED:
+            {
+                err = EHOSTUNREACH;
+                break;
+            }
+            case ICMP_SOURCE_QUENCH:
+            {
+                return 0; // TODO Thus reset the ret?
+            }
+            case ICMP_PARAMETERPROB:
+            {
+                err = EPROTO;
+                info = ntohl(outer_icmp->un.gateway) >> 24; // See icmp_unreach@icmp.c
+                break;
+            }
+            case ICMP_DEST_UNREACH:
+            {
+                // See icmp_unreach@icmp.c
+                switch(outer_icmp->code & 15)
+                {
+                    case ICMP_NET_UNREACH:
+                    case ICMP_HOST_UNREACH:
+                    case ICMP_PROT_UNREACH:
+                    case ICMP_PORT_UNREACH:
+                    {
+                        break;
+                    }
+                    case ICMP_FRAG_NEEDED: // This can be probably moved below, however moving it after the outer_icmp->code bound check is not equivalent to what is being done into the kernel, so leaving it here
+                    {
+                        // Always report mtu info (TODO: handle the case in which no mtu disc is set?)
+                        info = ntohs(outer_icmp->un.frag.mtu); 
+                        break;
+                    }
+                }
+                
+                // See raw_err@raw.c
+                err = EHOSTUNREACH;
+                if(outer_icmp->code > sizeof(icmp4_err_convert) / sizeof(struct icmp4_err) - 1) // NR_ICMP_UNREACH is defined as 15 in include/net/icmp.
+                    break;
+                err = icmp4_err_convert[outer_icmp->code].error;
+                if(outer_icmp->code == ICMP_FRAG_NEEDED)
+                    err = EMSGSIZE;
+                
+                break;
+            }
+            default:
+            {
+                err = EHOSTUNREACH;
+                break;
+            }
+        }
+        
+        if(has_recv_err) {
+            // See ip_icmp_error@ip_sockglue.c
+            data_ip_recv_err_serr->ee_errno = err;
+            data_ip_recv_err_serr->ee_origin = SO_EE_ORIGIN_ICMP;
+            data_ip_recv_err_serr->ee_type = outer_icmp->type;
+            data_ip_recv_err_serr->ee_code = outer_icmp->code;
+            data_ip_recv_err_serr->ee_pad = 0;
+            data_ip_recv_err_serr->ee_info = info;
+            data_ip_recv_err_serr->ee_data = 0;
+        }
+        
+        // Now we have to do two things, see ip_recv_error@ip_sockglue.c
+        // 1. Fill the ret msg_name
+        // 2. Fill the offender address of the IP_RECVERR data
+        
+        struct sockaddr_in *sin = (struct sockaddr_in *)ret->msg_name;
+        sin->sin_family = AF_INET;
+        sin->sin_port = 0; // This is left to be zero, see the call to ip_icmp_error in raw_err@raw.c (This is the parameter after "err"). In any case it is not used by tr.
+        // NOTE: in the ip_recv_error the address put in s_addr is what is found at the "addr_offset" which is set in ip_icmp_error@ip_sockglue.c. This offset is the offset of the destination address of the packet incapsulated into the ICMP payload.
+        // NOTE: That this is equivalent to our dst_addr.sin.sin_addr.s_addr.
+        // NOTE: This is not true fror ICMP_ECHOREPLY, in this case the from is the source address of the reply
+        if(has_recv_err)
+            sin->sin_addr.s_addr = ((struct iphdr*)(outer_icmp + 1))->daddr;
+        else
+            sin->sin_addr.s_addr = outer_ip->saddr;
+        memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
+        ret->msg_namelen = sizeof(*sin);
+        
+        // Fill the offender
+        if(has_recv_err) {
+            struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        
+            data_ip_recv_err_offender->sin_family = AF_INET;
+            data_ip_recv_err_offender->sin_addr.s_addr = outer_ip->saddr;
+            
+            // Return also the payload of the offending probe (and extensions, if present)
+            uint16_t tot_len = ntohs(outer_ip->tot_len);
+            uint16_t icmp_len = tot_len - (outer_ip->ihl << 2);
+            uint16_t icmp_payload_len = icmp_len - sizeof(struct icmphdr);
+            uint8_t* payload_ptr = ((uint8_t*)outer_icmp + sizeof(struct icmphdr));
+            payload_ptr += (inner_ip->ihl << 2);
+            payload_ptr += inner_proto_hlen;
+            
+            memcpy(ret->msg_iov->iov_base, payload_ptr, (icmp_payload_len > ret->msg_iov->iov_len) ? ret->msg_iov->iov_len : icmp_payload_len);
+            
+            return (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2) + inner_proto_hlen;
+        }
+        
+        return (outer_ip->ihl << 2) + sizeof(struct icmphdr);
+    } else {
+        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
+        
+        // pre-alloc for all the errors that tr is handling, which are [SOL_IPV6-IPV6_HOPLIMIT] + [SOL_IPV6-IPV6_RECVERR]
+        // IPV6_RECVERR data is composed by a sock_extended_err followed by a sockaddr_in6 (the address of the offender), see ipv6_recv_error@ipv6/datagram.c.
+        // About the spaced occupied by IPV6_HOPLIMIT: the cmsglen is 20, but the actual data is 24 bytes, (because CMSG_SPACE(sizeof(int)) = 24, while CMSG_LEN(sizeof(int)) = 20. See put_cmsg@net/core/scm.c
+        // Also the global msg_controllen contains the computation with CMSG_SPACE, while the individual cmsg_len the actual data to read, so the result of CMS_LEN See put_cmsg@net/core/scm.c
+        // So it appears that CMSG_LEN is used to indicate the amount to read, while CMSG_SPACE is used to reserve the actual space 
+        ret->msg_controllen = CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6));
+        
+        // prepare the pointers to respective headers and data
+        struct cmsghdr* cmsghdr_ipv6_hoplimit = (struct cmsghdr*)ret->msg_control;
+        struct cmsghdr* cmsghdr_ipv6_recverr = (struct cmsghdr*)(((char *)cmsghdr_ipv6_hoplimit) + CMSG_SPACE(sizeof(int)));
+        
+        int* data_ip_ttl = (int *)((char *)cmsghdr_ipv6_hoplimit + sizeof(struct cmsghdr));
+        struct sock_extended_err* data_ip_recv_err_serr = (struct sock_extended_err*)((char *)cmsghdr_ipv6_recverr + sizeof(struct cmsghdr));
+        struct sockaddr_in6* data_ip_recv_err_offender = (struct sockaddr_in6*)(data_ip_recv_err_serr+1);
+        
+        // IPV6_HOPLIMIT
+        cmsghdr_ipv6_hoplimit->cmsg_len = CMSG_LEN(sizeof(int));
+        cmsghdr_ipv6_hoplimit->cmsg_level = SOL_IPV6;
+        cmsghdr_ipv6_hoplimit->cmsg_type = IPV6_HOPLIMIT;
+        // In kernel this is done by ip_cmsg_recv_ttl @net/ipv6/ipv6_sockglue.c
+        // Note that we need to put the OUTER IP TTL
+        *data_ip_ttl = 0; // This would be outer_ip->ttl, but we cannot do that without the IP header. This means that we can't use "backward" tr option.
+        
+        // IPV6_RECVERR 
+        cmsghdr_ipv6_recverr->cmsg_len = CMSG_LEN(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6));
+        cmsghdr_ipv6_recverr->cmsg_level = SOL_IPV6;
+        cmsghdr_ipv6_recverr->cmsg_type = IPV6_RECVERR;
+        // In kernel this is filled by the ipv6_recv_error@net/ipv6/datagram.c
+        
+        // Set data_ip_recv_err->ee_errno like icmpv6_err_convert@net/ipv6/icmp.c:232
+        // (called by rawv6_err@net/ipv6/raw.c, called by raw6_icmp_error@net/ipv6/raw.c, raw6_icmp_error@net/ipv6/icmp.c, icmpv6_notify@icmpv6_notify.c)
+        // Note that rawv6_err does a ntohl of info
+        // Also, et info like icmpv6_rcv@net/ipv6/icmp.c:801
+        // Note that this info is propagated up to ip_icmp_error as argument
+        int err = 0;
+        uint32_t info = 0;
+        int has_recv_err = 1;
+        struct ip6_hdr* inner_ip = NULL; // This will be useful later
+        switch(outer_icmp->icmp6_type)
+        {
+            case ICMP6_ECHO_REPLY:
+            {
+                // No IPV6_RECVERR in case of ECHO REPLY
+                has_recv_err = 0;
+                ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6)); // Do not return the ee if there is no error (this would be a mistake)
+                inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+                break;
+            }
+            case ICMP6_TIME_EXCEEDED:
+            {
+                err = EHOSTUNREACH;
+                info = ntohl(outer_icmp->icmp6_mtu);
+                break;
+            }
+            case ICMP6_PACKET_TOO_BIG:
+            {
+                err = EMSGSIZE;
+                break;
+            }
+            case ICMP6_PARAM_PROB:
+            {
+                err = EPROTO;
+                info = ntohl(outer_icmp->icmp6_mtu);
+                break;
+            }
+            case ICMP6_DST_UNREACH:
+            {
+                info = ntohl(outer_icmp->icmp6_mtu);
+                // See icmpv6_err_convert@net/ipv6/icmp.c
+                err = EPROTO;
+                if(outer_icmp->icmp6_code > sizeof(icmp6_err_convert)/sizeof(struct icmp6_err)) 
+                    break;
+                err = icmp6_err_convert[outer_icmp->icmp6_code].err;
+                
+                break;
+            }
+            default:
+            {
+                err = EPROTO;
+                break;
+            }
+        }
+        
+        if(has_recv_err) {
+        // See ipv6_icmp_error@net/ipv6/datagram.c
+            data_ip_recv_err_serr->ee_errno = err;
+            data_ip_recv_err_serr->ee_origin = SO_EE_ORIGIN_ICMP6;
+            data_ip_recv_err_serr->ee_type = outer_icmp->icmp6_type;
+            data_ip_recv_err_serr->ee_code = outer_icmp->icmp6_code;
+            data_ip_recv_err_serr->ee_pad = 0;
+            data_ip_recv_err_serr->ee_info = info;
+            data_ip_recv_err_serr->ee_data = 0;
+        }
+        
+        // Now we have to do two things, see ip_recv_error@ip_sockglue.c
+        
+        // 1. Fill the offender address of the IP_RECVERR data
+        // Since we do not have the IP header, we need to rely on the offender given in input.
+        // Note that the "offender" given in input is contained into ret->msg_name, so we need to use it before overwriting ret->msg_name at point 2.
+        if(has_recv_err) {
+            data_ip_recv_err_offender->sin6_family = AF_INET6; 
+            memcpy(data_ip_recv_err_offender->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof((data_ip_recv_err_offender->sin6_addr.s6_addr)));
+            
+            // Return the expected payload
+            uint8_t* payload_ptr = ((uint8_t*)inner_ip + sizeof(struct ip6_hdr) + inner_proto_hlen);
+            memcpy(ret->msg_iov->iov_base, payload_ptr, ret->msg_iov->iov_len);
+            
+            return sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) + inner_proto_hlen;
+        }
+        
+        // 2. Fill the ret msg_name
+        struct sockaddr_in6 *sin = (struct sockaddr_in6 *)ret->msg_name;
+        sin->sin6_family = AF_INET6;
+        sin->sin6_flowinfo = 0; // This seems to be zero, see the ipv6_recv_error@net/ipv6/datagram.c
+        sin->sin6_port = 0; // This the destination port of the inner protocol header (if any).  See ipv6_recv_error@net/ipv6/datagram.c:425 and 293. This is not really useful here, so left zero.
+        // NOTE: in the ip_recv_error the address put in s_addr is what is found at the "addr_offset" which is set in ipv6_icmp_error@datagram.c. This offset is the offset of the destination address of the packet incapsulated into the ICMP payload.
+        // NOTE That this is equivalent to our dst_addr
+        // NOTE this is not true fror ICMP_ECHOREPLY, in this case the from is the source address of the reply
+        if(has_recv_err)
+            memcpy(sin->sin6_addr.s6_addr, inner_ip->ip6_dst.s6_addr, sizeof(sin->sin6_addr.s6_addr));
+        else
+            memcpy(sin->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof(sin->sin6_addr.s6_addr));
+        ret->msg_namelen = sizeof(*sin);
+        
+        return sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) + inner_proto_hlen;
+    }
+    
+    return 0;
+}
+
+
 void recv_reply(int sk, int err, check_reply_t check_reply) 
 {
     struct msghdr msg;
@@ -1751,16 +2166,46 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(n < 0)
         return;
 
-    if(ops->is_raw_icmp_sk(sk)) {
-        ops->handle_raw_icmp_packet(bufp);
-        return;
+    if(ops->is_raw_icmp_sk(sk) == 1) {
+        struct msghdr cust_msg;
+        memset(&cust_msg, 0, sizeof(cust_msg));
+        
+        cust_msg.msg_name = &from;
+        cust_msg.msg_namelen = sizeof(from);
+        
+        char buf[1280];
+        memset(&buf, 0, sizeof(buf));
+        
+        char cust_control[1024];
+        memset(cust_control, 0, sizeof(cust_control));
+        
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        
+        cust_msg.msg_iov = &iov;
+        cust_msg.msg_iovlen = 1;
+        cust_msg.msg_control = &cust_control;
+        cust_msg.msg_controllen = sizeof(cust_control);
+        
+        uint16_t overhead = 0; // from where the payload of the returned messages is supposed to start
+        pb = ops->handle_raw_icmp_packet(bufp, &overhead, &msg, &cust_msg);
+        if(!pb)
+            return;
+        
+        if(!loose_match) // If we are not running in "Lose match mode" then the handle raw icmp is used only to assign the ToS to the probe, do not use it for anything more
+            return;
+        
+        msg = cust_msg;
+        bufp = cust_msg.msg_iov->iov_base;
+        n -= overhead;
     }
     
     /*  when not MSG_ERRQUEUE, AF_INET returns full ipv4 header
         on raw sockets...
     */
 
-    if(!err && af == AF_INET && ops->header_len == 0) { /*  XXX: Assume that the presence of an extra header means that it is not a raw socket... */
+    if(!err && ops->is_raw_icmp_sk(sk) == 0 && af == AF_INET && ops->header_len == 0) { /*  XXX: Assume that the presence of an extra header means that it is not a raw socket... */
         struct iphdr *ip = (struct iphdr *) bufp;
         int hlen;
 
@@ -1773,17 +2218,19 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         n -= hlen;
     }
 
-    pb = check_reply(sk, err, &from, bufp, n);
-    if(!pb) {
-        /*  for `frag needed' case at the local host,
-        kernel >= 3.13 sends local error(no more icmp)
-        */
-        if(!n && err && dontfrag) {
-            pb = &probes[(first_hop - 1) * probes_per_hop];
-            if(pb->done)
+    if(ops->is_raw_icmp_sk(sk) == 0) {
+        pb = check_reply(sk, err, &from, bufp, n);
+        if(!pb) {
+            /*  for `frag needed' case at the local host,
+            kernel >= 3.13 sends local error(no more icmp)
+            */
+            if(!n && err && dontfrag) {
+                pb = &probes[(first_hop - 1) * probes_per_hop];
+                if(pb->done)
+                    return;
+            } else {
                 return;
-        } else {
-            return;
+            }
         }
     }
 

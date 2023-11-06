@@ -683,7 +683,7 @@ static int tcpinsession_is_raw_icmp_sk(int sk)
     Here we need to slightly change the logic wrt the same function in other modules.
     Since in this module all the probes share the same five tuple, we recover the probe by looking at the sequence number of the offending probe and finding the probe with the same value (as in thethe check_reply). Furthermore, to be extrasure that this is a probe for us (since this is a RAW ICMP socket), once the probe is found, we check if the destination and source address of the offendng probe matches the ones that we are using to perform the traceroute
 */
-static void tcpinsession_handle_raw_icmp_packet(char* bufp)
+static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
     sockaddr_any offending_probe_dest;
     sockaddr_any offending_probe_src;
@@ -693,22 +693,27 @@ static void tcpinsession_handle_raw_icmp_packet(char* bufp)
     extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_TCP)
-        return;
+        return NULL;
     
     offending_probe = (struct tcphdr*)offending_probe;
     
     uint32_t probe_seq_num = ntohl(offending_probe->seq);
     probe* pb = probe_by_seq_num(probe_seq_num);
     
-    if(pb) {
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        
-        if(equal_sockaddr(&src, &offending_probe_src) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
-            pb->returned_tos = returned_tos;
-            probe_done(pb, &pb->icmp_done);
-        }
+    if(!pb)
+        return NULL;
+    
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+    
+    if((loose_match || equal_sockaddr(&src, &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+        pb->returned_tos = returned_tos;
+        probe_done(pb, &pb->icmp_done);
+        if(loose_match)
+            *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
     }
+    
+    return pb;
 }
 
 static void tcpinsession_close()
