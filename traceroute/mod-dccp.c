@@ -25,6 +25,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
 
+static int raw_icmp_sk = -1;
 static int raw_sk = -1;
 static int last_ttl = 0;
 
@@ -39,6 +40,8 @@ static CLIF_option dccp_options[] = {
     { 0, "service", "NUM", "Set DCCP service code to %s (default is " _TEXT(DEF_SERVICE_CODE) ")", CLIF_set_uint, &service_code, 0, CLIF_ABBREV },
     CLIF_END_OPTION
 };
+
+extern int use_additional_raw_icmp_socket;
 
 static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len_p) 
 {
@@ -150,6 +153,15 @@ static int dccp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pa
 
     *packet_len_p = len;
 
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error_or_perm("raw icmp socket");
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
+    
     return 0;
 }
 
@@ -248,12 +260,59 @@ static void dccp_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), dccp_check_reply);
 }
 
+static int dccp_is_raw_icmp_sk(int sk)
+{
+    if(sk == raw_icmp_sk)
+        return 1;
+    return 0;
+}
+
+static probe* dccp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
+{
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct dccp_hdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    
+    if(proto != IPPROTO_DCCP)
+        return NULL;
+        
+    offending_probe = (struct dccp_hdr*)offending_probe;
+    offending_probe_dest.sin.sin_port = offending_probe->dccph_dport;
+    offending_probe_src.sin.sin_port = offending_probe->dccph_sport;
+    
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
+    
+    if(!pb)
+        return NULL;
+        
+    pb->returned_tos = returned_tos;
+    probe_done(pb, &pb->icmp_done);
+    
+    if(loose_match) 
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct dccp_hdr), ret, response_get->msg_name);
+    
+    return pb;
+}
+
+static void dccp_close()
+{
+    close(raw_sk);
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
+}
+
 static tr_module dccp_ops = {
     .name = "dccp",
     .init = dccp_init,
     .send_probe = dccp_send_probe,
     .recv_probe = dccp_recv_probe,
     .options = dccp_options,
+    .is_raw_icmp_sk = dccp_is_raw_icmp_sk,
+    .handle_raw_icmp_packet = dccp_handle_raw_icmp_packet,
+    .close = dccp_close
 };
 
 TR_MODULE(dccp_ops);
