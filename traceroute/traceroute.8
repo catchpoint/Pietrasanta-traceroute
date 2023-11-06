@@ -38,6 +38,10 @@ traceroute \- print the route packets trace to network host
 .ti +8
 BR "" [ "--quic ]
 .br
+.ti +8
+BR "" [ "--loose-match ]
+.br
+
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -433,6 +437,67 @@ a common practice). It is printed as a negate value in a form of '-NUM' .
 .TP
 .BI \--quic
 Use QUIC Initial packets for probes
+.TP
+.BI \--loose-match
+Run in "Loose match" mode. When running in this mode traceroute opens an additional
+unconnected raw ICMP socket (the same used to report ToS/DSCP/ECN value in output)
+where all ICMP error packets (e.g. ICMP_TTL_EXCEEDED) are received and filtered
+ignoring the source address of the encapsulated probe - hereafter called the offending probe.
+This allows traceroute to run properly in Azure environments, where the source IP of the
+offending probe is left to the public IP address of the Azure network instead
+of being translated back to the private address of the original sending interface.
+This is problematic because ICMP error packets having this charactersitic are discarded
+by the kernel and thus they are never delivered to the application layer (traceroute).
+Note that probes are sent in the same way as usual, i.e. via the dedicated protocol
+sockets.
+.br
+Skipping the check on the source address of the offending probe leaves enough checks to be sure that
+the ICMP error packet is acceptable, and specifically that does not belong to another
+traceroute process running on the same machine. Besides the fact that the ICMP error packet
+itself is destined for the machine, and thus is delievered to the raw ICMP socket,
+these are the explicit checks done depending on the protocol being used:
+
+.RS
+.BI UDP:
+An ICMP error packet is accepted if the destination IP, destination and source port of the
+offending probe are equal to the destination IP, destination and source port of a probe sent.
+Note that when running in UDP mode, the source port of the probe sent is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note also that the source UDP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+
+.br
+.BI ICMP:
+An ICMP error packet is accepted if the Identifier and Sequence number fields
+of the offending probe are equal to the Identfier and Sequence number fields of a
+probe sent. Note that the Identifier field is the PID of the running
+traceroute, thus it is ensured to be unique across processes.
+
+.br
+.BI TCP\ and\ TCP\ InSession:
+An ICMP error packet is accepted if the destination IP, destination and source port
+of the offending probe are equal to the destination IP, destination and source port of a
+probe sent. Note that when running in TCP mode, the source port of the probe sent is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note also that the source TCP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+Note that in TCP and Tcp InSession mode the destination port is preserved
+across probes.
+Note also that the source TCP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+
+.br
+.BI QUIC:
+(type)
+An ICMP error packet is accepted if the destination IP, destination and source port of the
+offending probe are equal to the destination IP, destination and source port of a probe sent.
+Please note that when running in UDP mode, the source port of the sent probe is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note that in TCP and Tcp InSession mode the destination port is preserved
+across probes.
+Note also that the source QUIC port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+.RE
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by

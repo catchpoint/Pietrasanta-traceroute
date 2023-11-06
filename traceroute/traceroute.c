@@ -1931,7 +1931,7 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
                     }
                     case ICMP_FRAG_NEEDED: // This can be probably moved below, however moving it after the outer_icmp->code bound check is not equivalent to what is being done into the kernel, so leaving it here
                     {
-                        // Always report mtu info (TODO: handle the case in which no mtu disc is set?)
+                        // Always report mtu info
                         info = ntohs(outer_icmp->un.frag.mtu); 
                         break;
                     }
