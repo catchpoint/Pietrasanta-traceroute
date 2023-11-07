@@ -2,9 +2,9 @@
     *  Introduce "loose match" mode
         
         Added the capability to run in "Loose Match" mode, whereby traceroute
-        opens an additional ICMP raw socket that receives all ICMP packet and
-        filters the ones needed. The "loose match" applies in the sense that
-        the source IP address of the encapsulated probe (i.e. the offending probe)
+        receives on an ICMP raw socket all ICMP packets and filters the ones
+        needed. The "loose match" applies in the sense that the source IP
+        address of the encapsulated probe (i.e. the offending probe)
         is not checked, thus allowing traceroute to run in environments like
         Azure. Please see the manual for considerations about this behavior.
         
