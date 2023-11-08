@@ -446,16 +446,18 @@ ignoring the source address of the encapsulated probe - hereafter called the off
 This allows traceroute to run properly in Azure environments, where the source IP of the
 offending probe is left to the public IP address of the Azure network instead
 of being translated back to the private address of the original sending interface.
-This is problematic because ICMP error packets having this charactersitic are discarded
+This is problematic because ICMP error packets having this characterstic are discarded
 by the kernel and thus they are never delivered to the application layer (traceroute).
 Note that probes are sent in the same way as usual, i.e. via the dedicated protocol
 sockets.
 .br
+
+.br
 Skipping the check on the source address of the offending probe leaves enough checks to be sure that
 the ICMP error packet is acceptable, and specifically that does not belong to another
-traceroute process running on the same machine. Besides the fact that the ICMP error packet
-itself is destined for the machine, and thus is delievered to the raw ICMP socket,
-these are the explicit checks done depending on the protocol being used:
+traceroute process running on the same machine. Please note that the ICMP error
+packet is actually addressed to the machine itself and thus is delievered to the raw ICMP socket.
+These are the explicit checks done in the loose match scenario depending on the protocol being used:
 
 .RS
 .BI UDP:
@@ -498,6 +500,11 @@ across probes.
 Note also that the source QUIC port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
 .RE
+
+.br
+Note that this mode works provided that ICMP inbound packets are allowed on the machine
+where traceroute is running. On Azure they are not allowed by default and they 
+can be enabled provided that the Azure VM has also assigned a public IP.
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
