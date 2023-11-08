@@ -493,9 +493,9 @@ for this reason can be used in the checks (differently from the source IP).
 (type)
 An ICMP error packet is accepted if the destination IP, destination and source port of the
 offending probe are equal to the destination IP, destination and source port of a probe sent.
-Please note that when running in UDP mode, the source port of the sent probe is determined
+Please note that when running in QUIC mode, the source port of the sent probe is determined
 by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
-Note that in TCP and Tcp InSession mode the destination port is preserved
+Note that in QUIC mode the destination port is preserved
 across probes.
 Note also that the source QUIC port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
