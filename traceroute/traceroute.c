@@ -1349,6 +1349,8 @@ int equal_port(const sockaddr_any* a, const sockaddr_any* b)
     return 0;    /*  not reached   */
 }
 
+// if check_source_addr is false, the source IP address is not compared, however the source port is still compared
+// This is useful in those environment where for some reason the source IP of the offendig probe is not translated properly back.
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_source_addr) 
 {
     for(int n = 0; n < num_probes; n++)
