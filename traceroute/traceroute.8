@@ -440,7 +440,7 @@ Use QUIC Initial packets for probes
 .TP
 .BI \--loose-match
 Run in "Loose match" mode. When running in this mode traceroute opens an additional
-unconnected raw ICMP socket (the same used to report ToS/DSCP/ECN value in output)
+raw ICMP socket (the same used to report ToS/DSCP/ECN value in output)
 where all ICMP error packets (e.g. ICMP_TTL_EXCEEDED) are received and filtered
 ignoring the source address of the encapsulated probe - hereafter called the offending probe.
 This allows traceroute to run properly in Azure environments, where the source IP of the
