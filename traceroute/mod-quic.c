@@ -1017,7 +1017,7 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
                     decrypted_payload += field_len;
                     
                     sprintf(ecn_add_info, "ECT0:%zu,ECT1:%zu,ECN-CE:%zu", ect0_count, ect1_count, ecn_ce_count);
-                    pb->ecn_info = strdup(ecn_add_info);
+                    pb->ext = strdup(ecn_add_info);
                 }
                 
                 break;

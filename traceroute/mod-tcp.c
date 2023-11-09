@@ -39,6 +39,7 @@ static sockaddr_any src;
 static struct tcphdr *th = NULL;
 
 #define TH_FLAGS(TH)    (((uint8_t *) (TH))[13])
+#define TH_GET_EXT_FLAGS(TH)    ((((uint8_t *) (TH))[12]) << 8 | TH_FLAGS(TH))
 #define TH_FIN    0x01
 #define TH_SYN    0x02
 #define TH_RST    0x04
@@ -47,6 +48,7 @@ static struct tcphdr *th = NULL;
 #define TH_URG    0x20
 #define TH_ECE    0x40
 #define TH_CWR    0x80
+#define TH_AE    0x100 // AccECN (was: Nonce Sum)
 
 
 static int flags = 0;        /*  & 0xff == tcp_flags ...  */
@@ -54,6 +56,7 @@ static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
 static int info = 0;
+static int use_acc_ecn = 0;
 
 #define FL_FLAGS    0x0100
 #define FL_ECN        0x0200
@@ -74,11 +77,14 @@ static struct {
     { "urg", TH_URG },
     { "ece", TH_ECE },
     { "cwr", TH_CWR },
+    { "ae", TH_AE },
 };
 
 extern int use_additional_raw_icmp_socket;
+extern int check_transport_ecn_support;
+extern int ecn_input_value;
 
-static char* names_by_flags(unsigned int flags)
+static char* names_by_flags(uint16_t flags)
 {
     int i;
     char str[64];    /*  enough...  */
@@ -153,6 +159,7 @@ static CLIF_option tcp_options[] = {
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
+    { 0, "acc-ecn", 0, "Use AccECN (makes sense only if --ecn is given)  ", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -266,6 +273,11 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     /*  Construct TCP header   */
 
     th = (struct tcphdr*)ptr;
+
+    if(check_transport_ecn_support && use_acc_ecn) {
+        flags |= TH_ECE | TH_CWR;
+        th->res1 |= 0x01; // AE
+    }
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
@@ -450,7 +462,59 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         pb->final = 1;
 
         if(info)
-            pb->ext = names_by_flags(TH_FLAGS(tcp));
+            pb->ext = names_by_flags(TH_GET_EXT_FLAGS(tcp));
+            
+        // If we are not using AccECN, the support for ECN is done in the initial step. Thus after that step is done, we do not have to register the support anymore
+        /*if(!use_acc_ecn && !register_ecn_support)
+            return pb;
+        
+        uint8_t flags = TH_FLAGS(tcp);
+        
+        uint16_t flags_val = TH_ACK; // Since we are here, this is at least an ACK
+        if(tcp->res1 & 0x01) // AE
+            flags_val += (1 << 8);
+            
+        if(flags & TH_CWR)
+            flags_val += TH_CWR;
+        
+        if(flags & TH_ECE)
+            flags_val += TH_ECE;
+        
+        if(flags & TH_URG)
+            flags_val += TH_URG;
+        
+        if(flags & TH_PSH)
+            flags_val += TH_PSH;
+        
+        if(flags & TH_RST)
+            flags_val += TH_RST;
+        
+        if(flags & TH_SYN)
+            flags_val += TH_SYN;
+        
+        if(flags & TH_FIN)
+            flags_val += TH_FIN;
+        
+        char ecn_add_info[1024];
+        if(use_acc_ecn) {
+            // Check ACE and determine AccECN support on the basis of Table 2 of draft: https://www.ietf.org/archive/id/draft-ietf-tcpm-accurate-ecn-26.html#table-2 (considering that we sent ACE=111)
+            uint8_t ACE = 0;
+            if(tcp->res1 & 0x01) { // AE
+                ACE |= 0x04;
+            }
+            
+            if(flags & TH_CWR)
+                ACE |= 0x02;
+                
+            if(flags & TH_ECE) 
+                ACE |= 0x01;
+            
+            sprintf(ecn_add_info, "TCP-flags:%u,AE:%d,CWR:%d,ECE:%d", flags_val, (ACE & 0x04) ? 1 : 0, (ACE & 0x02) ? 1 : 0, (ACE & 0x01) ? 1 : 0);
+            pb->ext = strdup(ecn_add_info);
+        } else if(check_transport_ecn_support) { // Check for "classic" ECN support only
+            sprintf(ecn_add_info, "TCP-flags:%u,ECE:%d", flags_val, (TH_FLAGS(tcp) & TH_ECE) ? 1 : 0);
+            pb->ext = strdup(ecn_add_info);
+        }*/
     }
 
     return pb;

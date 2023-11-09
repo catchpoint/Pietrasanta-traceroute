@@ -73,7 +73,6 @@ struct probe_struct
     double retry_rtt;
 #endif
     char* proto_details;
-    char* ecn_info;
     int tcpinsession_destination_reply;
     char err_str[16];    /*  assume enough   */
 };

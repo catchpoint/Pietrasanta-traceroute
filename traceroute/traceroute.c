@@ -158,6 +158,7 @@ static void print_trailer();
 int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
+int check_transport_ecn_support = 0;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
@@ -837,8 +838,12 @@ int main(int argc, char *argv[])
 
         tos <<= 2;
             
-        if(ecn_input_value != -1)
+        if(ecn_input_value >= 0 && ecn_input_value <= 3) {
             tos += ecn_input_value;
+            check_transport_ecn_support = 1;
+        } else {
+            ex_error("ECN supplied value is not in range [0-3]");
+        }
             
         tos_input_value = tos;
         use_additional_raw_icmp_socket = 1;
@@ -1080,19 +1085,12 @@ void print_probe(probe *pb)
             pb->proto_details = NULL;
         }
         
-        if(pb->ecn_info) {
-            printf(" <%s>", pb->ecn_info);
-            free(pb->ecn_info);
-            pb->ecn_info = NULL;
-        }
-
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
             printf(" <TOS:%d,DSCP:%d,ECN:%d>", pb->returned_tos, dscp, ecn);
         }
     }
-
 
     if(pb->recv_time) {
         double diff = pb->recv_time - pb->send_time;
