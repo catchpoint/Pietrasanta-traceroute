@@ -471,7 +471,7 @@ static int tcp_is_raw_icmp_sk(int sk)
     return 0;
 }
 
-static void tcp_handle_raw_icmp_packet(char* bufp)
+static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
     sockaddr_any offending_probe_dest;
     sockaddr_any offending_probe_src;
@@ -481,18 +481,24 @@ static void tcp_handle_raw_icmp_packet(char* bufp)
     extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_TCP)
-        return;
+        return NULL;
         
     offending_probe = (struct tcphdr*)offending_probe;
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
     
-    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
-    if(pb) {
-        pb->returned_tos = returned_tos;
-        probe_done(pb, &pb->icmp_done);
-    }
+    if(!pb)
+        return NULL;
+        
+    pb->returned_tos = returned_tos;
+    probe_done(pb, &pb->icmp_done);
+    
+    if(loose_match) 
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
+    
+    return pb;
 }
 
 static void tcp_close()

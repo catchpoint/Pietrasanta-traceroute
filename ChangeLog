@@ -1,3 +1,13 @@
+2023-11-06  Luca Sani  <lsani@catchpoint.com> - 0.1.4
+    *  Introduce "loose match" mode
+        
+        Added the capability to run in "Loose Match" mode, whereby traceroute
+        receives on an ICMP raw socket all ICMP packets and filters the ones
+        needed. The "loose match" applies in the sense that the source IP
+        address of the encapsulated probe (i.e. the offending probe)
+        is not checked, thus allowing traceroute to run in environments like
+        Azure. Please see the manual for considerations about this behavior.
+        
 2023-11-02  Luca Sani  <lsani@catchpoint.com> - 0.1.3
     *  Introduce QUIC module
         

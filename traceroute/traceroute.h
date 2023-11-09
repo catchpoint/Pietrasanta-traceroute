@@ -11,6 +11,7 @@
     See COPYING for the status of this software.
 */
 
+#include <errno.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
@@ -33,6 +34,7 @@ extern unsigned int num_probes;
 extern int last_probe;
 extern unsigned int first_hop;
 extern int tcpinsession_print_allowed;
+extern int loose_match;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -105,7 +107,7 @@ struct tr_module_struct {
     size_t header_len;    /*  additional header length (aka for udp)   */
     void(*close)();
     int (*is_raw_icmp_sk)(int sk);
-    void (*handle_raw_icmp_packet)(char* bufp);
+    probe* (*handle_raw_icmp_packet)(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret);
 };
 
 typedef struct tr_module_struct tr_module;
@@ -149,7 +151,7 @@ void print_probe(probe*);
 
 probe* probe_by_seq(int seq);
 probe* probe_by_sk(int sk);
-probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst);
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst, int check_source_addr);
 probe* probe_by_seq_num(uint32_t seq_num);
 
 void bind_socket(int sk);
@@ -175,6 +177,7 @@ void tr_register_module(tr_module *module);
 const tr_module *tr_get_module(const char *name);
 
 void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos);
+uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender);
 
 #define TR_MODULE(MOD)    \
 static void __init_ ## MOD (void) __attribute__ ((constructor));    \
@@ -182,3 +185,4 @@ static void __init_ ## MOD (void) {    \
                 \
     tr_register_module (&MOD);    \
 }
+
