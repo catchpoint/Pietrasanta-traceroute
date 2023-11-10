@@ -38,51 +38,56 @@ static size_t* length_p;
 static sockaddr_any src;
 static struct tcphdr *th = NULL;
 
-#define TH_FLAGS(TH)    (((uint8_t *) (TH))[13])
-#define TH_GET_EXT_FLAGS(TH)    ((((uint8_t *) (TH))[12]) << 8 | TH_FLAGS(TH))
-#define TH_FIN    0x01
-#define TH_SYN    0x02
-#define TH_RST    0x04
-#define TH_PSH    0x08
-#define TH_ACK    0x10
-#define TH_URG    0x20
-#define TH_ECE    0x40
-#define TH_CWR    0x80
-#define TH_AE    0x100 // AccECN (was: Nonce Sum)
+#define FIN    0x0001
+#define SYN    0x0002
+#define RST    0x0004
+#define PSH    0x0008
+#define ACK    0x0010
+#define URG    0x0020
+#define ECE    0x0040
+#define CWR    0x0080
+#define AE    0x0100 // AccECN
 
+#define OPT_SACK        0x0400
+#define OPT_TSTAMP    0x0800
+#define OPT_WSCALE    0x1000
 
-static int flags = 0;        /*  & 0xff == tcp_flags ...  */
+static int flags = 0; // Which TCP flags to set into the header
+static int options = 0; // Which TCP options to include into the header
+static int flags_supplied = 0; // This is used to remember if the user supplied a TCP flag value (this is needed because the ujser could supply zero)
 static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
 static int info = 0;
+static int use_ecn = 0;
 static int use_acc_ecn = 0;
-
-#define FL_FLAGS    0x0100
-#define FL_ECN        0x0200
-#define FL_SACK        0x0400
-#define FL_TSTAMP    0x0800
-#define FL_WSCALE    0x1000
-
 
 static struct {
     const char *name;
     unsigned int flag;
 } tcp_flags[] = {
-    { "fin", TH_FIN },
-    { "syn", TH_SYN },
-    { "rst", TH_RST },
-    { "psh", TH_PSH },
-    { "ack", TH_ACK },
-    { "urg", TH_URG },
-    { "ece", TH_ECE },
-    { "cwr", TH_CWR },
-    { "ae", TH_AE },
+    { "fin", FIN },
+    { "syn", SYN },
+    { "rst", RST },
+    { "psh", PSH },
+    { "ack", ACK },
+    { "urg", URG },
+    { "ece", ECE },
+    { "cwr", CWR },
+    { "ae", AE }
+};
+
+static struct {
+    const char *name;
+    unsigned int option;
+} tcp_opts[] = {
+    { "sack", OPT_SACK },
+    { "timestamps", OPT_TSTAMP },
+    { "window_scaling", OPT_WSCALE }
 };
 
 extern int use_additional_raw_icmp_socket;
 extern int check_transport_ecn_support;
-extern int ecn_input_value;
 
 static char* names_by_flags(uint16_t flags)
 {
@@ -105,6 +110,31 @@ static char* names_by_flags(uint16_t flags)
     *curr = '\0';
 
     return strdup(str);
+}
+
+uint16_t get_th_flags(struct tcphdr* th)
+{
+    return ((((uint8_t *)th)[12] << 8) | ((uint8_t *)th)[13]) & 0x01ff;
+}
+
+void set_th_flags(struct tcphdr* th, uint16_t val)
+{
+    ((uint8_t *)th)[12] = ((val >> 8) & 0x0001); // Only the last bit of the first byte is relevant (the AE flag)
+    ((uint8_t *)th)[13] = (val & 0x00ff); // All the last 8 bits are relevant
+}
+
+static int set_tcp_option(CLIF_option* optn, char* arg)
+{
+    int i;
+
+    for(i = 0; i < sizeof(tcp_opts) / sizeof(*tcp_opts); i++) {
+        if(!strcmp(optn->long_opt, tcp_opts[i].name)) {
+            options |= tcp_opts[i].option;
+            return 0;
+        }
+    }
+
+    return -1;
 }
 
 static int set_tcp_flag(CLIF_option* optn, char* arg) 
@@ -130,14 +160,8 @@ static int set_tcp_flags(CLIF_option* optn, char* arg)
     if(q == arg)
         return -1;
 
-    flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
-    return 0;
-}
-
-static int set_flag(CLIF_option* optn, char* arg)
-{
-    flags |= (unsigned long)optn->data;
-
+    flags = (flags & ~0x01ff) | (value & 0x01ff);
+    flags_supplied = 1;
     return 0;
 }
 
@@ -150,16 +174,17 @@ static CLIF_option tcp_options[] = {
     { 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
     { 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
     { 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
+    { 0, "ae", 0, "Set tcp flag AE (Accurate ECN)", set_tcp_flag, 0, 0, 0 },
     { 0, "flags", "NUM", "Set tcp flags exactly to value %s", set_tcp_flags, 0, 0, CLIF_ABBREV },
-    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", set_flag, (void*)FL_ECN, 0, 0 },
-    { 0, "sack", 0, "Use sack,", set_flag, (void*)FL_SACK, 0, 0 },
-    { 0, "timestamps", 0, "timestamps,", set_flag, (void*)FL_TSTAMP, 0, CLIF_ABBREV },
-    { 0, "window_scaling", 0, "window_scaling option for tcp", set_flag, (void*)FL_WSCALE, 0, CLIF_ABBREV },
+    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", CLIF_set_flag, &use_ecn, 0, 0 },
+    { 0, "sack", 0, "Use sack,", set_tcp_option, (void*)OPT_SACK, 0, 0 },
+    { 0, "timestamps", 0, "timestamps,", set_tcp_option, (void*)OPT_TSTAMP, 0, CLIF_ABBREV },
+    { 0, "window_scaling", 0, "window_scaling option for tcp", set_tcp_option, (void*)OPT_WSCALE, 0, CLIF_ABBREV },
     { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
-    { 0, "acc-ecn", 0, "Use AccECN (makes sense only if --ecn is given)  ", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "accecn", 0, "Send syn packet with tcp flags ECE, CWR and AE (for Accurate ECN)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -221,24 +246,25 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         sysctl = 1;
 
     if(sysctl) {
-        if(check_sysctl ("ecn"))
-            flags |= FL_ECN;
+        if(check_sysctl("ecn"))
+            flags |= (ECE | CWR);
         
         // Forcing TCP SACK, timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
         // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
         // Please remove this comment once the bug has been fixed.
         
-        flags |= FL_SACK;
-        flags |= FL_TSTAMP;
-        flags |= FL_WSCALE;
+        options |= OPT_SACK;
+        options |= OPT_TSTAMP;
+        options |= OPT_WSCALE;
     }
 
-    if(!(flags & (FL_FLAGS | 0xff))) {    /*  no any tcp flag set   */
-        flags |= TH_SYN;
-        if(flags & FL_ECN)
-            flags |= TH_ECE | TH_CWR;
+    if(!flags && !flags_supplied) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
+        flags |= SYN;
+        if(use_ecn)
+            flags |= ECE | CWR;
+        else if(use_acc_ecn)
+            flags |= AE | ECE | CWR;
     }
-
 
     /*  For easy checksum computing:
         saddr
@@ -274,10 +300,8 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     th = (struct tcphdr*)ptr;
 
-    if(check_transport_ecn_support && use_acc_ecn) {
-        flags |= TH_ECE | TH_CWR;
-        th->res1 |= 0x01; // AE
-    }
+    if(check_transport_ecn_support && use_acc_ecn)
+        flags |= ECE | CWR | AE;
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
@@ -286,7 +310,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     th->seq = 0;        /*  temporary   */
     th->ack_seq = 0;
     th->doff = 0;        /*  later...  */
-    TH_FLAGS(th) = flags & 0xff;
+    set_th_flags(th, flags);
     th->window = htons (4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
@@ -296,15 +320,15 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     ptr = (uint8_t*)(th + 1);
 
-    if(flags & TH_SYN) {
+    if(flags & SYN) {
         *ptr++ = TCPOPT_MAXSEG;    /*  2   */
         *ptr++ = TCPOLEN_MAXSEG;    /*  4   */
         *((uint16_t*) ptr) = htons (mss ? mss : mtu);
         ptr += sizeof(uint16_t);
     }
 
-    if(flags & FL_TSTAMP) {
-        if(flags & FL_SACK) {
+    if(options & OPT_TSTAMP) {
+        if(options & OPT_SACK) {
             *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
             *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
         } else {
@@ -316,16 +340,16 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
         *((uint32_t*) ptr) = random_seq();    /*  really!  */
         ptr += sizeof(uint32_t);
-        *((uint32_t*) ptr) = (flags & TH_ACK) ? random_seq () : 0;
+        *((uint32_t*) ptr) = (flags & ACK) ? random_seq () : 0;
         ptr += sizeof(uint32_t);
-    } else if(flags & FL_SACK) {
+    } else if(options & OPT_SACK) {
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
         *ptr++ = TCPOLEN_SACK_PERMITTED;    /*  2   */
     }
 
-    if(flags & FL_WSCALE) {
+    if(options & OPT_WSCALE) {
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_WINDOW;    /*  3   */
         *ptr++ = TCPOLEN_WINDOW;    /*  3   */
@@ -340,15 +364,26 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     *lenp = htons (len);
     th->doff = len >> 2;
 
-    length_p = packet_len_p;
+    // Allow the filling of the TCP payload only if we are doing mtudisc, otherwise do not do that.
+    // This is compliant with original traceroute TCP behavior, which does not send TCP probes with a payload never.
+    if(mtudisc) {
+        // Stick to what is specified in input
+        length_p = packet_len_p;
+    } else {
+        // Force the length to be only the len of the TCP header 
+        // This will avoid the fill loop to fill the payload
+        *packet_len_p = len;
+        length_p = packet_len_p;
+    }
+    
     if(*length_p && !(buf = malloc(*length_p+pseudo_IP_header_size)))
         error("malloc");
-
+    
     memcpy(buf, tmp_buf, pseudo_IP_header_size+len);
     th = (struct tcphdr*)(buf + pseudo_IP_header_size);
 
-    for(int i = pseudo_IP_header_size+len; i < pseudo_IP_header_size+*length_p; i++)
-        buf[i] = 0x40 + (i & 0x3f); // Same as in UDP
+    for(int i = len; i < *length_p; i++)
+        buf[i+pseudo_IP_header_size] = 0x40 + (i & 0x3f); // Same as in UDP
     
     if(use_additional_raw_icmp_socket) {
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
@@ -462,7 +497,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         pb->final = 1;
 
         if(info)
-            pb->ext = names_by_flags(TH_GET_EXT_FLAGS(tcp));
+            pb->ext = names_by_flags(get_th_flags(tcp));
             
         // If we are not using AccECN, the support for ECN is done in the initial step. Thus after that step is done, we do not have to register the support anymore
         /*if(!use_acc_ecn && !register_ecn_support)

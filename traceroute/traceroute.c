@@ -134,7 +134,6 @@ static double wait_secs = DEF_WAIT_SECS;
 static double here_factor = DEF_HERE_FACTOR;
 static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
-static int mtudisc = 0;
 static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
@@ -159,6 +158,7 @@ int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
 int check_transport_ecn_support = 0;
+int mtudisc = 0;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
@@ -485,8 +485,7 @@ static char addr2str_buf[INET6_ADDRSTRLEN];
 
 static const char *addr2str(const sockaddr_any *addr) 
 {
-    getnameinfo(&addr->sa, sizeof(*addr),
-        addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
 
     return addr2str_buf;
 }

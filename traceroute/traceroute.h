@@ -35,6 +35,7 @@ extern int last_probe;
 extern unsigned int first_hop;
 extern int tcpinsession_print_allowed;
 extern int loose_match;
+extern int mtudisc;
 
 union common_sockaddr {
     struct sockaddr sa;
