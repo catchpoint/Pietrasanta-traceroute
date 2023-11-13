@@ -238,12 +238,7 @@ For IPv6, set the Traffic Control value.
 .BI \-\-ecn=ecn
 Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
 be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
-report the ECN value for each expiring probe. When running in InSession mode
-and /proc/sys/net/ipv4/tcp_ecn is set to 1, traceroute will perform additional checks
-to verify if the destination supports the ECN mechanism: if ecn is set to ECT(0) or ECT(1)
-it will check if the destination supports the ECN mechanism at the TCP level, while if
-it is set to CE it will also check whether the destination acknowledges properly a
-congestion detection. 
+report the ECN value for each expiring probe.
 .TP
 .BI \-\-dscp=dscp
 Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
@@ -710,6 +705,9 @@ The default destination port is 80.
 .P
 This method prevents false packet loss introduced by firewall and router configurations related to
 security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
+.P
+With this method most of the usual TCP options are not available, because probes being sent are data probes.
+Thus for example does not make sense to allow a probe to be a SYN or to set ECN flags.
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
 frame are used as probes. If the destination is reached and replies with a 
