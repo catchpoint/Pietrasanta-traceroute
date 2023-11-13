@@ -16,9 +16,8 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
-#include <netinet/tcp.h>
 
-#include "traceroute.h"
+#include "common-tcp.h"
 
 #ifndef IP_MTU
 #define IP_MTU    14
@@ -26,35 +25,15 @@
 
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
-
 static int raw_icmp_sk = -1;
 static int raw_sk = -1;
 static int last_ttl = 0;
-
 static unsigned pseudo_IP_header_size = 0;
 static uint8_t* buf;
 static uint8_t tmp_buf[1024];        /*  enough, enough...  */
 static size_t* length_p;
 static sockaddr_any src;
 static struct tcphdr *th = NULL;
-
-#define FIN    0x0001
-#define SYN    0x0002
-#define RST    0x0004
-#define PSH    0x0008
-#define ACK    0x0010
-#define URG    0x0020
-#define ECE    0x0040
-#define CWR    0x0080
-#define AE    0x0100 // AccECN
-
-#define OPT_SACK      0x01
-#define OPT_TSTAMP    0x02
-#define OPT_WSCALE    0x04
-
-static int flags = 0; // Records which TCP flags are provided in input (via arguments)
-static int flags_supplied = 0; // This is used to remember if the user supplied a TCP flags value. This is needed because the user could supply a value of zero
-static int options = 0; // Records which TCP options are provided in input (via arguments)
 static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
@@ -62,113 +41,8 @@ static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
 
-static struct {
-    const char *name;
-    unsigned int flag;
-} tcp_flags[] = {
-    { "fin", FIN },
-    { "syn", SYN },
-    { "rst", RST },
-    { "psh", PSH },
-    { "ack", ACK },
-    { "urg", URG },
-    { "ece", ECE },
-    { "cwr", CWR },
-    { "ae", AE }
-};
-
-static struct {
-    const char *name;
-    unsigned int option;
-} tcp_opts[] = {
-    { "sack", OPT_SACK },
-    { "timestamps", OPT_TSTAMP },
-    { "window_scaling", OPT_WSCALE }
-};
-
 extern int use_additional_raw_icmp_socket;
 extern int ecn_input_value;
-
-static char* names_by_flags(uint16_t flags)
-{
-    int i;
-    char str[64];    /*  enough...  */
-    char* curr = str;
-    char* end = str + sizeof(str) / sizeof(*str);
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        const char* p;
-
-        if(!(flags & tcp_flags[i].flag))  
-            continue;
-
-        if(curr > str && curr < end)  
-            *curr++ = ',';
-        for(p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++);
-    }
-
-    *curr = '\0';
-
-    return strdup(str);
-}
-
-// Get the flags value from the given TCP header pointer
-uint16_t get_th_flags(struct tcphdr* th)
-{
-    return ((((uint8_t *)th)[12] << 8) | ((uint8_t *)th)[13]) & 0x01ff;
-}
-
-// Set the flags into the given TCP header pointer
-void set_th_flags(struct tcphdr* th, uint16_t val)
-{
-    ((uint8_t *)th)[12] = ((val >> 8) & 0x0001); // Only the last bit of the first byte is relevant (the AE flag)
-    ((uint8_t *)th)[13] = (val & 0x00ff); // All the last 8 bits are relevant
-}
-
-// Record a TCP option provided in input
-static int set_tcp_option(CLIF_option* optn, char* arg)
-{
-    int i;
-
-    for(i = 0; i < sizeof(tcp_opts) / sizeof(*tcp_opts); i++) {
-        if(!strcmp(optn->long_opt, tcp_opts[i].name)) {
-            options |= tcp_opts[i].option;
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-// Record a TCP flag provided in input
-static int set_tcp_flag(CLIF_option* optn, char* arg) 
-{
-    int i;
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
-            flags |= tcp_flags[i].flag;
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-// Record the TCP flags value provided in input
-static int set_tcp_flags(CLIF_option* optn, char* arg) 
-{
-    char* q;
-    unsigned long value;
-
-    value = strtoul(arg, &q, 0);
-    if(q == arg)
-        return -1;
-
-    flags = (flags & ~0x01ff) | (value & 0x01ff);
-    flags_supplied = 1;
-    return 0;
-}
 
 static CLIF_option tcp_options[] = {
     { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },

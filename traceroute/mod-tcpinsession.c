@@ -23,7 +23,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
        
-#include "traceroute.h"
+#include "common-tcp.h"
 #include "flowlabel.h"
 
 #define MAX_CONNECT_TIMEOUT_SEC 5
@@ -53,45 +53,10 @@ static sockaddr_any src;
 static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
-extern int use_additional_raw_icmp_socket;
-
-#define TH_FLAGS(TH) (((uint8_t*)(TH))[13])
-#define TH_FIN 0x01
-#define TH_SYN 0x02
-#define TH_RST 0x04
-#define TH_PSH 0x08
-#define TH_ACK 0x10
-#define TH_URG 0x20
-#define TH_ECE 0x40
-#define TH_CWR 0x80
-
-static int flags = 0;        /*  & 0xff == tcp_flags ...  */
-static int sysctl = 0;
-static int reuse = 0;
 static unsigned mss_received = 0;
-static unsigned int mss = 0;
 static int info = 0;
 
-#define FL_FLAGS 0x0100
-#define FL_ECN 0x0200
-#define FL_SACK 0x0400
-#define FL_TSTAMP 0x0800
-#define FL_WSCALE 0x1000
-
-static struct 
-{
-    const char* name;
-    unsigned int flag;
-} tcp_flags[] = {
-    { "fin", TH_FIN },
-    { "syn", TH_SYN },
-    { "rst", TH_RST },
-    { "psh", TH_PSH },
-    { "ack", TH_ACK },
-    { "urg", TH_URG },
-    { "ece", TH_ECE },
-    { "cwr", TH_CWR },
-};
+extern int use_additional_raw_icmp_socket;
 
 uint32_t initial_seq_num = 0;
 uint32_t seq_num = 0;
@@ -99,75 +64,7 @@ uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
 
-static char* names_by_flags(unsigned int flags)
-{
-    int i;
-    char str[64];    /*  enough...  */
-    char* curr = str;
-    char* end = str + sizeof(str) / sizeof(*str);
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        const char* p;
-
-        if(!(flags & tcp_flags[i].flag))  
-            continue;
-
-        if(curr > str && curr < end)  
-            *curr++ = ',';
-        for(p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++);
-    }
-
-    *curr = '\0';
-
-    return strdup(str);
-}
-
-static int set_tcp_flag(CLIF_option* optn, char* arg) 
-{
-    for(int i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
-            flags |= tcp_flags[i].flag;
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-static int set_tcp_flags(CLIF_option* optn, char* arg) 
-{
-    char* q = NULL;
-    unsigned long value = strtoul(arg, &q, 0);
-    if(q == arg)
-        return -1;
-
-    flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
-    return 0;
-}
-
-static int set_flag(CLIF_option* optn, char* arg)
-{
-    flags |= (unsigned long)optn->data;
-
-    return 0;
-}
-
 static CLIF_option tcp_options[] = {
-    { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
-    { 0, "ack", 0, "Set tcp flag ACK,", set_tcp_flag, 0, 0, 0 },
-    { 0, "fin", 0, "FIN,", set_tcp_flag, 0, 0, 0 },
-    { 0, "rst", 0, "RST,", set_tcp_flag, 0, 0, 0 },
-    { 0, "psh", 0, "PSH,", set_tcp_flag, 0, 0, 0 },
-    { 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
-    { 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
-    { 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
-    { 0, "flags", "NUM", "Set tcp flags exactly to value %s", set_tcp_flags, 0, 0, CLIF_ABBREV },
-    { 0, "sack", 0, "Use sack,", set_flag, (void*)FL_SACK, 0, 0 },
-    { 0, "timestamps", 0, "timestamps,", set_flag, (void*)FL_TSTAMP, 0, CLIF_ABBREV },
-    { 0, "window_scaling", 0, "window_scaling option for tcp", set_flag, (void*)FL_WSCALE, 0, CLIF_ABBREV },
-    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
-    { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
-    { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     CLIF_END_OPTION
 };
@@ -232,7 +129,8 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 struct iphdr* response_iphdr = (struct iphdr*)ack_buf;
                 response_tcp_hdr = (struct tcphdr*) (ack_buf + (response_iphdr->ihl << 2));
                 if(response_tcp_hdr->dest == src.sin.sin_port) {
-                    if((TH_FLAGS(response_tcp_hdr) & TH_SYN) && (TH_FLAGS(response_tcp_hdr) & TH_ACK)) { // paranoid
+                    uint16_t response_flags = get_th_flags(response_tcp_hdr);
+                    if((response_flags & TH_SYN) && (response_flags & TH_ACK)) { // paranoid
                         response_src_addr.sin.sin_port = response_tcp_hdr->source;
                         
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
@@ -245,7 +143,8 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             } else if(af == AF_INET6) {
                 response_tcp_hdr = (struct tcphdr*)ack_buf;
                 if(response_tcp_hdr->dest == src.sin6.sin6_port) {
-                    if((TH_FLAGS(response_tcp_hdr) & TH_SYN) && (TH_FLAGS(response_tcp_hdr) & TH_ACK)) { // paranoid
+                    uint16_t response_flags = get_th_flags(response_tcp_hdr);
+                    if((response_flags & TH_SYN) && (response_flags & TH_ACK)) { // paranoid
                         response_src_addr.sin6.sin6_port = response_tcp_hdr->source;
                         
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
@@ -324,31 +223,9 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
     /*  Now create the sample packet.  */
 
-    if(!flags)
-        sysctl = 1;
-
-    // Force TCP SACK in mod-tcpinsession
-    flags |= FL_SACK;
-        
-    if(sysctl) {
-        if(check_sysctl("ecn"))  
-            flags |= FL_ECN;
-            
-        // Forcing TCP SACK (above), timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
-        // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
-        // Please remove this comment once the bug has been fixed.
-            
-        flags |= FL_TSTAMP;
-        flags |= FL_WSCALE;
-    }
-
-    if(!(flags & (FL_FLAGS | 0xff))) {    /*  no any tcp flag set */
-        flags |= TH_PSH;
-        flags |= TH_ACK;
-        if(flags & FL_ECN)
-            flags |= TH_ECE | TH_CWR;
-    }
-
+    flags |= PSH;
+    flags |= ACK;
+    
     /*  For easy checksum computing:
         saddr
         daddr
@@ -391,11 +268,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     th->seq = 0;
     th->ack_seq = htonl(ack_num);
     th->doff = 0;
-    flags = 0x00;
-    flags |= TH_PSH;
-    flags |= TH_ACK;
-    flags |= FL_TSTAMP;
-    TH_FLAGS(th) = flags;
+    set_th_flags(th, flags);
     th->window = htons(4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
@@ -404,44 +277,19 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
     ptr = (uint8_t*)(th + 1);
 
-    if(flags & TH_SYN) {
-        *ptr++ = TCPOPT_MAXSEG;    /*  2   */
-        *ptr++ = TCPOLEN_MAXSEG;    /*  4   */
-        *((uint16_t*)ptr) = htons(mss ? mss : mtu);
-        ptr += sizeof(uint16_t);
-    }
+    // Force TCP SACK in mod-tcpinsession
+    *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
+    *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
+    *ptr++ = TCPOPT_TIMESTAMP;    /*  8   */
+    *ptr++ = TCPOLEN_TIMESTAMP;    /*  10  */
 
-    if(flags & FL_TSTAMP) {
-        if(flags & FL_SACK) {
-            *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
-            *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
-        } else {
-            *ptr++ = TCPOPT_NOP;    /*  1   */
-            *ptr++ = TCPOPT_NOP;    /*  1   */
-        }
-        *ptr++ = TCPOPT_TIMESTAMP;    /*  8   */
-        *ptr++ = TCPOLEN_TIMESTAMP;    /*  10  */
-
-        ts_value_offset = ptr - (uint8_t*)th;
-        *((uint32_t*)ptr) = ts_value; //random_seq();    /*  really!  */
+    ts_value_offset = ptr - (uint8_t*)th;
+    *((uint32_t*)ptr) = ts_value; //random_seq();    /*  really!  */
         
-        ptr += sizeof(uint32_t);
-        *((uint32_t*)ptr) = ts_echo_reply; //(flags & TH_ACK) ? random_seq() : 0;
-        ptr += sizeof(uint32_t);
-    } else if(flags & FL_SACK) {
-        *ptr++ = TCPOPT_NOP;    /*  1   */
-        *ptr++ = TCPOPT_NOP;    /*  1   */
-        *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
-        *ptr++ = TCPOLEN_SACK_PERMITTED;    /*  2   */
-    }
-
-    if(flags & FL_WSCALE) {
-        *ptr++ = TCPOPT_NOP;    /*  1   */
-        *ptr++ = TCPOPT_WINDOW;    /*  3   */
-        *ptr++ = TCPOLEN_WINDOW;    /*  3   */
-        *ptr++ = 2;    /*  assume some corect value...  */
-    }
-
+    ptr += sizeof(uint32_t);
+    *((uint32_t*)ptr) = ts_echo_reply; //(flags & TH_ACK) ? random_seq() : 0;
+    ptr += sizeof(uint32_t);
+    
     len = ptr - (uint8_t*)th;
     if(len & 0x03)
         error("impossible");    /*  as >>2 ...  */
@@ -656,7 +504,7 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     pb->final = 1;
     
     if(info)
-        pb->ext = names_by_flags(TH_FLAGS(tcp));
+        pb->ext = names_by_flags(get_th_flags(tcp));
     
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
     

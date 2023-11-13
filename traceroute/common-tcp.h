@@ -26,15 +26,13 @@ struct tcp_flag {
     unsigned int flag;
 };
 
-extern struct tcp_flag tcp_flags[];
-
 struct tcp_opt {
     const char *name;
     unsigned int option;
 };
 
+extern struct tcp_flag tcp_flags[];
 extern struct tcp_opt tcp_opts[];
-
 extern int flags; // Records which TCP flags are provided in input (via arguments)
 extern int flags_supplied; // This is used to remember if the user supplied a TCP flags value. This is needed because the user could supply a value of zero
 extern int options; // Records which TCP options are provided in input (via arguments)
