@@ -247,7 +247,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     /*  Now create the sample packet.  */
 
-    if(!flags)
+    if(flags == 0)
         sysctl = 1;
 
     if(sysctl) {
@@ -263,7 +263,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         options |= OPT_WSCALE;
     }
 
-    if(!flags && !flags_supplied) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
+    if(flags == 0 && !flags_supplied) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
         flags |= SYN;
         if(use_ecn)
             flags |= ECE | CWR;
