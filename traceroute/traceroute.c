@@ -996,7 +996,7 @@ int main(int argc, char *argv[])
 
     pthread_join(printer_thr, NULL);
 
-    if(ops->setup_additional_end_ping) {
+    if(ops->need_additional_end_ping && ops->need_additional_end_ping()) {
         if(ops->setup_additional_end_ping() != 0)
             error("error while setting up additional_end_ping");
         

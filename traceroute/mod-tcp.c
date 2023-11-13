@@ -87,7 +87,7 @@ static struct {
 };
 
 extern int use_additional_raw_icmp_socket;
-extern int check_transport_ecn_support;
+extern int ecn_input_value;
 
 static char* names_by_flags(uint16_t flags)
 {
@@ -251,10 +251,13 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         sysctl = 1;
 
     if(sysctl) {
-        if(check_sysctl("ecn") == 1)
+        if(check_sysctl("ecn") == 1) {
             flags |= (ECE | CWR);
-        else if(check_sysctl("ecn") == 3)
+            use_ecn = 1;
+        } else if(check_sysctl("ecn") == 3) {
             flags |= AE | ECE | CWR;
+            use_acc_ecn = 1;
+        }
         
         // Forcing TCP SACK, timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
         // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
@@ -559,6 +562,13 @@ static void tcp_close()
         close(raw_icmp_sk);
 }
 
+int tcp_need_additional_end_ping()
+{
+    if(ecn_input_value > 0 && info && use_ecn)
+        return 1;
+    return 0;
+}
+
 int tcp_setup_additional_end_ping()
 {
     int i = 0;
@@ -576,6 +586,7 @@ static tr_module tcp_ops = {
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
+    .need_additional_end_ping = tcp_need_additional_end_ping,
     .setup_additional_end_ping = tcp_setup_additional_end_ping,
     .close = tcp_close
 };
