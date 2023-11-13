@@ -48,9 +48,9 @@ static struct tcphdr *th = NULL;
 #define CWR    0x0080
 #define AE    0x0100 // AccECN
 
-#define OPT_SACK        0x0400
-#define OPT_TSTAMP    0x0800
-#define OPT_WSCALE    0x1000
+#define OPT_SACK      0x01
+#define OPT_TSTAMP    0x02
+#define OPT_WSCALE    0x04
 
 static int flags = 0; // Which TCP flags to set into the header
 static int options = 0; // Which TCP options to include into the header

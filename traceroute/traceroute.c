@@ -1026,7 +1026,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static void print_addr(sockaddr_any *res) 
+static void print_addr(sockaddr_any *res)
 {
     const char *str;
 
