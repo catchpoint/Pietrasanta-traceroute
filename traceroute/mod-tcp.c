@@ -52,9 +52,9 @@ static struct tcphdr *th = NULL;
 #define OPT_TSTAMP    0x02
 #define OPT_WSCALE    0x04
 
-static int flags = 0; // Which TCP flags are passed by the user
+static int flags = 0; // Records which TCP flags are provided in input (via arguments)
 static int flags_supplied = 0; // This is used to remember if the user supplied a TCP flags value. This is needed because the user could supply a value of zero
-static int options = 0; // Which TCP options are passed by the user
+static int options = 0; // Records which TCP options are provided in input (via arguments)
 static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
@@ -112,17 +112,20 @@ static char* names_by_flags(uint16_t flags)
     return strdup(str);
 }
 
+// Get the flags value from the given TCP header pointer
 uint16_t get_th_flags(struct tcphdr* th)
 {
     return ((((uint8_t *)th)[12] << 8) | ((uint8_t *)th)[13]) & 0x01ff;
 }
 
+// Set the flags into the given TCP header pointer
 void set_th_flags(struct tcphdr* th, uint16_t val)
 {
     ((uint8_t *)th)[12] = ((val >> 8) & 0x0001); // Only the last bit of the first byte is relevant (the AE flag)
     ((uint8_t *)th)[13] = (val & 0x00ff); // All the last 8 bits are relevant
 }
 
+// Record a TCP option provided in input
 static int set_tcp_option(CLIF_option* optn, char* arg)
 {
     int i;
@@ -137,6 +140,7 @@ static int set_tcp_option(CLIF_option* optn, char* arg)
     return -1;
 }
 
+// Record a TCP flag provided in input
 static int set_tcp_flag(CLIF_option* optn, char* arg) 
 {
     int i;
@@ -151,6 +155,7 @@ static int set_tcp_flag(CLIF_option* optn, char* arg)
     return -1;
 }
 
+// Record the TCP flags value provided in input
 static int set_tcp_flags(CLIF_option* optn, char* arg) 
 {
     char* q;
@@ -184,7 +189,7 @@ static CLIF_option tcp_options[] = {
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
-    { 0, "accecn", 0, "Send syn packet with tcp flags ECE, CWR and AE (for Accurate ECN)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "accecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
 };
 
