@@ -185,11 +185,11 @@ static CLIF_option tcp_options[] = {
     { 0, "sack", 0, "Use sack,", set_tcp_option, (void*)OPT_SACK, 0, 0 },
     { 0, "timestamps", 0, "timestamps,", set_tcp_option, (void*)OPT_TSTAMP, 0, CLIF_ABBREV },
     { 0, "window_scaling", 0, "window_scaling option for tcp", set_tcp_option, (void*)OPT_WSCALE, 0, CLIF_ABBREV },
-    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
+    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn/acc_ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
-    { 0, "accecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -251,8 +251,10 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         sysctl = 1;
 
     if(sysctl) {
-        if(check_sysctl("ecn"))
+        if(check_sysctl("ecn") == 1)
             flags |= (ECE | CWR);
+        else if(check_sysctl("ecn") == 3)
+            flags |= AE | ECE | CWR;
         
         // Forcing TCP SACK, timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
         // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
@@ -304,9 +306,6 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     /*  Construct TCP header   */
 
     th = (struct tcphdr*)ptr;
-
-    if(check_transport_ecn_support && use_acc_ecn)
-        flags |= ECE | CWR | AE;
 
     pseudo_IP_header_size = ptr - tmp_buf;
     

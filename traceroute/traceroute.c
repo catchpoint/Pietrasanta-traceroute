@@ -158,7 +158,6 @@ static void print_trailer();
 int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
-int check_transport_ecn_support = 0;
 int mtudisc = 0;
 unsigned int tos = 0;
 
@@ -340,6 +339,8 @@ int check_sysctl(const char* name)
     /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
     if(ch == '1')
         return 1;
+    else if(ch == '3') // Experimental: AccECN experimentation for L4S allows the value to be 3 (https://github.com/L4STeam/linux)
+        return 3;
 
     return 0;
 }
@@ -841,12 +842,10 @@ int main(int argc, char *argv[])
 
         tos <<= 2;
             
-        if(ecn_input_value >= 0 && ecn_input_value <= 3) {
+        if(ecn_input_value >= 0 && ecn_input_value <= 3)
             tos += ecn_input_value;
-            check_transport_ecn_support = 1;
-        } else {
+        else
             ex_error("ECN supplied value is not in range [0-3]");
-        }
             
         tos_input_value = tos;
         use_additional_raw_icmp_socket = 1;
