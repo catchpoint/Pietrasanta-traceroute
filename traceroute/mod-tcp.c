@@ -52,9 +52,9 @@ static struct tcphdr *th = NULL;
 #define OPT_TSTAMP    0x02
 #define OPT_WSCALE    0x04
 
-static int flags = 0; // Which TCP flags to set into the header
-static int options = 0; // Which TCP options to include into the header
-static int flags_supplied = 0; // This is used to remember if the user supplied a TCP flag value (this is needed because the ujser could supply zero)
+static int flags = 0; // Which TCP flags are passed by the user
+static int flags_supplied = 0; // This is used to remember if the user supplied a TCP flags value. This is needed because the user could supply a value of zero
+static int options = 0; // Which TCP options are passed by the user
 static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
