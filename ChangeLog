@@ -1,7 +1,8 @@
 2023-11-06  Luca Sani  <lsani@catchpoint.com> - 0.1.4
-    *  Introduce ECN check at TCP level
+    *  Introduce ECN and AccECN check at TCP level
         
-        TODOS
+        Added the possibility to check ECN and AccECN support of a target host
+        when running in TCP mode.
         
 2023-11-06  Luca Sani  <lsani@catchpoint.com> - 0.1.4
     *  Introduce "loose match" mode
