@@ -607,6 +607,15 @@ static void tcp_close()
         close(raw_icmp_sk);
 }
 
+int tcp_setup_additional_end_ping()
+{
+    int i = 0;
+    if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
+        error("setsockopt IP_TOS");
+    return 0;
+
+}
+
 static tr_module tcp_ops = {
     .name = "tcp",
     .init = tcp_init,
@@ -615,6 +624,7 @@ static tr_module tcp_ops = {
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
+    .setup_additional_end_ping = tcp_setup_additional_end_ping,
     .close = tcp_close
 };
 

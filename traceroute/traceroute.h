@@ -36,6 +36,7 @@ extern unsigned int first_hop;
 extern int tcpinsession_print_allowed;
 extern int loose_match;
 extern int mtudisc;
+extern unsigned int tos;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -108,6 +109,7 @@ struct tr_module_struct {
     void(*close)();
     int (*is_raw_icmp_sk)(int sk);
     probe* (*handle_raw_icmp_packet)(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret);
+    int (*setup_additional_end_ping)(void);
 };
 
 typedef struct tr_module_struct tr_module;

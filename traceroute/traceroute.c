@@ -123,7 +123,6 @@ static int noresolve = 0;
 static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
-static unsigned int tos = 0;
 static int tos_input_value = -1;
 static int dscp_input_value = -1;
 static unsigned int flow_label = 0;
@@ -152,6 +151,8 @@ static const tr_module *ops = NULL;
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
+static int additional_end_ping_ongoing = 0;
+static int last_hop_reached = 0;
 static void print_trailer();
 
 int use_additional_raw_icmp_socket = 0;
@@ -159,6 +160,7 @@ int ecn_input_value = -1;
 int loose_match = 0;
 int check_transport_ecn_support = 0;
 int mtudisc = 0;
+unsigned int tos = 0;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
@@ -374,8 +376,10 @@ static void* printer(void* args)
 
         print_probe(pb);
 
-        if(pb->done && pb->final)
+        if(pb->done && pb->final) {
             end = (idx / probes_per_hop + 1) * probes_per_hop;
+            last_hop_reached = end/probes_per_hop;
+        }
     }
 
     if(strcmp(module, "tcpinsession") == 0) { // Only in tcpinsession we need to replace the destination with the initial ping. Please note that print_probe will not print the probe results if  tcpinsession_destination_reply is set, and the final print is required to be performed at the end of the run
@@ -991,6 +995,27 @@ int main(int argc, char *argv[])
 
     do_it();
 
+    pthread_join(printer_thr, NULL);
+
+    if(ops->setup_additional_end_ping) {
+        if(ops->setup_additional_end_ping() != 0)
+            error("error while setting up additional_end_ping");
+        
+        free(probes);
+        
+        additional_end_ping_ongoing = 1;
+        first_hop = 255;
+        max_hops = 255;
+        num_probes = max_hops * probes_per_hop;
+        probes = calloc(num_probes, sizeof(*probes));
+        
+        do_it();
+        
+        int start = (first_hop - 1) * probes_per_hop;
+        for(int i = start; i < num_probes; i++)
+            print_probe(&probes[i]);
+    }
+    
     // Make extra-sure to not leave any FD open
     for(int i = 0; i < num_probes; i++)
         if(probes[i].sk > 0)
@@ -1044,8 +1069,13 @@ void print_probe(probe *pb)
     unsigned int ttl = idx / probes_per_hop + 1;
     unsigned int np = idx % probes_per_hop;
 
-    if(np == 0)
-        printf("\n%2u ", ttl);
+    if(np == 0) {
+        printf("\n");
+        if(additional_end_ping_ongoing == 0)
+            printf("%4u ", ttl);
+        else
+            printf("+%3u ", last_hop_reached);
+    }
 
     if(!pb->res.sa.sa_family) {
         printf(" *");
@@ -1527,8 +1557,6 @@ static void print_trailer()
     msec_elapsed += elapsedtime.tv_sec * 1000; // Add seconds
     msec_elapsed += elapsedtime.tv_usec / 1000; // Add milliseconds
     
-    pthread_join(printer_thr, NULL);
-
     if(ops->close)
         ops->close();
 
