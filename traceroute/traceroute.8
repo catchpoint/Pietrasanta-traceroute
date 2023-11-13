@@ -586,6 +586,25 @@ Sets the flags field in the tcp header exactly to
 .B ecn
 Send syn packet with tcp flags ECE and CWR (for Explicit Congestion
 Notification, rfc3168).
+.IP
+Since version 0.1.5 an additional ping and the end may be done to allow the proper 
+reporting of TCP flags in case ECN is being used. In detail, the additional ping is done
+if these three conditions are met: i) the IP level ECN value - herafter called IP-ECN - provided in input
+via the --ecn option is greater than zero; ii) the TCP info option is set; iii)
+the TCP ECN is in use - either explicitly via the TCP ecn option or implicitly via the
+/proc/sys/net/ipv4/tcp_ecn value being set to 1. The additional ping consists in sending
+nqueries probes to the last hop with IP-ECN set to zero. Indeed, has been experimentally observed that sending a SYN
+with ECE and CWR flags set to 1 and an IP-ECN value different from zero
+may cause a destination that actually supports ECN mechanism to send a SYN with ECE flag not set, claiming that
+ECN mechanism is not supported. This is likely to happen because the original
+rfc3168 does not allow TCP control packets (like a SYN) to have an IP-ECN value
+different from zero.
+.IP
+The a dditional ping is reported in output after the last hop and is preceeded
+by a "+". The number of the last hop is repeated, highlighting that this is
+an additional ping for the same hop. Note that if the TCP info option is not
+requested this step is not done because TCP flags are not reported in output.
+
 .TP
 .B sack,timestamps,window_scaling
 Use the corresponding tcp header option in the outgoing probe packet.
@@ -607,9 +626,27 @@ for maxseg tcp header option (when
 Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
 other useful things.
+.TP
+.B acc-ecn
+Send syn packet with tcp flags ECE, CWR and AE (for AccECN check, not yet RFC but draft).
+.IP
+Since version 0.1.5 it is possible to send SYN packets with AccECN flags (AE, CWR, ECE) set.
+Used in conjunction with the info option, this can be useful to check whether the
+target host supports AccECN, similary to what can be done in with the ECN option.
+At the time of writing this manual AccECN mechanism for TCP is not yet an RFC
+and the latest proposed standard is the number 27 (https://datatracker.ietf.org/doc/html/draft-ietf-tcpm-accurate-ecn-27).
+Experimental kernels allow /proc/sys/net/ipv4/tcp_ecn value to be 3 to enable AccECN
+(see for example https://github.com/L4STeam/linux), thus it is possible to send SYN packets
+with AccECN flags set even without explicitly specifying the acc-ecn option, provided that
+/proc/sys/net/ipv4/tcp_ecn value is 3. This is coherent with the behavior of TCP ecn,
+which can be explicitly enabled by passing the ECN option or by having /proc/sys/net/ipv4/tcp_ecn
+value set to 1.
 .P
 Default options is
 .BR syn,sysctl .
+.TP
+.B TCP Accurate Explicit Congestion Notification (AccECN)
+.br
 .SS tcpconn
 An initial implementation of tcp method, simple using connect(2) call,
 which does full tcp session opening. Not recommended for normal use, because
