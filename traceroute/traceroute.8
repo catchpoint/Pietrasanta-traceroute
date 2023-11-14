@@ -716,12 +716,12 @@ This method prevents false packet loss introduced by firewall and router configu
 security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
 .P
 With this method most of the usual TCP options are not available, because probes being sent are data probes.
-Thus for example does not make sense to allow to set a SYN flag to probes. The only option
+Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes. The only option
 available for this method is the
 .BR info
 option which behaves exacly like the 
 .BR tcp
-one.
+option.
 .P
 This method uses the connect() syscall to open the session with the destination,
 thus the content of /proc/sys/net/ipv4/tcp_ecn always affects the ECN flags being
@@ -739,7 +739,7 @@ a destination that supports ECN will reply with a SACK containing the ECE flag
 (if no alteration happened along the path). Thus, combining this behavior with the
 .BR info
 option, it is possible to check whether a destination supports ECN.
-When running on kernels that supports AccECN it is possible to test also if the
+When running on kernels that supports AccECN it is also possible to test if the
 destination supports AccECN in the same way, provided that /proc/sys/net/ipv4/tcp_ecn
 is set to the proper value.
 
