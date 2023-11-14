@@ -627,12 +627,12 @@ other useful things. This option is valid also for
 mode.
 .TP
 .B acc-ecn
-Send syn packet with tcp flags ECE, CWR and AE (for AccECN check, not yet RFC but draft).
+Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
 .IP
 Since version 0.1.5 it is possible to send SYN packets with AccECN flags (AE, CWR, ECE) set.
 Used in conjunction with the TCP
 .BR info 
-option, this can be useful to check whether the target host supports AccECN, similary
+option, this can be useful to check whether the target host supports AccECN, similarly
 to what can be done in with the TCP
 .BR ecn 
 option.
