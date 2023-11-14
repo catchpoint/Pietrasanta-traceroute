@@ -191,6 +191,9 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                         
                         ts_value = htonl(timestamp_echo_reply+30);
                         ts_echo_reply = htonl(timestamp_value);
+                        
+                        options |= OPT_TSTAMP;
+                        
                         break;
                     }
                 }
@@ -273,26 +276,25 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     th->check = 0;
     th->urg_ptr = 0;
 
-    /*  Build TCP options   */
-
     ptr = (uint8_t*)(th + 1);
 
-    // Force TCP SACK in mod-tcpinsession
-    *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
-    *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
-    *ptr++ = TCPOPT_TIMESTAMP;    /*  8   */
-    *ptr++ = TCPOLEN_TIMESTAMP;    /*  10  */
+    // Send timestamp only if it was received into the initial SYN+ACK
+    // Add also two bytes NOP for a total of 12 bytes to align the options space on 4 bytes.
+    if(options & OPT_TSTAMP) {
+        *ptr++ = TCPOPT_TIMESTAMP;    /*  8   */
+        *ptr++ = TCPOLEN_TIMESTAMP;    /*  10  */
+        ts_value_offset = ptr - (uint8_t*)th;
+        *((uint32_t*)ptr) = ts_value;
+        ptr += sizeof(uint32_t);
+        *((uint32_t*)ptr) = ts_echo_reply;
+        ptr += sizeof(uint32_t);
+        *ptr++ = TCPOPT_NOP;    /*  1   */
+        *ptr++ = TCPOPT_NOP;    /*  1   */
+    }
 
-    ts_value_offset = ptr - (uint8_t*)th;
-    *((uint32_t*)ptr) = ts_value; //random_seq();    /*  really!  */
-        
-    ptr += sizeof(uint32_t);
-    *((uint32_t*)ptr) = ts_echo_reply; //(flags & TH_ACK) ? random_seq() : 0;
-    ptr += sizeof(uint32_t);
-    
     len = ptr - (uint8_t*)th;
     if(len & 0x03)
-        error("impossible");    /*  as >>2 ...  */
+        ex_error("impossible");    /*  as >>2 ...  */
 
     th->doff = len >> 2;
     

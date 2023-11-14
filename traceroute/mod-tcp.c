@@ -40,9 +40,9 @@ static unsigned int mss = 0;
 static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
-
 extern int use_additional_raw_icmp_socket;
 extern int ecn_input_value;
+extern int disable_additional_ping;
 
 static CLIF_option tcp_options[] = {
     { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
@@ -124,6 +124,14 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     if(flags == 0)
         sysctl = 1;
 
+    if(flags == 0 && !flags_provided) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
+        flags |= SYN;
+        if(use_ecn)
+            flags |= ECE | CWR;
+        else if(use_acc_ecn)
+            flags |= AE | ECE | CWR;
+    }
+    
     if(sysctl) {
         if(check_sysctl("ecn") == 1) {
             flags |= (ECE | CWR);
@@ -140,14 +148,6 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         options |= OPT_SACK;
         options |= OPT_TSTAMP;
         options |= OPT_WSCALE;
-    }
-
-    if(flags == 0 && !flags_supplied) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
-        flags |= SYN;
-        if(use_ecn)
-            flags |= ECE | CWR;
-        else if(use_acc_ecn)
-            flags |= AE | ECE | CWR;
     }
 
     /*  For easy checksum computing:
@@ -247,15 +247,10 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     // Allow the filling of the TCP payload only if we are doing mtudisc, otherwise do not do that.
     // This is compliant with original traceroute TCP behavior, which does not send TCP probes with a payload never.
-    if(mtudisc) {
-        // Stick to what is specified in input
-        length_p = packet_len_p;
-    } else {
-        // Force the length to be only the len of the TCP header 
-        // This will avoid the fill loop to fill the payload
-        *packet_len_p = len;
-        length_p = packet_len_p;
-    }
+    if(!mtudisc)
+        *packet_len_p = len; // Force the length to be only the len of the TCP header. This will avoid the fill loop to fill the payload
+    
+    length_p = packet_len_p;
     
     if(*length_p && !(buf = malloc(*length_p+pseudo_IP_header_size)))
         error("malloc");
@@ -436,14 +431,14 @@ static void tcp_close()
         close(raw_icmp_sk);
 }
 
-int tcp_need_additional_end_ping()
+int tcp_need_additional_ping()
 {
     if(ecn_input_value > 0 && info && use_ecn)
         return 1;
     return 0;
 }
 
-int tcp_setup_additional_end_ping()
+int tcp_setup_additional_ping()
 {
     int i = 0;
     if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
@@ -460,8 +455,8 @@ static tr_module tcp_ops = {
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
-    .need_additional_end_ping = tcp_need_additional_end_ping,
-    .setup_additional_end_ping = tcp_setup_additional_end_ping,
+    .need_additional_ping = tcp_need_additional_ping,
+    .setup_additional_ping = tcp_setup_additional_ping,
     .close = tcp_close
 };
 

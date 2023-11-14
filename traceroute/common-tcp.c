@@ -19,7 +19,7 @@ struct tcp_opt tcp_opts[] = {
 };
 
 int flags = 0;
-int flags_supplied = 0;
+int flags_provided = 0;
 int options = 0;
 
 char* names_by_flags(uint16_t flags)
@@ -99,6 +99,6 @@ int set_tcp_flags(CLIF_option* optn, char* arg)
         return -1;
 
     flags = (flags & ~0x01ff) | (value & 0x01ff);
-    flags_supplied = 1;
+    flags_provided = 1;
     return 0;
 }

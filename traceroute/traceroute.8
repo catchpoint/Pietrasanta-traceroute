@@ -36,12 +36,11 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
 .br
 .ti +8
-BR "" [ "--quic ]
+.BR "" [ "--quic ]
 .br
 .ti +8
-BR "" [ "--loose-match ]
+.BR "" [ "--loose-match ]
 .br
-
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -494,12 +493,26 @@ Note that in QUIC mode the destination port is preserved
 across probes.
 Note also that the source QUIC port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
-.RE
+.br
 
 .br
 Note that this mode works provided that ICMP inbound packets are allowed on the machine
 where traceroute is running. On Azure they are not allowed by default and they 
 can be enabled provided that the Azure VM has also assigned a public IP.
+.RE
+
+.TP
+.BI \--disable-additional-ping
+Some methods may trigger an additional ping at the end if some conditions specific to the method are met. 
+This consist in sending
+.BI nqueries
+probes at destination.
+The additional pings are reported after the last hop and are preceeded by a "+" symbol. 
+The number of the last hop is repeated, highlighting that these are additional pings for 
+the hop that reached the destination. This option is to disable the additional ping
+mechanism regardles whether the method-specific conditions are met or not.
+
+.br
 
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
@@ -582,23 +595,19 @@ Sets the flags field in the tcp header exactly to
 Send syn packet with tcp flags ECE and CWR (for Explicit Congestion
 Notification, rfc3168).
 .IP
-Since version 0.1.5 additional pings may be launched at the end of the traceroute to 
+Additional pings may be launched at the end of the traceroute to 
 allow the proper reporting of TCP flags in case ECN has been set. In detail, the 
 additional pings are run if the following three conditions are met: i) the IP level 
 ECN value - herafter called IP-ECN - provided as input via the --ecn option is greater 
 than zero; ii) the TCP info option is set; iii) the TCP ECN is in use - either explicitly
-via the TCP ecn option or implicitly via the /proc/sys/net/ipv4/tcp_ecn value being set 
-to 1. The additional pings consist in sending nqueries probes to the last hop with 
+via the TCP ecn option or implicitly via the /proc/sys/net/ipv4/tcp_ecn value.
+The additional pings consist in sending nqueries probes to the last hop with 
 IP-ECN set to zero. Indeed, it has been experimentally observed that sending a SYN
 with ECE and CWR flags set to 1 and an IP-ECN value different from zero may cause a 
 destination supporting ECN mechanism to send a SYN with ECE flag not set, thus claiming
 that ECN mechanism is not supported. This is likely to happen because the original
 rfc3168 does not allow TCP control packets (like a SYN) to have an IP-ECN value
 different from zero.
-.IP
-The additional pings are reported after the last hop and is preceeded by a "+" symbol. 
-The number of the last hop is repeated, highlighting that these are additional pings for 
-the very same hop.
 
 .TP
 .B sack,timestamps,window_scaling
@@ -629,24 +638,14 @@ mode.
 .B acc-ecn
 Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
 .IP
-Since version 0.1.5 it is possible to send SYN packets with AccECN flags (AE, CWR, ECE) set.
 Used in conjunction with the TCP
 .BR info 
 option, this can be useful to check whether the target host supports AccECN, similarly
-to what can be done in with the TCP
+to what can be done with the
 .BR ecn 
 option.
 At the time of writing this manual AccECN mechanism for TCP is not yet an RFC
 and the latest proposed standard is the number 27 (https://datatracker.ietf.org/doc/html/draft-ietf-tcpm-accurate-ecn-27).
-Experimental kernels allow /proc/sys/net/ipv4/tcp_ecn value to be 3 to enable AccECN
-(see for example https://github.com/L4STeam/linux), thus it is possible to send SYN packets
-with AccECN flags set without explicitly specifying the
-.BR acc-ecn
-option, provided that
-/proc/sys/net/ipv4/tcp_ecn value is 3. This is coherent with the behavior of TCP
-.BR ecn
-option, which can be enabled either explicitly or implicitly by having /proc/sys/net/ipv4/tcp_ecn
-value set to 1.
 .P
 Default options is
 .BR syn,sysctl .
@@ -724,24 +723,8 @@ option which behaves exacly like the
 option.
 .P
 This method uses the connect() syscall to open the session with the destination,
-thus the content of /proc/sys/net/ipv4/tcp_ecn always affects the ECN flags being
-sent in the SYN. The SYN contains ECN flags (ECE and CWR) if the value of this setting is 1.
-For this reason the
-.BR ecn
-and
-.BR sysctl
-options are not available with this method.
-It is possible to specify the IP-ECN value of the data probes being sent via the global
-.BR --ecn
-option. If /proc/sys/net/ipv4/tcp_ecn is set to 1 and the IP-ECN specified is 3  -
-which corresponds to "Congestion Experienced" in ECN realm -
-a destination that supports ECN will reply with a SACK containing the ECE flag
-(if no alteration happened along the path). Thus, combining this behavior with the
-.BR info
-option, it is possible to check whether a destination supports ECN.
-When running on kernels that supports AccECN it is also possible to test if the
-destination supports AccECN in the same way, provided that /proc/sys/net/ipv4/tcp_ecn
-is set to the proper value.
+thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
+the TCP handshake.
 
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
