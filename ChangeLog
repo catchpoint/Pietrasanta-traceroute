@@ -1,4 +1,4 @@
-2023-11-14  Luca Sani  <lsani@catchpoint.com> - 0.1.4
+2023-11-14  Luca Sani  <lsani@catchpoint.com> - 0.1.5
     *  Introduce ECN and AccECN check at TCP level
         
         Added the possibility to check ECN and AccECN support of a target host
