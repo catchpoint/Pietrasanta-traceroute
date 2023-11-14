@@ -582,23 +582,23 @@ Sets the flags field in the tcp header exactly to
 Send syn packet with tcp flags ECE and CWR (for Explicit Congestion
 Notification, rfc3168).
 .IP
-Since version 0.1.5 an additional ping and the end may be done to allow the proper 
-reporting of TCP flags in case ECN is being used. In detail, the additional ping is done
-if these three conditions are met: i) the IP level ECN value - herafter called IP-ECN - provided in input
-via the --ecn option is greater than zero; ii) the TCP info option is set; iii)
-the TCP ECN is in use - either explicitly via the TCP ecn option or implicitly via the
-/proc/sys/net/ipv4/tcp_ecn value being set to 1. The additional ping consists in sending
-nqueries probes to the last hop with IP-ECN set to zero. Indeed, has been experimentally observed that sending a SYN
-with ECE and CWR flags set to 1 and an IP-ECN value different from zero
-may cause a destination that actually supports ECN mechanism to send a SYN with ECE flag not set, claiming that
-ECN mechanism is not supported. This is likely to happen because the original
+Since version 0.1.5 additional pings may be launched at the end of the traceroute to 
+allow the proper reporting of TCP flags in case ECN has been set. In detail, the 
+additional pings are run if the following three conditions are met: i) the IP level 
+ECN value - herafter called IP-ECN - provided as input via the --ecn option is greater 
+than zero; ii) the TCP info option is set; iii) the TCP ECN is in use - either explicitly
+via the TCP ecn option or implicitly via the /proc/sys/net/ipv4/tcp_ecn value being set 
+to 1. The additional pings consist in sending nqueries probes to the last hop with 
+IP-ECN set to zero. Indeed, it has been experimentally observed that sending a SYN
+with ECE and CWR flags set to 1 and an IP-ECN value different from zero may cause a 
+destination supporting ECN mechanism to send a SYN with ECE flag not set, thus claiming
+that ECN mechanism is not supported. This is likely to happen because the original
 rfc3168 does not allow TCP control packets (like a SYN) to have an IP-ECN value
 different from zero.
 .IP
-The a dditional ping is reported in output after the last hop and is preceeded
-by a "+". The number of the last hop is repeated, highlighting that this is
-an additional ping for the same hop. Note that if the TCP info option is not
-requested this step is not done because TCP flags are not reported in output.
+The additional pings are reported after the last hop and is preceeded by a "+" symbol. 
+The number of the last hop is repeated, highlighting that these are additional pings for 
+the very same hop.
 
 .TP
 .B sack,timestamps,window_scaling
