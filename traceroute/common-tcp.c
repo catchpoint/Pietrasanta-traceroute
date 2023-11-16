@@ -61,9 +61,7 @@ void set_th_flags(struct tcphdr* th, uint16_t val)
 // Record a TCP option provided in input
 int set_tcp_option(CLIF_option* optn, char* arg)
 {
-    int i;
-
-    for(i = 0; i < sizeof(tcp_opts) / sizeof(*tcp_opts); i++) {
+    for(int i = 0; i < sizeof(tcp_opts) / sizeof(*tcp_opts); i++) {
         if(!strcmp(optn->long_opt, tcp_opts[i].name)) {
             options |= tcp_opts[i].option;
             return 0;
@@ -76,9 +74,7 @@ int set_tcp_option(CLIF_option* optn, char* arg)
 // Record a TCP flag provided in input
 int set_tcp_flag(CLIF_option* optn, char* arg)
 {
-    int i;
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
+    for(int i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
         if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
             flags |= tcp_flags[i].flag;
             return 0;
@@ -92,9 +88,7 @@ int set_tcp_flag(CLIF_option* optn, char* arg)
 int set_tcp_flags(CLIF_option* optn, char* arg)
 {
     char* q;
-    unsigned long value;
-
-    value = strtoul(arg, &q, 0);
+    unsigned long value = strtoul(arg, &q, 0);
     if(q == arg)
         return -1;
 
