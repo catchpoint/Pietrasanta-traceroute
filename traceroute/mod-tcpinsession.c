@@ -130,7 +130,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 response_tcp_hdr = (struct tcphdr*) (ack_buf + (response_iphdr->ihl << 2));
                 if(response_tcp_hdr->dest == src.sin.sin_port) {
                     uint16_t response_flags = get_th_flags(response_tcp_hdr);
-                    if((response_flags & TH_SYN) && (response_flags & TH_ACK)) { // paranoid
+                    if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
                         response_src_addr.sin.sin_port = response_tcp_hdr->source;
                         
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
@@ -144,7 +144,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 response_tcp_hdr = (struct tcphdr*)ack_buf;
                 if(response_tcp_hdr->dest == src.sin6.sin6_port) {
                     uint16_t response_flags = get_th_flags(response_tcp_hdr);
-                    if((response_flags & TH_SYN) && (response_flags & TH_ACK)) { // paranoid
+                    if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
                         response_src_addr.sin6.sin6_port = response_tcp_hdr->source;
                         
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
