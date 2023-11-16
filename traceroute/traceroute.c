@@ -123,7 +123,6 @@ static int noresolve = 0;
 static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
-static unsigned int tos = 0;
 static int tos_input_value = -1;
 static int dscp_input_value = -1;
 static unsigned int flow_label = 0;
@@ -134,7 +133,6 @@ static double wait_secs = DEF_WAIT_SECS;
 static double here_factor = DEF_HERE_FACTOR;
 static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
-static int mtudisc = 0;
 static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
@@ -153,11 +151,16 @@ static const tr_module *ops = NULL;
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
+static int extra_ping_ongoing = 0;
+static int last_hop_reached = 0;
 static void print_trailer();
 
 int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
+int mtudisc = 0;
+int disable_extra_ping = 0;
+unsigned int tos = 0;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
@@ -337,6 +340,8 @@ int check_sysctl(const char* name)
     /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
     if(ch == '1')
         return 1;
+    else if(ch == '3') // Experimental: AccECN experimentation for L4S allows the value to be 3 (https://github.com/L4STeam/linux)
+        return 3;
 
     return 0;
 }
@@ -373,8 +378,10 @@ static void* printer(void* args)
 
         print_probe(pb);
 
-        if(pb->done && pb->final)
+        if(pb->done && pb->final) {
             end = (idx / probes_per_hop + 1) * probes_per_hop;
+            last_hop_reached = end/probes_per_hop;
+        }
     }
 
     if(strcmp(module, "tcpinsession") == 0) { // Only in tcpinsession we need to replace the destination with the initial ping. Please note that print_probe will not print the probe results if  tcpinsession_destination_reply is set, and the final print is required to be performed at the end of the run
@@ -484,8 +491,7 @@ static char addr2str_buf[INET6_ADDRSTRLEN];
 
 static const char *addr2str(const sockaddr_any *addr) 
 {
-    getnameinfo(&addr->sa, sizeof(*addr),
-        addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
 
     return addr2str_buf;
 }
@@ -753,6 +759,7 @@ static CLIF_option option_list[] = {
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
+    { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -837,8 +844,10 @@ int main(int argc, char *argv[])
 
         tos <<= 2;
             
-        if(ecn_input_value != -1)
+        if(ecn_input_value >= 0 && ecn_input_value <= 3)
             tos += ecn_input_value;
+        else
+            ex_error("ECN supplied value is not in range [0-3]");
             
         tos_input_value = tos;
         use_additional_raw_icmp_socket = 1;
@@ -987,6 +996,27 @@ int main(int argc, char *argv[])
 
     do_it();
 
+    pthread_join(printer_thr, NULL);
+
+    if(!disable_extra_ping && destination_reached && ops->need_extra_ping && ops->need_extra_ping()) {
+        if(ops->setup_extra_ping() != 0)
+            error("error while setting up extra_ping");
+        
+        free(probes);
+        
+        extra_ping_ongoing = 1;
+        first_hop = 255;
+        max_hops = 255;
+        num_probes = max_hops * probes_per_hop;
+        probes = calloc(num_probes, sizeof(*probes));
+        
+        do_it();
+        
+        int start = (first_hop - 1) * probes_per_hop;
+        for(int i = start; i < num_probes; i++)
+            print_probe(&probes[i]);
+    }
+    
     // Make extra-sure to not leave any FD open
     for(int i = 0; i < num_probes; i++)
         if(probes[i].sk > 0)
@@ -997,7 +1027,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static void print_addr(sockaddr_any *res) 
+static void print_addr(sockaddr_any *res)
 {
     const char *str;
 
@@ -1040,8 +1070,13 @@ void print_probe(probe *pb)
     unsigned int ttl = idx / probes_per_hop + 1;
     unsigned int np = idx % probes_per_hop;
 
-    if(np == 0)
-        printf("\n%2u ", ttl);
+    if(np == 0) {
+        printf("\n");
+        if(extra_ping_ongoing == 0)
+            printf("%4u ", ttl);
+        else
+            printf("+%3u ", last_hop_reached);
+    }
 
     if(!pb->res.sa.sa_family) {
         printf(" *");
@@ -1080,19 +1115,12 @@ void print_probe(probe *pb)
             pb->proto_details = NULL;
         }
         
-        if(pb->ecn_info) {
-            printf(" <%s>", pb->ecn_info);
-            free(pb->ecn_info);
-            pb->ecn_info = NULL;
-        }
-
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
             printf(" <TOS:%d,DSCP:%d,ECN:%d>", pb->returned_tos, dscp, ecn);
         }
     }
-
 
     if(pb->recv_time) {
         double diff = pb->recv_time - pb->send_time;
@@ -1530,8 +1558,6 @@ static void print_trailer()
     msec_elapsed += elapsedtime.tv_sec * 1000; // Add seconds
     msec_elapsed += elapsedtime.tv_usec / 1000; // Add milliseconds
     
-    pthread_join(printer_thr, NULL);
-
     if(ops->close)
         ops->close();
 
