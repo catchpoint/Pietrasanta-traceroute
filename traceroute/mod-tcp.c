@@ -121,9 +121,6 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     /*  Now create the sample packet.  */
 
-    if(flags == 0)
-        sysctl = 1;
-
     if(flags == 0) {
         sysctl = 1;
         if(!flags_provided) {   /*  no any tcp flag set and the user didn't explicitly set them to zero   */
