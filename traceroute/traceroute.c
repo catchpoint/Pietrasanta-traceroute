@@ -151,7 +151,7 @@ static const tr_module *ops = NULL;
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
-static int additional_ping_ongoing = 0;
+static int extra_ping_ongoing = 0;
 static int last_hop_reached = 0;
 static void print_trailer();
 
@@ -159,7 +159,7 @@ int use_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
 int mtudisc = 0;
-int disable_additional_ping = 0;
+int disable_extra_ping = 0;
 unsigned int tos = 0;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
@@ -759,7 +759,7 @@ static CLIF_option option_list[] = {
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
-    { 0, "disable-additional-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_additional_ping, 0, CLIF_EXTRA },
+    { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -998,13 +998,13 @@ int main(int argc, char *argv[])
 
     pthread_join(printer_thr, NULL);
 
-    if(!disable_additional_ping && destination_reached && ops->need_additional_ping && ops->need_additional_ping()) {
-        if(ops->setup_additional_ping() != 0)
-            error("error while setting up additional_ping");
+    if(!disable_extra_ping && destination_reached && ops->need_extra_ping && ops->need_extra_ping()) {
+        if(ops->setup_extra_ping() != 0)
+            error("error while setting up extra_ping");
         
         free(probes);
         
-        additional_ping_ongoing = 1;
+        extra_ping_ongoing = 1;
         first_hop = 255;
         max_hops = 255;
         num_probes = max_hops * probes_per_hop;
@@ -1072,7 +1072,7 @@ void print_probe(probe *pb)
 
     if(np == 0) {
         printf("\n");
-        if(additional_ping_ongoing == 0)
+        if(extra_ping_ongoing == 0)
             printf("%4u ", ttl);
         else
             printf("+%3u ", last_hop_reached);

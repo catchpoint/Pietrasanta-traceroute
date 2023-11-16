@@ -42,7 +42,7 @@ static int use_ecn = 0;
 static int use_acc_ecn = 0;
 extern int use_additional_raw_icmp_socket;
 extern int ecn_input_value;
-extern int disable_additional_ping;
+extern int disable_extra_ping;
 
 static CLIF_option tcp_options[] = {
     { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
@@ -124,12 +124,15 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     if(flags == 0)
         sysctl = 1;
 
-    if(flags == 0 && !flags_provided) {    /*  no any tcp flag set and the user didn't explicitly set them to zero   */
-        flags |= SYN;
-        if(use_ecn)
-            flags |= ECE | CWR;
-        else if(use_acc_ecn)
-            flags |= AE | ECE | CWR;
+    if(flags == 0) {
+        sysctl = 1;
+        if(!flags_provided) {   /*  no any tcp flag set and the user didn't explicitly set them to zero   */
+            flags |= SYN;
+            if(use_ecn)
+                flags |= ECE | CWR;
+            else if(use_acc_ecn)
+                flags |= AE | ECE | CWR;
+        }
     }
     
     if(sysctl) {
@@ -431,14 +434,14 @@ static void tcp_close()
         close(raw_icmp_sk);
 }
 
-int tcp_need_additional_ping()
+int tcp_need_extra_ping()
 {
     if(ecn_input_value > 0 && info && use_ecn)
         return 1;
     return 0;
 }
 
-int tcp_setup_additional_ping()
+int tcp_setup_extra_ping()
 {
     int i = 0;
     if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
@@ -455,8 +458,8 @@ static tr_module tcp_ops = {
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
-    .need_additional_ping = tcp_need_additional_ping,
-    .setup_additional_ping = tcp_setup_additional_ping,
+    .need_extra_ping = tcp_need_extra_ping,
+    .setup_extra_ping = tcp_setup_extra_ping,
     .close = tcp_close
 };
 

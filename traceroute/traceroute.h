@@ -38,7 +38,7 @@ extern int loose_match;
 extern int mtudisc;
 extern unsigned int tos;
 extern int ecn_input_value;
-extern int disable_additional_ping;
+extern int disable_extra_ping;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -111,8 +111,8 @@ struct tr_module_struct {
     void(*close)();
     int (*is_raw_icmp_sk)(int sk);
     probe* (*handle_raw_icmp_packet)(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret);
-    int (*need_additional_ping)(void);
-    int (*setup_additional_ping)(void);
+    int (*need_extra_ping)(void);
+    int (*setup_extra_ping)(void);
 };
 
 typedef struct tr_module_struct tr_module;
