@@ -203,17 +203,11 @@ static void tcp_recv_probe(int sk, int revents)
     recv_reply(icmp_sk, 0, tcp_check_reply);
 }
 
-static void tcp_expire_probe(probe *pb, int* what)
-{
-    probe_done(pb, what);
-}
-
 static tr_module tcp_ops = {
     .name = "tcpconn",
     .init = tcp_init,
     .send_probe = tcp_send_probe,
-    .recv_probe = tcp_recv_probe,
-    .expire_probe = tcp_expire_probe,
+    .recv_probe = tcp_recv_probe
 };
 
 TR_MODULE(tcp_ops);

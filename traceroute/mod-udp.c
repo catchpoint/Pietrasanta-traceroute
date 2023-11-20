@@ -35,6 +35,8 @@
 #define UDPLITE_RECV_CSCOV    11
 #endif
 
+#define UDP_MAX_TRACEROUTE_PORT_RANGE 91
+
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
@@ -42,6 +44,7 @@ static unsigned int protocol = IPPROTO_UDP;
 static char *data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
+static int port_seq_specified = 0;
 extern int use_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
@@ -59,7 +62,12 @@ static void fill_data(size_t* packet_len_p)
 
 static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
-    curr_port = port_seq ? port_seq : DEF_START_PORT;
+    if(port_seq) {
+        port_seq_specified = 1;
+        curr_port = port_seq;
+    } else {
+        curr_port = DEF_START_PORT;
+    }
 
     dest_addr = *dest;
     dest_addr.sin.sin_port = htons(curr_port);
@@ -70,7 +78,7 @@ static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, siz
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
-            error("raw icmp socket");
+            error_or_perm("raw icmp socket");
         
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
@@ -84,8 +92,10 @@ static int udp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;
+    else
+        port_seq_specified = 1;   
     
-    dest_addr.sin.sin_port = htons((uint16_t) port_seq);
+    dest_addr.sin.sin_port = htons((uint16_t)port_seq);
     
     fill_data(packet_len_p);
  
@@ -117,6 +127,9 @@ static int udplite_init(const sockaddr_any* dest, unsigned int port_seq, size_t*
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;    /*  XXX: Hmmm...   */
+    else
+        port_seq_specified = 1;
+        
     dest_addr.sin.sin_port = htons((uint16_t) port_seq);
 
     protocol = IPPROTO_UDPLITE;
@@ -170,9 +183,13 @@ static void udp_send_probe(probe* pb, int ttl)
 
     memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
     
-    if(curr_port) {    /*  traditional udp method   */
-        curr_port++;
-        dest_addr.sin.sin_port = htons(curr_port);    /* both ipv4 and ipv6 */
+    if(curr_port) {
+        if(port_seq_specified)
+            curr_port++;
+        else
+            curr_port = (curr_port - DEF_START_PORT + 1) % UDP_MAX_TRACEROUTE_PORT_RANGE + DEF_START_PORT;
+        
+        dest_addr.sin.sin_port = htons(curr_port);    // note that this is valid for both ipv4 and ipv6
     }
 }
 
@@ -197,11 +214,6 @@ static void udp_recv_probe(int sk, int revents)
         recv_reply(sk, !!(revents & POLLERR), udp_check_reply);
 }
 
-static void udp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static int udp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -214,85 +226,23 @@ static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
 {
     probe* pb = NULL;
     
-    if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
-        struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+    if(proto != IPPROTO_UDP)
+        return NULL;
         
-        if(inner_ip->protocol != IPPROTO_UDP)
-            return NULL;
-            
-        struct udphdr* offending_probe = (struct udphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+    offending_probe = (struct udphdr*)offending_probe;
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+    
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
+    
+    if(!pb)
+        return NULL;
         
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin.sin_family = AF_INET;
-        offending_probe_dest.sin.sin_port = offending_probe->dest;
-        offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-        #ifdef __APPLE__
-            offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin); // TODO: correct?
-        #endif
-
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin.sin_family = AF_INET;
-        offending_probe_src.sin.sin_port = offending_probe->source;
-        offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-        #ifdef __APPLE__
-            offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
-        #endif
-        pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-        
-        if(!pb)
-            return NULL;
-        pb->returned_tos = inner_ip->tos;
-        probe_done(pb, &pb->icmp_done);
-       
-        if(loose_match) 
-            *overhead = prepare_ancillary_data(outer_ip, outer_icmp, inner_ip, sizeof(struct udphdr), ret);
-        
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
-        
-        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_UDP)
-            return NULL;
-        
-        struct udphdr* offending_probe = (struct udphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin6.sin6_family = AF_INET6;
-        offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-        memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-        #ifdef __APPLE__
-            offending_probe_dest.sin6.sin6_len = sizeof(offending_probe_dest.sin6); // TODO: correct?
-        #endif
-        
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin6.sin6_family = AF_INET6;
-        offending_probe_src.sin6.sin6_port = offending_probe->source;
-        memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-        #ifdef __APPLE__
-            offending_probe_src.sin6.sin6_len = sizeof(offending_probe_src.sin6); // TODO: correct?
-        #endif
-        
-        pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-        
-        if(!pb)
-            return NULL;
-        
-        uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
-        tmp &= 0x0fffffff;
-        tmp >>= 20; 
-        
-        pb->returned_tos = (uint8_t)tmp;
-        probe_done(pb, &pb->icmp_done);
-        
-        if(loose_match) 
-            *overhead = prepare_ancillary_data_v6(response_get->msg_name, outer_icmp, inner_ip, sizeof(struct udphdr), ret);
-    }
+    pb->returned_tos = returned_tos;
+    probe_done(pb, &pb->icmp_done);
+    
+    if(loose_match) 
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
     
     return pb;
 }
@@ -310,7 +260,6 @@ static tr_module default_ops = {
     .init = udp_default_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -319,13 +268,11 @@ static tr_module default_ops = {
 
 TR_MODULE(default_ops);
 
-
 static tr_module udp_ops = {
     .name = "udp",
     .init = udp_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -339,7 +286,6 @@ static tr_module udplite_ops = {
     .init = udplite_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .options = udplite_options,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,

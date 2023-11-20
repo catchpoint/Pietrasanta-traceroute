@@ -18,17 +18,8 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
-#include <netinet/tcp.h>
-#include <stdio.h>
-#include "traceroute.h"
 
-#ifdef __APPLE__
-#include "mac/icmp.h"
-#include "mac/ip.h"
-#include "mac/types.h"
-#include <string.h>
-#undef TH_FLAGS
-#endif 
+#include "common-tcp.h"
 
 #ifndef IP_MTU
 #define IP_MTU    14
@@ -36,114 +27,24 @@
 
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
-
 static int raw_icmp_sk = -1;
 static int raw_sk = -1;
 static int last_ttl = 0;
-
 static unsigned pseudo_IP_header_size = 0;
 static uint8_t* buf;
 static uint8_t tmp_buf[1024];        /*  enough, enough...  */
 static size_t* length_p;
 static sockaddr_any src;
 static struct tcphdr *th = NULL;
-
-#define TH_FLAGS(TH)    (((uint8_t *) (TH))[13])
-#define TH_FIN    0x01
-#define TH_SYN    0x02
-#define TH_RST    0x04
-#define TH_PSH    0x08
-#define TH_ACK    0x10
-#define TH_URG    0x20
-#define TH_ECE    0x40
-#define TH_CWR    0x80
-
-
-static int flags = 0;        /*  & 0xff == tcp_flags ...  */
 static int sysctl = 0;
 static int reuse = 0;
 static unsigned int mss = 0;
 static int info = 0;
-
-#define FL_FLAGS    0x0100
-#define FL_ECN        0x0200
-#define FL_SACK        0x0400
-#define FL_TSTAMP    0x0800
-#define FL_WSCALE    0x1000
-
-
-static struct {
-    const char *name;
-    unsigned int flag;
-} tcp_flags[] = {
-    { "fin", TH_FIN },
-    { "syn", TH_SYN },
-    { "rst", TH_RST },
-    { "psh", TH_PSH },
-    { "ack", TH_ACK },
-    { "urg", TH_URG },
-    { "ece", TH_ECE },
-    { "cwr", TH_CWR },
-};
-
+static int use_ecn = 0;
+static int use_acc_ecn = 0;
 extern int use_additional_raw_icmp_socket;
-
-static char* names_by_flags(unsigned int flags)
-{
-    int i;
-    char str[64];    /*  enough...  */
-    char* curr = str;
-    char* end = str + sizeof(str) / sizeof(*str);
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        const char* p;
-
-        if(!(flags & tcp_flags[i].flag))  
-            continue;
-
-        if(curr > str && curr < end)  
-            *curr++ = ',';
-        for(p = tcp_flags[i].name; *p && curr < end; *curr++ = *p++);
-    }
-
-    *curr = '\0';
-
-    return strdup(str);
-}
-
-static int set_tcp_flag(CLIF_option* optn, char* arg) 
-{
-    int i;
-
-    for(i = 0; i < sizeof(tcp_flags) / sizeof(*tcp_flags); i++) {
-        if(!strcmp(optn->long_opt, tcp_flags[i].name)) {
-            flags |= tcp_flags[i].flag;
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-static int set_tcp_flags(CLIF_option* optn, char* arg) 
-{
-    char* q;
-    unsigned long value;
-
-    value = strtoul(arg, &q, 0);
-    if(q == arg)
-        return -1;
-
-    flags = (flags & ~0xff) | (value & 0xff) | FL_FLAGS;
-    return 0;
-}
-
-static int set_flag(CLIF_option* optn, char* arg)
-{
-    flags |= (unsigned long)optn->data;
-
-    return 0;
-}
+extern int ecn_input_value;
+extern int disable_extra_ping;
 
 static CLIF_option tcp_options[] = {
     { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
@@ -154,15 +55,17 @@ static CLIF_option tcp_options[] = {
     { 0, "urg", 0, "URG,", set_tcp_flag, 0, 0, 0 },
     { 0, "ece", 0, "ECE,", set_tcp_flag, 0, 0, 0 },
     { 0, "cwr", 0, "CWR", set_tcp_flag, 0, 0, 0 },
+    { 0, "ae", 0, "Set tcp flag AE (Accurate ECN)", set_tcp_flag, 0, 0, 0 },
     { 0, "flags", "NUM", "Set tcp flags exactly to value %s", set_tcp_flags, 0, 0, CLIF_ABBREV },
-    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", set_flag, (void*)FL_ECN, 0, 0 },
-    { 0, "sack", 0, "Use sack,", set_flag, (void*)FL_SACK, 0, 0 },
-    { 0, "timestamps", 0, "timestamps,", set_flag, (void*)FL_TSTAMP, 0, CLIF_ABBREV },
-    { 0, "window_scaling", 0, "window_scaling option for tcp", set_flag, (void*)FL_WSCALE, 0, CLIF_ABBREV },
-    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
+    { 0, "ecn", 0, "Send syn packet with tcp flags ECE and CWR (for Explicit Congestion Notification, rfc3168)", CLIF_set_flag, &use_ecn, 0, 0 },
+    { 0, "sack", 0, "Use sack,", set_tcp_option, (void*)OPT_SACK, 0, 0 },
+    { 0, "timestamps", 0, "timestamps,", set_tcp_option, (void*)OPT_TSTAMP, 0, CLIF_ABBREV },
+    { 0, "window_scaling", 0, "window_scaling option for tcp", set_tcp_option, (void*)OPT_WSCALE, 0, CLIF_ABBREV },
+    { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn/acc_ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
+    { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -227,28 +130,34 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     /*  Now create the sample packet.  */
 
-    if(!flags)
+    if(flags == 0) {
         sysctl = 1;
-
+        if(!flags_provided) {   /*  no any tcp flag set and the user didn't explicitly set them to zero   */
+            flags |= SYN;
+            if(use_ecn)
+                flags |= ECE | CWR;
+            else if(use_acc_ecn)
+                flags |= AE | ECE | CWR;
+        }
+    }
+    
     if(sysctl) {
-        if(check_sysctl ("ecn"))
-            flags |= FL_ECN;
+        if(check_sysctl("ecn") == 1) {
+            flags |= (ECE | CWR);
+            use_ecn = 1;
+        } else if(check_sysctl("ecn") == 3) {
+            flags |= AE | ECE | CWR;
+            use_acc_ecn = 1;
+        }
         
         // Forcing TCP SACK, timestamps and Window scale in TCP options. This fix forces the code to generate TCP SYN packets without payload, which eventually would cause the probes to be dropped by regular firewalls. 
         // TCP SYN packets with payload are generated due to an initial hard-coded value of 40B of the probe size which was present in the original code and is now used in the new path MTU discovery process. 
         // Please remove this comment once the bug has been fixed.
         
-        flags |= FL_SACK;
-        flags |= FL_TSTAMP;
-        flags |= FL_WSCALE;
+        options |= OPT_SACK;
+        options |= OPT_TSTAMP;
+        options |= OPT_WSCALE;
     }
-
-    if(!(flags & (FL_FLAGS | 0xff))) {    /*  no any tcp flag set   */
-        flags |= TH_SYN;
-        if(flags & FL_ECN)
-            flags |= TH_ECE | TH_CWR;
-    }
-
 
     /*  For easy checksum computing:
         saddr
@@ -275,35 +184,24 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         ptr += len;
     }
 
-    lenp = (uint16_t *) ptr;
+    lenp = (uint16_t*)ptr;
     ptr += sizeof(uint16_t);
-    *((uint16_t *) ptr) = htons ((uint16_t) IPPROTO_TCP);
+    *((uint16_t*)ptr) = htons((uint16_t)IPPROTO_TCP);
     ptr += sizeof(uint16_t);
 
     /*  Construct TCP header   */
 
-    th = (struct tcphdr *) ptr;
+    th = (struct tcphdr*)ptr;
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
-#ifdef __APPLE__
-    th->th_sport = 0;        /*  temporary   */
-    th->th_dport = dest_port;
-    th->th_seq = 0;        /*  temporary   */
-    th->th_ack = 0;
-    th->th_off = 0;        /*  later...  */
-    TH_FLAGS(th) = flags & 0xff;
-    th->th_win = htons(4 * mtu);
-    th->th_sum = 0;
-    th->th_urp = 0;
-#else
-    th->source = 0;
+    th->source = 0;        /*  temporary   */
     th->dest = dest_port;
-    th->seq = 0;
+    th->seq = 0;        /*  temporary   */
     th->ack_seq = 0;
-    th->doff = 0;
-    TH_FLAGS(th) = flags & 0xff;
-    th->window = htons(4 * mtu);
+    th->doff = 0;        /*  later...  */
+    set_th_flags(th, flags);
+    th->window = htons (4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
 #endif
@@ -313,15 +211,15 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     ptr = (uint8_t*)(th + 1);
 
-    if(flags & TH_SYN) {
+    if(flags & SYN) {
         *ptr++ = TCPOPT_MAXSEG;    /*  2   */
         *ptr++ = TCPOLEN_MAXSEG;    /*  4   */
         *((uint16_t*) ptr) = htons (mss ? mss : mtu);
         ptr += sizeof(uint16_t);
     }
 
-    if(flags & FL_TSTAMP) {
-        if(flags & FL_SACK) {
+    if(options & OPT_TSTAMP) {
+        if(options & OPT_SACK) {
             *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
             *ptr++ = TCPOLEN_SACK_PERMITTED;/*  2   */
         } else {
@@ -333,16 +231,16 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
         *((uint32_t*) ptr) = random_seq();    /*  really!  */
         ptr += sizeof(uint32_t);
-        *((uint32_t*) ptr) = (flags & TH_ACK) ? random_seq () : 0;
+        *((uint32_t*) ptr) = (flags & ACK) ? random_seq () : 0;
         ptr += sizeof(uint32_t);
-    } else if(flags & FL_SACK) {
+    } else if(options & OPT_SACK) {
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_SACK_PERMITTED;    /*  4   */
         *ptr++ = TCPOLEN_SACK_PERMITTED;    /*  2   */
     }
 
-    if(flags & FL_WSCALE) {
+    if(options & OPT_WSCALE) {
         *ptr++ = TCPOPT_NOP;    /*  1   */
         *ptr++ = TCPOPT_WINDOW;    /*  3   */
         *ptr++ = TCPOLEN_WINDOW;    /*  3   */
@@ -361,21 +259,27 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 		th->doff = len >> 2;
 	#endif
 
+    // Allow the filling of the TCP payload only if we are doing mtudisc, otherwise do not do that.
+    // This is compliant with original traceroute TCP behavior, which does not send TCP probes with a payload never.
+    if(!mtudisc)
+        *packet_len_p = len; // Force the length to be only the len of the TCP header. This will avoid the fill loop to fill the payload
+    
     length_p = packet_len_p;
+    
     if(*length_p && !(buf = malloc(*length_p+pseudo_IP_header_size)))
         error("malloc");
 
     memcpy(buf, tmp_buf, pseudo_IP_header_size+len);
     th = (struct tcphdr*)(buf + pseudo_IP_header_size);
 
-    for(int i = pseudo_IP_header_size+len; i < pseudo_IP_header_size+*length_p; i++)
-        buf[i] = 0x40 + (i & 0x3f); // Same as in UDP
+    for(int i = len; i < *length_p; i++)
+        buf[i+pseudo_IP_header_size] = 0x40 + (i & 0x3f); // Same as in UDP
     
     if(use_additional_raw_icmp_socket) {
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
-            error("raw icmp socket");
+            error_or_perm("raw icmp socket");
         
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
@@ -397,7 +301,7 @@ static void tcp_send_probe(probe* pb, int ttl)
 #ifndef __APPLE__
     sk = socket(af, SOCK_STREAM, 0);
     if(sk < 0)
-        error ("socket");
+        error("socket");
 
     if(reuse && setsockopt (sk, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
         error ("setsockopt SO_REUSEADDR");
@@ -516,7 +420,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         pb->final = 1;
 
         if(info)
-            pb->ext = names_by_flags(TH_FLAGS(tcp));
+            pb->ext = names_by_flags(get_th_flags(tcp));
     }
 
     return pb;
@@ -526,21 +430,13 @@ static void tcp_recv_probe(int sk, int revents)
 {
     if(!(revents & (POLLIN | POLLERR)))
         return;
-
     recv_reply(sk, !!(revents & POLLERR), tcp_check_reply);
-}
-
-
-static void tcp_expire_probe(probe* pb, int* what)
-{
-    probe_done (pb, what);
 }
 
 static int tcp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
         return 1;
-
     return 0;
 }
 
@@ -548,99 +444,23 @@ static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
 {
     probe* pb = NULL;
     
-    if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
-        struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+    if(proto != IPPROTO_TCP)
+        return NULL;
         
-        if(inner_ip->protocol != IPPROTO_TCP)
-            return NULL;
-            
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2));
+    offending_probe = (struct tcphdr*)offending_probe;
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+    
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
+    
+    if(!pb)
+        return NULL;
         
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin.sin_family = AF_INET;
-        #ifndef __APPLE__
-			offending_probe_dest.sin.sin_port = offending_probe->dest;
-			offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-        #else 
-            offending_probe_dest.sin.sin_port = offending_probe->th_dport;
-			offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-			offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin); // TODO: correct?
-        #endif
-
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin.sin_family = AF_INET;
-        #ifndef __APPLE__
-			offending_probe_src.sin.sin_port = offending_probe->source;
-			offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-        #else
-			offending_probe_src.sin.sin_port = offending_probe->th_sport;
-			offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-            offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin); // TODO: correct?
-        #endif
-        // NOTE on TCP:
-        // As long as the source port is kept, this mechanism works fine.
-        pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-        
-        if(!pb)
-            return NULL;
-
-        pb->returned_tos = inner_ip->tos;
-        probe_done(pb, &pb->icmp_done);
-        if(loose_match) 
-            *overhead = prepare_ancillary_data(outer_ip, outer_icmp, inner_ip, sizeof(struct tcphdr), ret);
-            
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
-        
-        if(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_nxt != IPPROTO_TCP)
-            return NULL;
-        
-        struct tcphdr* offending_probe = (struct tcphdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
-        
-        sockaddr_any offending_probe_dest;
-        memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-        offending_probe_dest.sin6.sin6_family = AF_INET6;
-        #ifndef __APPLE__
-			offending_probe_dest.sin6.sin6_port = offending_probe->dest;
-			memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-        #else
-			offending_probe_dest.sin6.sin6_port = offending_probe->th_dport;
-			memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-            offending_probe_dest.sin6.sin6_len = sizeof(offending_probe_dest.sin6); // TODO: correct?
-        #endif
-
-        sockaddr_any offending_probe_src;
-        memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-        offending_probe_src.sin6.sin6_family = AF_INET6;
-        #ifndef __APPLE__
-			offending_probe_src.sin6.sin6_port = offending_probe->source;
-			memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-        #else
-			offending_probe_src.sin6.sin6_port = offending_probe->th_sport;
-			memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-            offending_probe_src.sin6.sin6_len = sizeof(offending_probe_src.sin6); // TODO: correct?
-        #endif
-
-        pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-        
-        if(!pb)
-            return NULL;
-        
-        uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
-        tmp &= 0x0fffffff;
-        tmp >>= 20; 
-        
-        pb->returned_tos = (uint8_t)tmp;
-        probe_done(pb, &pb->icmp_done);
-        
-        if(loose_match) 
-            *overhead = prepare_ancillary_data_v6(response_get->msg_name, outer_icmp, inner_ip, sizeof(struct tcphdr), ret);
-    }
+    pb->returned_tos = returned_tos;
+    probe_done(pb, &pb->icmp_done);
+    
+    if(loose_match) 
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
     
     return pb;
 }
@@ -652,15 +472,32 @@ static void tcp_close()
         close(raw_icmp_sk);
 }
 
+int tcp_need_extra_ping()
+{
+    if(ecn_input_value > 0 && info && use_ecn)
+        return 1;
+    return 0;
+}
+
+int tcp_setup_extra_ping()
+{
+    int i = 0;
+    if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
+        error("setsockopt IP_TOS");
+    return 0;
+
+}
+
 static tr_module tcp_ops = {
     .name = "tcp",
     .init = tcp_init,
     .send_probe = tcp_send_probe,
     .recv_probe = tcp_recv_probe,
-    .expire_probe = tcp_expire_probe,
     .options = tcp_options,
     .is_raw_icmp_sk = tcp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = tcp_handle_raw_icmp_packet,
+    .need_extra_ping = tcp_need_extra_ping,
+    .setup_extra_ping = tcp_setup_extra_ping,
     .close = tcp_close
 };
 

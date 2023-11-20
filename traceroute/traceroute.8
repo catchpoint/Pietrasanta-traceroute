@@ -2,7 +2,7 @@
 .\" Copyright (c)  2006   Dmitry Butskoy (dmitry@butskoy.name)
 .\" License: GPL v2 or any later version
 .\" See COPYING for the status of this software
-.TH TRACEROUTE 8 "11 October 2006" "Traceroute" "Traceroute For Linux"
+.TH TRACEROUTE 8 "27 October 2023" "Traceroute" "Traceroute For Linux"
 .\" .UC 6
 .SH NAME
 traceroute \- print the route packets trace to network host
@@ -11,10 +11,14 @@ traceroute \- print the route packets trace to network host
 .BR traceroute " [" \-46dFITUnreAV "] [" "\-f first_ttl" "] [" "\-g gate,..." ]
 .br
 .ti +8
+.BR "" [ "-H max_consecutive_hop_failures" "] [" "--failures max_consecutive_hop_failures" "]
+.ti +8
 .BR "" [ "-i device" "] [" "-m max_ttl" "] [" "-p port" "] [" "-s src_addr" ]
 .br
 .ti +8
 .BR "" [ "-q nqueries" "] [" "-N squeries" "] [" "-t tos" ]
+.ti +8
+.BR "" [ "-Q timeout" "] [" "--timeout timeout" "]
 .br
 .ti +8
 .BR "" [ "-l flow_label" "] [" "-w waittimes" "] [" "-z sendwait" "] [" "-UL" "] [" "-D" ]
@@ -32,6 +36,11 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
 .br
 .ti +8
+.BR "" [ "--quic ]
+.br
+.ti +8
+.BR "" [ "--loose-match ]
+.br
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -137,7 +146,15 @@ Enable socket level debugging (when the Linux kernel supports it)
 .B \-F, --dont-fragment
 Do not fragment probe packets. (For IPv4 it also sets DF bit, which tells
 intermediate routers not to fragment remotely as well).
+.TP
+.B \-Q, --timeout
+Specifies the overall timeout in seconds for the tool execution.
 .br
+.B \-H, --failures
+Sets the max number of consecutive hops that can fail before terminating traceroute.
+By default this limit is set to max_hops, but it can be changed via this option.
+An hop is considered to be "failed" when all the probes within the probe timeout.
+.TP
 
 .br
 Varying the size of the probing packet by the
@@ -220,12 +237,7 @@ For IPv6, set the Traffic Control value.
 .BI \-\-ecn=ecn
 Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
 be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
-report the ECN value for each expiring probe. When running in InSession mode
-and /proc/sys/net/ipv4/tcp_ecn is set to 1, traceroute will perform additional checks
-to verify if the destination supports the ECN mechanism: if ecn is set to ECT(0) or ECT(1)
-it will check if the destination supports the ECN mechanism at the TCP level, while if
-it is set to CE it will also check whether the destination acknowledges properly a
-congestion detection. 
+report the ECN value for each expiring probe.
 .TP
 .BI \-\-dscp=dscp
 Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
@@ -416,6 +428,92 @@ Print the number of backward hops when it seems different with the forward
 direction. This number is guessed in assumption that remote hops send reply
 packets with initial ttl set to either 64, or 128 or 255 (which seems
 a common practice). It is printed as a negate value in a form of '-NUM' .
+.TP
+.BI \--quic
+Use QUIC Initial packets for probes
+.TP
+.BI \--loose-match
+Run in "Loose match" mode. When running in this mode traceroute opens an additional
+raw ICMP socket (the same used to report ToS/DSCP/ECN value in output)
+where all ICMP error packets (e.g. ICMP_TTL_EXCEEDED) are received and filtered
+ignoring the source address of the encapsulated probe - hereafter called the offending probe.
+This allows traceroute to run properly in Azure environments, where the source IP of the
+offending probe is left to the public IP address of the Azure network instead
+of being translated back to the private address of the original sending interface.
+This is problematic because ICMP error packets having this characterstic are discarded
+by the kernel and thus they are never delivered to the application layer (traceroute).
+Note that probes are sent in the same way as usual, i.e. via the dedicated protocol
+sockets.
+.br
+
+.br
+Skipping the check on the source address of the offending probe leaves enough checks to be sure that
+the ICMP error packet is acceptable, and specifically that does not belong to another
+traceroute process running on the same machine. Please note that the ICMP error
+packet is actually addressed to the machine itself and thus is delievered to the raw ICMP socket.
+These are the explicit checks done in the loose match scenario depending on the protocol being used:
+
+.RS
+.BI UDP:
+An ICMP error packet is accepted if the destination IP, destination and source port of the
+offending probe are equal to the destination IP, destination and source port of a probe sent.
+Note that when running in UDP mode, the source port of the probe sent is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note also that the source UDP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+
+.br
+.BI ICMP:
+An ICMP error packet is accepted if the Identifier and Sequence number fields
+of the offending probe are equal to the Identfier and Sequence number fields of a
+probe sent. Note that the Identifier field is the PID of the running
+traceroute, thus it is ensured to be unique across processes.
+
+.br
+.BI TCP\ and\ TCP\ InSession:
+An ICMP error packet is accepted if the destination IP, destination and source port
+of the offending probe are equal to the destination IP, destination and source port of a
+probe sent. Note that when running in TCP mode, the source port of the probe sent is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note also that the source TCP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+Note that in TCP and Tcp InSession mode the destination port is preserved
+across probes.
+Note also that the source TCP port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+
+.br
+.BI QUIC:
+(type)
+An ICMP error packet is accepted if the destination IP, destination and source port of the
+offending probe are equal to the destination IP, destination and source port of a probe sent.
+Please note that when running in QUIC mode, the source port of the sent probe is determined
+by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
+Note that in QUIC mode the destination port is preserved
+across probes.
+Note also that the source QUIC port is preserved (or translated back) correctly
+for this reason can be used in the checks (differently from the source IP).
+.br
+
+.br
+Note that this mode works provided that ICMP inbound packets are allowed on the machine
+where traceroute is running. On Azure they are not allowed by default and they 
+can be enabled provided that the Azure VM has also assigned a public IP.
+.RE
+
+.TP
+.BI \--disable-extra-ping
+Some methods may trigger an extra ping at the end if some conditions specific to the method are met. 
+This consist in sending
+.BI nqueries
+probes at destination.
+The extra pings are reported after the last hop and are preceeded by a "+" symbol. 
+The number of the last hop is repeated, highlighting that these are extra pings for 
+the hop that reached the destination. This option is to disable the extra ping
+mechanism regardles whether the method-specific conditions are met or not.
+
+.br
+
 .SH LIST OF AVAILABLE METHODS
 In general, a particular traceroute method may have to be chosen by
 .BR \-M\ name ,
@@ -496,6 +594,21 @@ Sets the flags field in the tcp header exactly to
 .B ecn
 Send syn packet with tcp flags ECE and CWR (for Explicit Congestion
 Notification, rfc3168).
+.IP
+Extra pings may be launched at the end of the traceroute to 
+allow the proper reporting of TCP flags in case ECN has been set. In detail, the 
+extra pings are run if the following three conditions are met: i) the IP level 
+ECN value - herafter called IP-ECN - provided as input via the --ecn option is greater 
+than zero; ii) the TCP info option is set; iii) the TCP ECN is in use - either explicitly
+via the TCP ecn option or implicitly via the /proc/sys/net/ipv4/tcp_ecn value.
+The extra pings consist in sending nqueries probes to the last hop with 
+IP-ECN set to zero. Indeed, it has been experimentally observed that sending a SYN
+with ECE and CWR flags set to 1 and an IP-ECN value different from zero may cause a 
+destination supporting ECN mechanism to send a SYN with ECE flag not set, thus claiming
+that ECN mechanism is not supported. This is likely to happen because the original
+rfc3168 does not allow TCP control packets (like a SYN) to have an IP-ECN value
+different from zero.
+
 .TP
 .B sack,timestamps,window_scaling
 Use the corresponding tcp header option in the outgoing probe packet.
@@ -504,7 +617,9 @@ Use the corresponding tcp header option in the outgoing probe packet.
 Use current sysctl
 .IR "" ( "/proc/sys/net/*" )
 setting for the tcp header options above and
-.BR ecn .
+.BR ecn 
+or
+.BR acc-ecn .
 Always set by default, if nothing else specified.
 .TP
 .B mss\fR=\fInum
@@ -516,10 +631,25 @@ for maxseg tcp header option (when
 .B info
 Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
-other useful things.
+other useful things. This option is valid also for
+.BR tcpinsession
+mode.
+.TP
+.B acc-ecn
+Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
+.IP
+Used in conjunction with the TCP
+.BR info 
+option, this can be useful to check whether the target host supports AccECN, similarly
+to what can be done with the
+.BR ecn 
+option.
+At the time of writing this manual AccECN mechanism for TCP is not yet an RFC
+and the latest proposed standard is the number 27 (https://datatracker.ietf.org/doc/html/draft-ietf-tcpm-accurate-ecn-27).
 .P
 Default options is
 .BR syn,sysctl .
+.br
 .SS tcpconn
 An initial implementation of tcp method, simple using connect(2) call,
 which does full tcp session opening. Not recommended for normal use, because
@@ -582,7 +712,96 @@ Opens a TCP connection with the destination and sends TCP probes within the open
 The default destination port is 80.
 .P
 This method prevents false packet loss introduced by firewall and router configurations related to
-security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers. 
+security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
+.P
+With this method most of the usual TCP options are not available, because probes being sent are data probes.
+Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes. The only option
+available for this method is the
+.BR info
+option which behaves exacly like the 
+.BR tcp
+option.
+.P
+This method uses the connect() syscall to open the session with the destination,
+thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
+the TCP handshake.
+
+.SS quic
+Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
+frame are used as probes. If the destination is reached and replies with a 
+QUIC packet, its type is included into the probe output to distinguish it from 
+an ICMP error that can be returned by the destination too (typically a port unreachable).
+QUIC version currently supported is 1 and QUIC Probes are encrypted/decrypted
+according to RFC9000/RFC9001. Retry packets are handled as per RFC, to maximize
+the possiblity to get an Initial packet from the destination and the ECN
+counters. Encryption and decryption routeines leverage openssl3, which is a required
+dependency to run and compile the tool. If openssl3 is not available the tool
+can still be compiled, but the QUIC method will not be available.
+.br
+
+.br
+When a QUIC packet is received, additional information about the packet type
+is reported within `< >`. The format is `<Q:packet type>`, where the following
+packet types are expected:
+.P
+.RS
+.BI I 
+Initial packet.
+.br
+
+.br
+.BI R 
+Retry packet.
+.br
+
+.br
+.BI V 
+Version Negotiation packet.
+.br
+
+.br
+.BI U
+(type)
+Unexpected QUIC packet with its hex type.
+.RE
+
+Since this version of traceroute handles also Retry packets,
+when a Retry packet is received the format will be <Q:R+I>.
+.br
+
+.br
+When a non-zero ECN value is provided as input and the destination replies
+with a packet (typically an Initial packet) containing an ACK frame that includes
+ECN counters (0x03), information about the value of the counters are reported
+within `< >`. The format is <ECT0:val,ECT1:val,ECN-CE:val>, where ECT0, ECT1
+and ECN-CE are respectively the counters for the ECN codepoints ECT(0) (0x02),
+ECT(1) (0x01) and CE (0x03).
+.br
+Options:
+.TP
+.B print_dest_rtt_mode\fR=\fImode
+Controls which RTT(s) to print when a Retry packet is received. Possible modes are:
+.br
+
+.br
+.BI all 
+(deafult): prints the RTT of both the Retry and Initial packets. The two RTTs are separated by a `+`.
+.br
+
+.br
+.BI first
+prints the RTT of the Initial packet.
+.br
+
+.br
+.BI last
+prints the RTT of the Retry packet.
+.br
+
+.br
+.BI sum
+prints the RTT as the sum of the Retry and Initial packets RTT.
+
 .SH NOTES
 .PP
 To speed up work, normally several probes are sent simultaneously.

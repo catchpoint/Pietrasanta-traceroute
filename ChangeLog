@@ -1,3 +1,71 @@
+2023-11-16  Luca Sani  <lsani@catchpoint.com> - 0.1.5
+    *  Introduce ECN and AccECN check at TCP level
+        
+        Added the possibility to check ECN and AccECN support of a target host
+        when running in TCP mode.
+        
+2023-11-06  Luca Sani  <lsani@catchpoint.com> - 0.1.4
+    *  Introduce "loose match" mode
+        
+        Added the capability to run in "Loose Match" mode, whereby traceroute
+        receives on an ICMP raw socket all ICMP packets and filters the ones
+        needed. The "loose match" applies in the sense that the source IP
+        address of the encapsulated probe (i.e. the offending probe)
+        is not checked, thus allowing traceroute to run in environments like
+        Azure. Please see the manual for considerations about this behavior.
+        
+2023-11-02  Luca Sani  <lsani@catchpoint.com> - 0.1.3
+    *  Introduce QUIC module
+        
+        We introduced the QUIC module to perform QUIC traceroute via the --quic
+        option. This requires openssl3 library to be present on the system.
+        If the destination replies with a QUIC packet, its type will be included
+        into the output in order to distinguish an ICMP error returned by the
+        destination (typically port unreachable).
+        
+2023-10-26  Luca Sani  <lsani@catchpoint.com> - 0.1.2
+    *  Introduce Overall Timeout
+        
+        We introduced a global starting timeout for the tool to have an hard limit 
+        about the duration of the traceroute. The overall timeout is by default 0
+        (unlimited) and can be changed via the -Q (or --timeout) option.
+        To recognize whether a traceroute was terminated due to the reach of the
+        overall timeout, an additional trailing output in the form 
+        `Timedout: true/false` has been introduced.
+     
+     *  Alpine support
+        
+        Alpine 3.15 binary available.
+    
+    *  Max Consecutive Hop Failures
+        
+        Introduced the possibility to stop traceroute after a maximum number of
+        hop failures is reached. By default this value is set to max_hops (30)
+        but it can be changed via the -h (--failures) option.
+    
+    * Reuse UDP ports
+        When running in UDP mode the destination port is incremented for each probe
+        sent starting by default from port 33434. Several firewalls have been found
+        to filter packets having an UDP destination port greater than 33534,
+        so they assume a maximum of 90 probes can be received for the same
+        destination IP. With this version of traceroute, if the user does not provide
+        any destination UDP port, the port used will wrap-up and restart from 33434
+        after reaching port 33534. UDP source ports will still be decided by the OS
+        via the bind syscall.
+
+2023-09-18  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.1
+    *  Introduced multithreading in printing traceroute results
+    
+        Classic traceroute prints results in a single thread fashion. The very same
+        thread has to mark the timing of arrival of probes and reverse resolve the
+        IP address to a name, if the feature is not disabled by the dedicated option.
+        The DNS resolution can take a while in some cases, thus affecting the goodness
+        of the results of probes in traceroute.
+        
+        To avoid this issue we introduced a second thread in the tool totally
+        dedicated to printing probes and DNS reverse resolving the IP addresses, while
+        the probe arrival times are taken on the main thread
+
 2023-08-21  Luca Sani  <lsani@catchpoint.com> - 0.0.5
     *  Fixed privilege requirements and closing sockets once used
         

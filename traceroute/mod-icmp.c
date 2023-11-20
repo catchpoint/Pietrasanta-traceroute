@@ -121,7 +121,7 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
-            error("raw icmp socket");
+            error_or_perm("raw icmp socket");
         
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
@@ -218,11 +218,6 @@ static void icmp_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), icmp_check_reply);
 }
 
-static void icmp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static int icmp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -234,7 +229,7 @@ static int icmp_is_raw_icmp_sk(int sk)
 static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
     probe* pb = NULL;
-
+    
     if(dest_addr.sa.sa_family == AF_INET) {
         struct iphdr* outer_ip = (struct iphdr*)bufp;
         struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
@@ -258,20 +253,11 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            // Do not check the ports as it does not make sense
-            if(!equal_addr(&echo_reply_src, &dest_addr) && equal_addr(&echo_reply_dest, &source_addr))
-                return NULL;
-                       
-            recv_seq = ntohs(outer_icmp->un.echo.sequence);
+            recv_seq = ntohs(icmp_packet->icmp_seq);
             pb = probe_by_seq(recv_seq);
             
             if(!pb)
                 return NULL;
-            
-            pb->final = 1; // echo reply means we reached dest
-            probe_done(pb, &pb->icmp_done);
-            if(loose_match) 
-                *overhead = prepare_ancillary_data(outer_ip, outer_icmp, NULL, 0, ret);
         } else {
             struct iphdr* inner_ip = (struct iphdr*) (bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
             if(inner_ip->protocol != IPPROTO_ICMP)
@@ -283,33 +269,13 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            sockaddr_any offending_probe_dest;
-            memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-            offending_probe_dest.sin.sin_family = AF_INET;
-            offending_probe_dest.sin.sin_port = 0;
-            offending_probe_dest.sin.sin_addr.s_addr = inner_ip->daddr;
-            
-            sockaddr_any offending_probe_src;
-            memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-            offending_probe_src.sin.sin_family = AF_INET;
-            offending_probe_src.sin.sin_port = 0;
-            offending_probe_src.sin.sin_addr.s_addr = inner_ip->saddr;
-            
-            if(!(equal_addr(&offending_probe_dest, &dest_addr) && (loose_match || equal_addr(&offending_probe_src, &source_addr))))
-                return NULL;
-            
             recv_seq = ntohs(offending_probe->icmp_seq);
             pb = probe_by_seq(recv_seq);
         
             if(!pb)
                 return NULL;
-                
+            
             pb->returned_tos = inner_ip->tos;
-            probe_done(pb, &pb->icmp_done);
-            
-            if(loose_match) 
-                *overhead = prepare_ancillary_data(outer_ip, outer_icmp, inner_ip, 0, ret); // In ICMP case, the ICMP header is returned too as part of the offending probe, so it is not an overhead 
-            
         }
     } else if(dest_addr.sa.sa_family == AF_INET6) {
         struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
@@ -322,17 +288,11 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            recv_seq = ntohs(outer_icmp->icmp6_seq);
+            recv_seq = ntohs(icmp_packet->icmp6_seq);
             pb = probe_by_seq(recv_seq);
-            
+        
             if(!pb)
                 return NULL;
-        
-            pb->final = 1; // echo reply means we reached dest
-            probe_done(pb, &pb->icmp_done);
-            
-            if(loose_match) 
-                *overhead = prepare_ancillary_data_v6(response_get->msg_name, outer_icmp, NULL, 0, ret);
         } else {
             struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));            
             struct icmp6_hdr* offending_probe = (struct icmp6_hdr*) (bufp + sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr));
@@ -345,38 +305,22 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            sockaddr_any offending_probe_dest;
-            memset(&offending_probe_dest, 0, sizeof(offending_probe_dest));
-            offending_probe_dest.sin.sin_family = AF_INET6;
-            offending_probe_dest.sin.sin_port = 0;
-            memcpy(&offending_probe_dest.sin6.sin6_addr, &inner_ip->ip6_dst, sizeof(offending_probe_dest.sin6.sin6_addr));
-            
-            sockaddr_any offending_probe_src;
-            memset(&offending_probe_src, 0, sizeof(offending_probe_src));
-            offending_probe_src.sin.sin_family = AF_INET6;
-            offending_probe_src.sin.sin_port = 0;
-            memcpy(&offending_probe_src.sin6.sin6_addr, &inner_ip->ip6_src, sizeof(offending_probe_src.sin6.sin6_addr));
-            
-            if(!(equal_addr(&offending_probe_dest, &dest_addr) && (loose_match || equal_addr(&offending_probe_src, &source_addr))))
-                return NULL;
-            
             recv_seq = ntohs(offending_probe->icmp6_seq);
             pb = probe_by_seq(recv_seq);
         
             if(!pb)
                 return NULL;
-            
             uint32_t tmp = ntohl(inner_ip->ip6_ctlun.ip6_un1.ip6_un1_flow);
             tmp &= 0x0fffffff;
             tmp >>= 20; 
             pb->returned_tos = (uint8_t)tmp;
-            probe_done(pb, &pb->icmp_done);
-            
-            if(loose_match) 
-                *overhead = prepare_ancillary_data_v6(response_get->msg_name, outer_icmp, inner_ip, 0, ret); // In ICMP case, the ICMP header is returned too as part of the offending probe, so it is not an overhead 
         }
     }
-
+    
+    probe_done(pb, &pb->icmp_done);
+    if(loose_match)
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, 0, ret, response_get->msg_name);
+    
     return pb;
 }
 
@@ -392,7 +336,6 @@ static tr_module icmp_ops = {
     .init = icmp_init,
     .send_probe = icmp_send_probe,
     .recv_probe = icmp_recv_probe,
-    .expire_probe = icmp_expire_probe,
     .options = icmp_options,
     .is_raw_icmp_sk = icmp_is_raw_icmp_sk,
     .handle_raw_icmp_packet = icmp_handle_raw_icmp_packet,

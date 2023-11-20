@@ -126,17 +126,11 @@ static void raw_recv_probe(int sk, int revents)
     recv_reply(sk, !!(revents & POLLERR), raw_check_reply);
 }
 
-static void raw_expire_probe(probe* pb, int* what)
-{
-    probe_done(pb, what);
-}
-
 static tr_module raw_ops = {
     .name = "raw",
     .init = raw_init,
     .send_probe = raw_send_probe,
     .recv_probe = raw_recv_probe,
-    .expire_probe = raw_expire_probe,
     .options = raw_options,
     .one_per_time = 1,
 };

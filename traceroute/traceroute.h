@@ -11,6 +11,7 @@
     See COPYING for the status of this software.
 */
 
+#include <errno.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
@@ -19,17 +20,25 @@
 #include <sys/time.h>
 #include <clif.h>
 
-#ifdef __APPLE__
-#include "mac/icmp.h"
-#include "mac/ip.h"
+#define ECN_NOT_ECT 0x00
+#define ECN_ECT_0 0x02
+#define ECN_ECT_1 0x01
+#define ECN_CE    0x03
+
+#ifdef HAVE_OPENSSL3
+#define MAX_QUIC_ID_LEN 20 // Source and Dest connection ID MUST not exceed 20 bytes https://www.rfc-editor.org/rfc/rfc9000#section-17.2-3.12.1
 #endif
 
 extern unsigned int probes_per_hop;
 extern unsigned int num_probes;
 extern int last_probe;
 extern unsigned int first_hop;
-extern int print_allowed;
+extern int tcpinsession_print_allowed;
 extern int loose_match;
+extern int mtudisc;
+extern unsigned int tos;
+extern int ecn_input_value;
+extern int disable_extra_ping;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -50,13 +59,25 @@ struct probe_struct
     double recv_time;
     int recv_ttl;
     int sk;
-    uint32_t seq;
-    int reply_from_destination;
+    int seq;
     char *ext;
+    int mss;
+    int mtu;
+    int returned_tos;
+    int exit_please;
     sockaddr_any src;
     sockaddr_any dest;
     uint32_t seq_num;
-    int returned_tos;
+    // quic stuff
+#ifdef HAVE_OPENSSL3
+    uint8_t dcid[MAX_QUIC_ID_LEN];
+    uint8_t dcid_len;
+    uint8_t* retry_token;
+    uint8_t retry_token_len;
+    double retry_rtt;
+#endif
+    char* proto_details;
+    int tcpinsession_destination_reply;
     char err_str[16];    /*  assume enough   */
 };
 
@@ -84,22 +105,14 @@ struct tr_module_struct {
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
     void (*send_probe)(probe *pb, int ttl);
     void (*recv_probe)(int fd, int revents);
-    void (*expire_probe)(probe *pb, int* what);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
     size_t header_len;    /*  additional header length (aka for udp)   */
     void(*close)();
     int (*is_raw_icmp_sk)(int sk);
     probe* (*handle_raw_icmp_packet)(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret);
-};
-
-enum {
-    DESTINATION_DOES_NOT_SUPPORT_ECN = 0, // We found that during the 3-way handshake the destination does not support ECN (ECE is not set into the SYN+ACK)
-    DESTINATION_SUPPORT_ECN = 1, // SYN+ACK contains ECE
-    DATA_ACK_DOES_NOT_CONTAIN_ECE = 2, // The handshake said that TCP dest supports ECN but despite we send a data packet with CE (11) in the IP header the (S)ACK of that packet does not econtain the ECE flag
-    ECN_IS_SUPPORTED = 3,
-    WEIRD_ECN_BEHAVIOR = 4,
-    DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED = 5 //  The handshake said that TCP dest supports ECN but since the given ECN is not (CE) 11 we couldn't do the full check
+    int (*need_extra_ping)(void);
+    int (*setup_extra_ping)(void);
 };
 
 typedef struct tr_module_struct tr_module;
@@ -112,6 +125,17 @@ typedef struct tr_module_struct tr_module;
 #define DEF_TCP_PORT    80    /*  web   */
 #define DEF_DCCP_PORT    DEF_START_PORT    /*  is it a good choice?...  */
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
+#ifdef HAVE_OPENSSL3
+#define DEF_QUIC_PORT 443
+
+enum {
+    QUIC_PRINT_DEST_RTT_ALL = 0,
+    QUIC_PRINT_DEST_RTT_FIRST = 1,
+    QUIC_PRINT_DEST_RTT_LAST = 2,
+    QUIC_PRINT_DEST_RTT_SUM = 3
+};
+
+#endif
 
 void error(const char *str) __attribute__((noreturn));
 void error_or_perm(const char *str) __attribute__((noreturn));
@@ -130,9 +154,10 @@ int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
 void print_probe(probe*);
 
-probe *probe_by_seq(uint32_t seq);
-probe *probe_by_sk(int sk);
+probe* probe_by_seq(int seq);
+probe* probe_by_sk(int sk);
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst, int check_source_addr);
+probe* probe_by_seq_num(uint32_t seq_num);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);
@@ -157,6 +182,7 @@ void tr_register_module(tr_module *module);
 const tr_module *tr_get_module(const char *name);
 
 void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos);
+uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender);
 
 uint16_t prepare_ancillary_data(struct iphdr* outer_ip, struct icmphdr* outer_icmp, struct iphdr* inner_ip, uint16_t inner_proto_hlen, struct msghdr* ret);
 uint16_t prepare_ancillary_data_v6(sockaddr_any* outer_ip, struct icmp6_hdr* outer_icmp, struct ip6_hdr* inner_ip, uint16_t inner_proto_hlen, struct msghdr* ret);
@@ -168,38 +194,3 @@ static void __init_ ## MOD (void) {    \
     tr_register_module (&MOD);    \
 }
 
-#ifdef __APPLE__
-
-#include <net/if.h>
-#include <net/if_dl.h>
-#include <net/route.h>
-#include <netinet/in.h>
-
-#ifdef HAVE_SOCKADDR_SA_LEN
-#define SALEN(sa) ((sa)->sa_len)
-#else
-#define SALEN(sa) salen(sa)
-#endif
-
-
-#ifndef roundup
-#define roundup(x, y)   ((((x)+((y)-1))/(y))*(y))  /* to any y */
-#endif
-
-struct rtmsg {
-        struct rt_msghdr rtmsg;
-        u_char data[512];
-};
-
-static struct rtmsg rtmsg = {
-	{ 0, RTM_VERSION, RTM_GET, 0,
-	RTF_UP | RTF_GATEWAY | RTF_HOST | RTF_STATIC,
-	RTA_DST | RTA_IFA, 0, 0, 0, 0, 0, { 0 } },
-	{ 0 }
-};
-
-const char *
-findsaddr(register const struct sockaddr_in *to,
-    register struct sockaddr_in *from);
-
-#endif 
