@@ -46,6 +46,7 @@ static size_t *length_p;
 static int raw_icmp_sk = -1;
 static int port_seq_specified = 0;
 extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
 {
@@ -224,7 +225,12 @@ static int udp_is_raw_icmp_sk(int sk)
 
 static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
-    probe* pb = NULL;
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct udphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_UDP)
         return NULL;
@@ -232,6 +238,11 @@ static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
     offending_probe = (struct udphdr*)offending_probe;
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
+    
+#ifdef __APPLE__
+    offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin);
+    offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
+#endif
     
     probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
@@ -241,7 +252,7 @@ static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
     
-    if(loose_match) 
+    if(loose_match || tr_via_additional_raw_icmp_socket) 
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
     
     return pb;
