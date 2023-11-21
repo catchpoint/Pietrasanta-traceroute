@@ -4,6 +4,7 @@
 #include <netinet/tcp.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "traceroute.h"
 
