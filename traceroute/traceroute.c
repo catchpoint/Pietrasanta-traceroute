@@ -86,7 +86,7 @@
 #define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
 #ifdef HAVE_OPENSSL3
-#define MIN_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#define DEF_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
 #endif
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
@@ -888,21 +888,22 @@ int main(int argc, char *argv[])
             packet_len = MAX_PACKET_LEN;
     }
 
-    if(packet_len < 0) {
-        if(strcmp(module, "tcpinsession") != 0) {
+     if(packet_len < 0) {
+        if(strcmp(module, "quic") == 0) {
+            data_len = DEF_DATA_LEN_QUIC;
+        } else if(strcmp(module, "tcpinsession") == 0) {
+            data_len = DEF_DATA_LEN_TCPINSESSION;
+        } else {
             if(DEF_DATA_LEN >= ops->header_len)
                 data_len = DEF_DATA_LEN - ops->header_len;
-        } else {
-            data_len = DEF_DATA_LEN_TCPINSESSION;
         }
-    } else {
-        if(packet_len >= header_len)
-            data_len = packet_len - header_len;
-    }
+    } else if(packet_len >= header_len) {
+        data_len = packet_len - header_len;
+    }   
     
 #ifdef HAVE_OPENSSL3
     if(!mtudisc && strcmp(module, "quic") == 0)
-        data_len = MIN_DATA_LEN_QUIC;
+        data_len = DEF_DATA_LEN_QUIC;
 #endif
 
     unsigned int saved_max_hops = max_hops;
@@ -1439,7 +1440,15 @@ static void do_it(void)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
                     sim_probes = DEF_SIM_PROBES;
-                    data_len = (strcmp(module, "tcpinsession") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
+                    if(strcmp(module, "tcpinsession") == 0) {
+                        data_len = DEF_DATA_LEN_TCPINSESSION;
+                        data_len -= ops->header_len;
+                    } else if(strcmp(module, "quic") == 0) {
+                        data_len = DEF_DATA_LEN_QUIC; // UDP payload for quic must be 1200 bytes
+                    } else {
+                        data_len = DEF_DATA_LEN;
+                        data_len -= ops->header_len;
+                    }
                 }
             }
 
