@@ -27,6 +27,8 @@
 #define UDPLITE_RECV_CSCOV    11
 #endif
 
+#define UDP_MAX_TRACEROUTE_PORT_RANGE 91
+
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
@@ -34,6 +36,7 @@ static unsigned int protocol = IPPROTO_UDP;
 static char *data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
+static int port_seq_specified = 0;
 extern int use_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
@@ -51,7 +54,12 @@ static void fill_data(size_t* packet_len_p)
 
 static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
-    curr_port = port_seq ? port_seq : DEF_START_PORT;
+    if(port_seq) {
+        port_seq_specified = 1;
+        curr_port = port_seq;
+    } else {
+        curr_port = DEF_START_PORT;
+    }
 
     dest_addr = *dest;
     dest_addr.sin.sin_port = htons(curr_port);
@@ -76,8 +84,10 @@ static int udp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;
+    else
+        port_seq_specified = 1;   
     
-    dest_addr.sin.sin_port = htons((uint16_t) port_seq);
+    dest_addr.sin.sin_port = htons((uint16_t)port_seq);
     
     fill_data(packet_len_p);
  
@@ -109,6 +119,9 @@ static int udplite_init(const sockaddr_any* dest, unsigned int port_seq, size_t*
 
     if(!port_seq)
         port_seq = DEF_UDP_PORT;    /*  XXX: Hmmm...   */
+    else
+        port_seq_specified = 1;
+        
     dest_addr.sin.sin_port = htons((uint16_t) port_seq);
 
     protocol = IPPROTO_UDPLITE;
@@ -162,9 +175,13 @@ static void udp_send_probe(probe* pb, int ttl)
 
     memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
     
-    if(curr_port) {    /*  traditional udp method   */
-        curr_port++;
-        dest_addr.sin.sin_port = htons(curr_port);    /* both ipv4 and ipv6 */
+    if(curr_port) {
+        if(port_seq_specified)
+            curr_port++;
+        else
+            curr_port = (curr_port - DEF_START_PORT + 1) % UDP_MAX_TRACEROUTE_PORT_RANGE + DEF_START_PORT;
+        
+        dest_addr.sin.sin_port = htons(curr_port);    // note that this is valid for both ipv4 and ipv6
     }
 }
 
@@ -189,11 +206,6 @@ static void udp_recv_probe(int sk, int revents)
         recv_reply(sk, !!(revents & POLLERR), udp_check_reply);
 }
 
-static void udp_expire_probe(probe *pb, int* what) 
-{
-    probe_done(pb, what);
-}
-
 static int udp_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
@@ -202,7 +214,7 @@ static int udp_is_raw_icmp_sk(int sk)
     return 0;
 }
 
-static void udp_handle_raw_icmp_packet(char* bufp)
+static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
     sockaddr_any offending_probe_dest;
     sockaddr_any offending_probe_src;
@@ -212,18 +224,24 @@ static void udp_handle_raw_icmp_packet(char* bufp)
     extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_UDP)
-        return;
+        return NULL;
         
     offending_probe = (struct udphdr*)offending_probe;
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
     
-    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest);
+    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
-    if(pb) {
-        pb->returned_tos = returned_tos;        
-        udp_expire_probe(pb, &pb->icmp_done);
-    }
+    if(!pb)
+        return NULL;
+        
+    pb->returned_tos = returned_tos;
+    probe_done(pb, &pb->icmp_done);
+    
+    if(loose_match) 
+        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
+    
+    return pb;
 }
 
 static void udp_close()
@@ -239,7 +257,6 @@ static tr_module default_ops = {
     .init = udp_default_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -249,13 +266,11 @@ static tr_module default_ops = {
 
 TR_MODULE(default_ops);
 
-
 static tr_module udp_ops = {
     .name = "udp",
     .init = udp_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
@@ -270,7 +285,6 @@ static tr_module udplite_ops = {
     .init = udplite_init,
     .send_probe = udp_send_probe,
     .recv_probe = udp_recv_probe,
-    .expire_probe = udp_expire_probe,
     .header_len = sizeof(struct udphdr),
     .options = udplite_options,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,

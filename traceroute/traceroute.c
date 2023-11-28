@@ -36,6 +36,9 @@
 #include "version.h"
 #include "traceroute.h"
 
+#include <pthread.h>
+#include <semaphore.h>
+
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
 #ifdef ICMP6_DST_UNREACH_NOTNEIGHBOR
 #define ICMP6_DST_UNREACH_BEYONDSCOPE ICMP6_DST_UNREACH_NOTNEIGHBOR
@@ -57,42 +60,45 @@
 #endif
 
 #ifndef AI_IDN
-#define AI_IDN    0
+#define AI_IDN 0
 #endif
 
 #ifndef NI_IDN
-#define NI_IDN    0
+#define NI_IDN 0
 #endif
 
-#define MAX_HOPS    255
-#define MAX_PROBES    10
-#define MAX_GATEWAYS_4    8
-#define MAX_GATEWAYS_6    127
-#define DEF_HOPS    30
-#define DEF_SIM_PROBES    16    /*  including several hops   */
-#define DEF_NUM_PROBES    3
-#define DEF_WAIT_SECS    5.0
-#define DEF_HERE_FACTOR    3
-#define DEF_NEAR_FACTOR    10
+#define MAX_HOPS 255
+#define MAX_HOP_FAILURES MAX_HOPS
+#define MAX_PROBES 10
+#define MAX_GATEWAYS_4 8
+#define MAX_GATEWAYS_6 127
+#define MAX_MTU_RETRIES 3
+#define DEF_HOPS 30
+#define DEF_SIM_PROBES 16    /*  including several hops   */
+#define DEF_NUM_PROBES 3
+#define DEF_WAIT_SECS 5.0
+#define DEF_HERE_FACTOR 3
+#define DEF_NEAR_FACTOR 10
 #ifndef DEF_WAIT_PREC
-#define DEF_WAIT_PREC    0.001    /*  +1 ms  to avoid precision issues   */
+#define DEF_WAIT_PREC 0.001    /*  +1 ms  to avoid precision issues   */
 #endif
-#define DEF_SEND_SECS    0
-#define DEF_DATA_LEN    40    /*  all but IP header...  */
+#define DEF_SEND_SECS 0
+#define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
-#define MAX_PACKET_LEN    65000
+#ifdef HAVE_OPENSSL3
+#define MIN_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#endif
+#define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
-#define DEF_AF        AF_INET
+#define DEF_AF AF_INET
 #endif
 
-#define ttl2hops(X)    (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
+#define ttl2hops(X) (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
 
-static char version_string[] = "Modern traceroute for Linux, "
-                "version " _TEXT(VERSION)
-                "\nCopyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc."
-    "\nThis software was updated by Catchpoint Systems, Inc. to incorporate InSession algorithm functionality."
-                "\n\nCopyright(c) 2016  Dmitry Butskoy, "
-                "  License: GPL v2 or any later";
+static char version_string[] = "Modern traceroute for Linux, version " _TEXT(VERSION) "\n"
+                               "Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.\n"
+                               "This software was updated by Catchpoint Systems, Inc. to incorporate InSession algorithm functionality\n\n"
+                               "Copyright(c) 2016  Dmitry Butskoy,   License: GPL v2 or any later";
 static int debug = 0;
 unsigned int first_hop = 1;
 
@@ -101,11 +107,9 @@ static unsigned int sim_probes = DEF_SIM_PROBES;
 unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
+int tcpinsession_print_allowed = 0;
 probe* probes = NULL;
-probe* destination_probes = NULL;
-int print_allowed = 1;
-int check_ecn_tcp = 0;
-int ecn_discovery_result = DESTINATION_DOES_NOT_SUPPORT_ECN;
+probe* tcpinsession_destination_probes = NULL;
 
 static char **gateways = NULL;
 static int num_gateways = 0;
@@ -119,10 +123,8 @@ static int noresolve = 0;
 static int extension = 0;
 static int as_lookups = 0;
 static unsigned int dst_port_seq = 0;
-static unsigned int tos = 0;
 static int tos_input_value = -1;
 static int dscp_input_value = -1;
-static int ecn_input_value = -1;
 static unsigned int flow_label = 0;
 static int noroute = 0;
 static unsigned int fwmark = 0;
@@ -131,28 +133,159 @@ static double wait_secs = DEF_WAIT_SECS;
 static double here_factor = DEF_HERE_FACTOR;
 static double near_factor = DEF_NEAR_FACTOR;
 static double send_secs = DEF_SEND_SECS;
-static int mtudisc = 0;
 static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
 static sockaddr_any dst_addr = {{ 0, }, };
-static char *dst_name = NULL;
-static char *device = NULL;
+static char* dst_name = NULL;
+static char* device = NULL;
 static sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
-static const char *module = "default";
+static unsigned int overall_timeout = 0;
+static unsigned int timedout = 0;
+static unsigned int destination_reached = 0;
+static int consecutive_probe_failures = 0;
+static int max_consecutive_hop_failures = MAX_HOPS;
+static const char* module = "default";
 static const tr_module *ops = NULL;
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
+static int extra_ping_ongoing = 0;
+static int last_hop_reached = 0;
 static void print_trailer();
 
 int use_additional_raw_icmp_socket = 0;
+int ecn_input_value = -1;
+int loose_match = 0;
+int mtudisc = 0;
+int disable_extra_ping = 0;
+unsigned int tos = 0;
+
+// The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
+// RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
+
+struct icmp4_err {
+  int error;
+  unsigned int fatal;
+};
+
+const struct icmp4_err icmp4_err_convert[] = {
+    {
+        .error = ENETUNREACH,    // ICMP_NET_UNREACH
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_HOST_UNREACH
+        .fatal = 0,
+    },
+    {
+        .error = ENOPROTOOPT,    // ICMP_PROT_UNREACH
+        .fatal = 1,
+    },
+    {
+        .error = ECONNREFUSED,    // ICMP_PORT_UNREACH
+        .fatal = 1,
+    },
+    {
+        .error = EMSGSIZE,    // ICMP_FRAG_NEEDED
+        .fatal = 0,
+    },
+    {
+        .error = EOPNOTSUPP,    // ICMP_SR_FAILED
+        .fatal = 0,
+    },
+    {
+        .error = ENETUNREACH,    // ICMP_NET_UNKNOWN
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTDOWN,    // ICMP_HOST_UNKNOWN
+        .fatal = 1,
+    },
+    {
+        .error = ENONET,    // ICMP_HOST_ISOLATED
+        .fatal = 1,
+    },
+    {
+        .error = ENETUNREACH,    // ICMP_NET_ANO
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_HOST_ANO
+        .fatal = 1,
+    },
+    {
+        .error = ENETUNREACH,    // ICMP_NET_UNR_TOS
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_HOST_UNR_TOS
+        .fatal = 0,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_PKT_FILTERED
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_PREC_VIOLATION
+        .fatal = 1,
+    },
+    {
+        .error = EHOSTUNREACH,    // ICMP_PREC_CUTOFF
+        .fatal = 1,
+    },
+};
+
+struct icmp6_err {
+    int err;
+    int fatal;
+};
+
+const struct icmp6_err icmp6_err_convert[] = {
+    {    
+        .err = ENETUNREACH,    // NOROUTE */
+        .fatal = 0,
+    },
+    {    
+        .err = EACCES,    // ADM_PROHIBITED */
+        .fatal = 1,
+    },
+    {    
+        .err = EHOSTUNREACH,    // Was NOT_NEIGHBOUR, now reserved
+        .fatal = 0,
+    },
+    {    
+        .err = EHOSTUNREACH,    // ADDR_UNREACH
+        .fatal = 0,
+    },
+    {    
+        .err = ECONNREFUSED,    // PORT_UNREACH
+        .fatal = 1,
+    },
+    {    
+        .err = EACCES,    // POLICY_FAIL
+        .fatal = 1,
+    },
+    {    
+        .err = EACCES,    // REJECT_ROUTE
+        .fatal = 1,
+    },
+};
+
+#ifdef HAVE_OPENSSL3
+extern int quic_print_dest_rtt_mode;
+#endif
 
 static void print_end(void) 
 {
     printf("\n");
 }
+
+struct timeval starttime;
+
+sem_t probe_semaphore;
+pthread_t printer_thr;
 
 void ex_error(const char *format, ...) 
 {
@@ -207,23 +340,78 @@ int check_sysctl(const char* name)
     /*  since kernel 2.6.31 "tcp_ecn" can have value of '2'...  */
     if(ch == '1')
         return 1;
+    else if(ch == '3') // Experimental: AccECN experimentation for L4S allows the value to be 3 (https://github.com/L4STeam/linux)
+        return 3;
 
     return 0;
+}
+
+static void check_expired(probe*);
+
+static void poll_callback(int, int);
+
+static void* printer(void* args)
+{
+    int start = (first_hop - 1) * probes_per_hop;
+    int end = num_probes;
+    
+    int replace_idx = 0;
+    
+    for(int idx = start; idx < end; idx++) {
+        sem_wait(&probe_semaphore);
+        
+        probe* pb = &probes[idx];
+
+        if(pb->exit_please > 0) {
+            if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
+                unsigned int n = idx-1;
+                while(n % probes_per_hop != probes_per_hop-1) {
+                    printf(" *"); // Add forced timeouts when overall timeout has been reached
+                    pb = &probes[n];
+                    probe_done(pb, NULL);
+                    check_expired(pb);
+                    n++;
+                }
+            }
+            return NULL;
+        }
+
+        print_probe(pb);
+
+        if(pb->done && pb->final) {
+            end = (idx / probes_per_hop + 1) * probes_per_hop;
+            last_hop_reached = end/probes_per_hop;
+        }
+    }
+
+    if(strcmp(module, "tcpinsession") == 0) { // Only in tcpinsession we need to replace the destination with the initial ping. Please note that print_probe will not print the probe results if  tcpinsession_destination_reply is set, and the final print is required to be performed at the end of the run
+        int destination_replies = 0;
+        for(int i = last_probe-probes_per_hop; i < last_probe; i++)
+            if(probes[i].tcpinsession_destination_reply == 1)
+                destination_replies++;
+
+        if(destination_replies > 0) {
+            for(int i = last_probe-probes_per_hop; i < last_probe; i++, replace_idx++) {
+                tcpinsession_destination_probes[replace_idx].mtu = probes[i].mtu;
+                tcpinsession_destination_probes[replace_idx].mss = probes[i].mss;
+                memcpy(&probes[i], &tcpinsession_destination_probes[replace_idx], sizeof(probe));
+            }
+        }
+    }
+    
+    return NULL;
 }
 
 /*  Set initial parameters according to how we was called   */
 static void check_progname(const char *name) 
 {
-    const char *p;
-    int l;
-
-    p = strrchr(name, '/');
+    const char* p = strrchr(name, '/');
     if(p)
         p++;
     else
         p = name;
 
-    l = strlen(p);
+    int l = strlen(p);
     if(l <= 0)
         return;
     l--;
@@ -241,14 +429,15 @@ static void check_progname(const char *name)
 
 static int getaddr(const char *name, sockaddr_any *addr) 
 {
-    int ret;
-    struct addrinfo hints, *ai, *res = NULL;
+    struct addrinfo hints;
+    struct addrinfo* ai = NULL;
+    struct addrinfo* res = NULL;
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = af;
     hints.ai_flags = AI_IDN;
 
-    ret = getaddrinfo(name, NULL, &hints, &res);
+    int ret = getaddrinfo(name, NULL, &hints, &res);
     if(ret) {
         fprintf(stderr, "%s: %s\n", name, gai_strerror(ret));
         return -1;
@@ -270,7 +459,7 @@ static int getaddr(const char *name, sockaddr_any *addr)
 
     freeaddrinfo(res);
 
-    /*  No v4mapped addresses in real network, interpret it as ipv4 anyway   */
+    /*  No v4 mapped addresses in real network, interpret it as ipv4 anyway   */
     if(addr->sa.sa_family == AF_INET6 && IN6_IS_ADDR_V4MAPPED(&addr->sin6.sin6_addr)) {
         if(af == AF_INET6)  return -1;
         addr->sa.sa_family = AF_INET;
@@ -282,16 +471,15 @@ static int getaddr(const char *name, sockaddr_any *addr)
 
 static void make_fd_used(int fd) 
 {
-    int nfd;
-
     if(fcntl(fd, F_GETFL) != -1)
         return;
 
     if(errno != EBADF)
         error("fcntl F_GETFL");
 
-    nfd = open("/dev/null", O_RDONLY);
-    if(nfd < 0)  error("open /dev/null");
+    int nfd = open("/dev/null", O_RDONLY);
+    if(nfd < 0)
+        error("open /dev/null");
 
     if(nfd != fd) {
         dup2(nfd, fd);
@@ -303,8 +491,7 @@ static char addr2str_buf[INET6_ADDRSTRLEN];
 
 static const char *addr2str(const sockaddr_any *addr) 
 {
-    getnameinfo(&addr->sa, sizeof(*addr),
-        addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
 
     return addr2str_buf;
 }
@@ -313,14 +500,15 @@ static const char *addr2str(const sockaddr_any *addr)
 static void init_ip_options(void) 
 {
     sockaddr_any *gates;
-    int i, max;
+    int i;
+    int max;
 
     if(!num_gateways)
         return;
 
     /*  check for TYPE,ADDR,ADDR... form   */
     if(af == AF_INET6 && num_gateways > 1 && gateways[0]) {
-        char *q;
+        char* q;
         unsigned int value = strtoul(gateways[0], &q, 0);
 
         if(!*q) {
@@ -338,7 +526,8 @@ static void init_ip_options(void)
     gates = alloca(num_gateways * sizeof(*gates));
 
     for(i = 0; i < num_gateways; i++) {
-        if(!gateways[i])  error("strdup");
+        if(!gateways[i])
+            error("strdup");
 
         if(getaddr(gateways[i], &gates[i]) < 0)
             ex_error("");    /*  already reported   */
@@ -378,7 +567,7 @@ static void init_ip_options(void)
         rtbuf = malloc(rtbuf_len);
         if(!rtbuf)  error("malloc");
 
-        rth = (struct ip6_rthdr *) rtbuf;
+        rth = (struct ip6_rthdr*)rtbuf;
         rth->ip6r_nxt = 0;
         rth->ip6r_len = 2 * num_gateways;
         rth->ip6r_type = ipv6_rthdr_type;
@@ -393,7 +582,7 @@ static void init_ip_options(void)
 }
 
 /*    Command line stuff        */
-static int set_af(CLIF_option *optn, char *arg) 
+static int set_af(CLIF_option* optn, char* arg) 
 {
     int vers = (long) optn->data;
 
@@ -534,8 +723,8 @@ static CLIF_option option_list[] = {
     { "F", "dont-fragment", 0, "Do not fragment packets", CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
     { "f", "first", "first_ttl", "Start from the %s hop (instead from 1)", CLIF_set_uint, &first_hop, 0, 0 },
     { "g", "gateway", "gate", "Route packets through the specified gateway (maximum " _TEXT(MAX_GATEWAYS_4) " for IPv4 and " _TEXT(MAX_GATEWAYS_6) " for IPv6)", add_gateway, 0, 0, CLIF_SEVERAL },
+    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting", CLIF_set_uint, &max_consecutive_hop_failures, 0, 0 },
     { "I", "icmp", 0, "Use ICMP ECHO for tracerouting", set_module, "icmp", 0, 0 },
-    { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
     { "i", "interface", "device", "Specify a network interface to operate with", CLIF_set_string, &device, 0, 0 },
     { "m", "max-hops", "max_ttl", "Set the max number of hops (max TTL to be reached). Default is " _TEXT(DEF_HOPS) ,
             CLIF_set_uint, &max_hops, 0, 0 },
@@ -545,9 +734,11 @@ static CLIF_option option_list[] = {
     { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn", CLIF_set_uint, &tos_input_value, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
+    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint, &overall_timeout, 0, 0 },
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
+    { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
     { "z", "sendwait", "sendwait", "Minimal time interval between probes (default " _TEXT(DEF_SEND_SECS) "). If the value is more than 10, then it specifies a number in milliseconds, else it is a number of seconds (float point values allowed too)", CLIF_set_double, &send_secs, 0, 0 },
     { "e", "extensions", 0, "Show ICMP extensions(if present), including MPLS", CLIF_set_flag, &extension, 0, CLIF_ABBREV },
     { "A", "as-path-lookups", 0, "Perform AS path lookups in routing registries and print results directly after the corresponding addresses", CLIF_set_flag, &as_lookups, 0, 0 },
@@ -566,6 +757,9 @@ static CLIF_option option_list[] = {
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
     { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
     { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
+    { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
+    { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
+    { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -582,6 +776,12 @@ static void print_header(void)
 {
     /*  Note, without ending new-line!  */
     printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    
+    if(overall_timeout > 0)
+        printf("%us overall timeout", overall_timeout);
+    else
+        printf("overall timeout not set");
+        
     fflush(stdout);
 }
 
@@ -602,6 +802,12 @@ int main(int argc, char *argv[])
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
 
+#ifndef HAVE_OPENSSL3
+    if(strcmp(module, "quic") == 0) {
+        printf("QUIC is not available as this binary was compiled without openssl3 linking.\n");
+        exit(1);
+    }
+#endif
 
     ops = tr_get_module(module);
     if(!ops)
@@ -623,7 +829,11 @@ int main(int argc, char *argv[])
         ex_error("bad sendtime `%g' specified", send_secs);
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
-        
+    if(max_consecutive_hop_failures <= 0 || max_consecutive_hop_failures > MAX_HOP_FAILURES)
+        ex_error("max consecutive hop failures out of range");
+    if(max_consecutive_hop_failures > 0)
+        sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
+
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");
     } else if(dscp_input_value != -1 || ecn_input_value != -1) {
@@ -634,11 +844,10 @@ int main(int argc, char *argv[])
 
         tos <<= 2;
             
-        if(ecn_input_value != -1)
+        if(ecn_input_value >= 0 && ecn_input_value <= 3)
             tos += ecn_input_value;
-        
-        if(ecn_input_value > 0 && check_sysctl("ecn") && strcmp(module, "tcpdata") == 0)
-            check_ecn_tcp = ecn_input_value;
+        else
+            ex_error("ECN supplied value is not in range [0-3]");
             
         tos_input_value = tos;
         use_additional_raw_icmp_socket = 1;
@@ -646,6 +855,9 @@ int main(int argc, char *argv[])
         tos = tos_input_value;
         use_additional_raw_icmp_socket = 1;
     }
+    
+    if(loose_match)
+        use_additional_raw_icmp_socket = 1;
     
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
@@ -687,6 +899,11 @@ int main(int argc, char *argv[])
         if(packet_len >= header_len)
             data_len = packet_len - header_len;
     }
+    
+#ifdef HAVE_OPENSSL3
+    if(!mtudisc && strcmp(module, "quic") == 0)
+        data_len = MIN_DATA_LEN_QUIC;
+#endif
 
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;
@@ -697,9 +914,10 @@ int main(int argc, char *argv[])
         max_hops = 255;
         first_hop = 255;
         sim_probes = 1;
+        tcpinsession_print_allowed = 0;
         
-        destination_probes = calloc(probes_per_hop, sizeof(probe));
-        if(!destination_probes)
+        tcpinsession_destination_probes = calloc(probes_per_hop, sizeof(probe));
+        if(!tcpinsession_destination_probes)
             error("calloc");
     }
 
@@ -707,6 +925,8 @@ int main(int argc, char *argv[])
     probes = calloc(num_probes, sizeof(*probes));
     if(!probes)
         error("calloc");
+
+    sem_init(&probe_semaphore, 0, 0);
 
     if(ops->options && opts_idx > 1) {
         opts[0] = strdup(module);        /*  aka argv[0] ...  */
@@ -718,13 +938,15 @@ int main(int argc, char *argv[])
         ex_error("trace method's init failed");
         
     if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
-        print_allowed = 0;
         data_len = DEF_DATA_LEN_TCPINSESSION;
         do_it();
         
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
-            memcpy(destination_probes+idx, &probes[start+idx], sizeof(probe));
+            memcpy(tcpinsession_destination_probes+idx, &probes[start+idx], sizeof(probe));
+        
+        if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
+            tcpinsession_print_allowed = 1;
                 
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
@@ -738,7 +960,12 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         if(!probes)
             error("calloc");
+        
+        sem_init(&probe_semaphore, 0, 0); // Ignore the destination probes at the moment
     }
+    
+    if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
+        ex_error("printer thread creation failed");
 
     if(mtudisc) {
         int i = 0;
@@ -751,8 +978,8 @@ int main(int argc, char *argv[])
             if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
                 overall_mtu = atoi(probes[0].err_str+2);
                 memset(&probes[0], 0x0, sizeof(probe));
-            } else if(!probes[0].done && i <= 3) {
-                ops->expire_probe(&probes[0], NULL);
+            } else if(!probes[0].done && i <= MAX_MTU_RETRIES) {
+                probe_done(&probes[0], NULL);
                 break;
             }
         }
@@ -768,34 +995,39 @@ int main(int argc, char *argv[])
     print_header();
 
     do_it();
-    
-    if(strcmp(module, "tcpinsession") == 0) {
-        int destination_replies = 0;
-        for(int i = last_probe-probes_per_hop; i < last_probe; i++)
-            if(probes[i].reply_from_destination == 1)
-                destination_replies++;
 
-        if(destination_replies > 0) {
-            int replace_idx = 0;
-            for(int i = last_probe-probes_per_hop; i < last_probe; i++, replace_idx++)
-                memcpy(&probes[i], &destination_probes[replace_idx], sizeof(probe));
-        }
+    pthread_join(printer_thr, NULL);
+
+    if(!disable_extra_ping && destination_reached && ops->need_extra_ping && ops->need_extra_ping()) {
+        if(ops->setup_extra_ping() != 0)
+            error("error while setting up extra_ping");
+        
+        free(probes);
+        
+        extra_ping_ongoing = 1;
+        first_hop = 255;
+        max_hops = 255;
+        num_probes = max_hops * probes_per_hop;
+        probes = calloc(num_probes, sizeof(*probes));
+        
+        do_it();
+        
+        int start = (first_hop - 1) * probes_per_hop;
+        for(int i = start; i < num_probes; i++)
+            print_probe(&probes[i]);
     }
-
+    
     // Make extra-sure to not leave any FD open
     for(int i = 0; i < num_probes; i++)
         if(probes[i].sk > 0)
             close(probes[i].sk);
-            
-    if(ops->close)
-        ops->close();
 
     print_trailer();
     
     return 0;
 }
 
-static void print_addr(sockaddr_any *res) 
+static void print_addr(sockaddr_any *res)
 {
     const char *str;
 
@@ -807,11 +1039,22 @@ static void print_addr(sockaddr_any *res)
     if(noresolve) {
         printf(" %s", str);
     } else {
+        unsigned int do_not_resolve_due_to_timeout = 0;
+        if(overall_timeout > 0) {
+            struct timeval currtime;
+            gettimeofday(&currtime, NULL);
+            
+            if(currtime.tv_sec-starttime.tv_sec >= overall_timeout)
+                do_not_resolve_due_to_timeout = 1;
+        }
+        
         char buf[1024];
 
         buf[0] = '\0';
-        getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
-        printf(" %s(%s)", buf[0] ? buf : str, str);
+        
+        if(do_not_resolve_due_to_timeout == 0)
+            getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
+        printf(" %s (%s)", buf[0] ? buf : str, str);
     }
 
     if(as_lookups)
@@ -820,15 +1063,20 @@ static void print_addr(sockaddr_any *res)
 
 void print_probe(probe *pb) 
 {
-    if(print_allowed == 0)
+    if(strcmp(module, "tcpinsession") == 0 && tcpinsession_print_allowed == 0)
         return;
         
     unsigned int idx = (pb - probes);
     unsigned int ttl = idx / probes_per_hop + 1;
     unsigned int np = idx % probes_per_hop;
 
-    if(np == 0)
-        printf("\n%2u ", ttl);
+    if(np == 0) {
+        printf("\n");
+        if(extra_ping_ongoing == 0)
+            printf("%4u ", ttl);
+        else
+            printf("+%3u ", last_hop_reached);
+    }
 
     if(!pb->res.sa.sa_family) {
         printf(" *");
@@ -861,6 +1109,12 @@ void print_probe(probe *pb)
             }
         }
         
+        if(pb->proto_details != NULL) {
+            printf(" <%s>", pb->proto_details);
+            free(pb->proto_details);
+            pb->proto_details = NULL;
+        }
+        
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
@@ -868,10 +1122,44 @@ void print_probe(probe *pb)
         }
     }
 
-
     if(pb->recv_time) {
         double diff = pb->recv_time - pb->send_time;
-        printf("  %.3f ms", diff * 1000);
+        #ifdef HAVE_OPENSSL3
+            if(pb->retry_rtt) {
+                switch(quic_print_dest_rtt_mode)
+                {
+                    case QUIC_PRINT_DEST_RTT_ALL:
+                    {
+                        printf("  %.3f+%.3f ms", diff * 1000, pb->retry_rtt*1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_FIRST:
+                    {
+                        printf("  %.3f ms", pb->retry_rtt*1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_LAST:
+                    {
+                        printf("  %.3f ms", diff * 1000);
+                        break;
+                    }
+                    case QUIC_PRINT_DEST_RTT_SUM:
+                    {
+                        printf("  %.3f ms", (diff + pb->retry_rtt)* 1000);
+                        break;
+                    }
+                    default:
+                    {
+                        printf("  %.3f+%.3f ms", diff * 1000, pb->retry_rtt*1000);
+                        break;
+                    }
+                }
+            } else {
+                printf("  %.3f ms", diff * 1000);
+            }
+        #else
+            printf("  %.3f ms", diff * 1000);
+        #endif
     }
 
     if(pb->err_str[0])
@@ -1037,17 +1325,24 @@ replace_by_final:
     fp->send_time = 1.;
 }
 
-probe *probe_by_seq(uint32_t seq) 
+probe *probe_by_seq(int seq) 
 {
-    int n;
-
     if(seq == 0)
         return NULL;
 
-    for(n = 0; n < num_probes; n++) {
+    for(int n = 0; n < num_probes; n++) {
         if(probes[n].seq == seq)
             return &probes[n];
     }
+
+    return NULL;
+}
+
+probe* probe_by_seq_num(uint32_t seq_num) 
+{
+    for(int n = 0; n < num_probes; n++)
+        if(probes[n].seq_num == seq_num)
+            return &probes[n];
 
     return NULL;
 }
@@ -1082,12 +1377,13 @@ int equal_port(const sockaddr_any* a, const sockaddr_any* b)
     return 0;    /*  not reached   */
 }
 
-probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest) 
+// if check_source_addr is false, the source IP address is not compared, however the source port is still compared
+// This is useful in those environment where for some reason the source IP of the offendig probe is not translated properly back.
+probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_source_addr) 
 {
-    for(int n = 0; n < num_probes; n++) {
-        if(equal_sockaddr(src, &probes[n].src) && equal_sockaddr(dest, &probes[n].dest))
+    for(int n = 0; n < num_probes; n++)
+        if(((!check_source_addr && equal_port(src, &probes[n].src)) || equal_sockaddr(src, &probes[n].src)) && (!dest || equal_sockaddr(dest, &probes[n].dest)))
             return &probes[n];
-    }
     
     return NULL;
 }
@@ -1097,53 +1393,91 @@ static void do_it(void)
     int start = (first_hop - 1) * probes_per_hop;
     int end = num_probes;
     double last_send = 0;
+    
+    gettimeofday(&starttime, NULL);
 
     while(start < end) {
-        int n, num = 0;
+        int n = 0;
+        int num = 0;
         double next_time = 0;
         double now_time = get_time();
+        
+        int exit_please = 0;
 
-        for(n = start; n < end; n++) {
+        for(n = start; n < end && exit_please == 0; n++) {
+            if(overall_timeout > 0) {
+                struct timeval currtime;
+                gettimeofday(&currtime, NULL);
+                
+                if(currtime.tv_sec-starttime.tv_sec >= overall_timeout) {
+                    if(n < end) {
+                        probes[n].exit_please = 1;
+                        sem_post(&probe_semaphore);
+                    }
+                    timedout = 1;
+                    break;
+                }
+            }
+            
             probe *pb = &probes[n];
 
             if(n == start && !pb->done && pb->send_time) { /*  probably time to print, but yet not replied   */
                 double expire_time = pb->send_time + get_timeout(pb);
-
-                if(expire_time > now_time)
+                if(expire_time > now_time) {
                     next_time = expire_time;
-                else {
-                    ops->expire_probe(pb, NULL);
+                } else {
+                    probe_done(pb, NULL);
                     check_expired(pb);
                 }
             }
             
             if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+                destination_reached = 0; // Any unreachability means we didn't get to destination!
                 int mtu_value = atoi(pb->err_str+2);
                 if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
                     if(overall_mtu > mtu_value)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
                     sim_probes = DEF_SIM_PROBES;
-                    data_len = (strcmp(module, "tcpdata") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
+                    data_len = (strcmp(module, "tcpinsession") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
                 }
             }
 
             if(pb->done) {
                 if(n == start) {    /*  can print it now   */
-                    print_probe(pb);
+                    if(pb->final && pb->res.sa.sa_family && equal_addr(&pb->res, &dst_addr))
+                        destination_reached = 1;
+                    
+                    if(!pb->res.sa.sa_family)
+                        consecutive_probe_failures++;
+                    else
+                        consecutive_probe_failures = 0;
+                        
+                    sem_post(&probe_semaphore);
+                    
+                    if(max_consecutive_hop_failures >= 0 && max_consecutive_hop_failures <= (consecutive_probe_failures/probes_per_hop)) {
+                        if(n+1 < end) {
+                            probes[n+1].exit_please = 1;
+                            sem_post(&probe_semaphore);
+                        }
+                        
+                        if(strcmp(module, "tcpinsession") == 0)
+                            destination_reached = 0;
+                        
+                        exit_please = 1;
+                    }                    
+                    
                     start++;
                 }
-
                 if(pb->final) {
                     end = (n / probes_per_hop + 1) * probes_per_hop;
                     last_probe = end;
                 }
-                
+
                 continue;
             }
 
             if(!pb->send_time) {
-                int ttl;
                 double next;
 
                 if(send_secs &&(next = last_send + send_secs) > now_time) {
@@ -1151,7 +1485,10 @@ static void do_it(void)
                     break;
                 }
 
-                ttl = n / probes_per_hop + 1;
+                int ttl = n / probes_per_hop + 1;
+
+                pb->mss = 0;
+                pb->mtu = 0;
 
                 ops->send_probe(pb, ttl);
 
@@ -1173,41 +1510,66 @@ static void do_it(void)
                 break;
         }
 
+        if(timedout > 0 || exit_please > 0)
+            break;
+
         if(next_time) {
             double timeout = next_time - get_time();
-
             if(timeout < 0)
                 timeout = 0;
 
-            do_poll(timeout, poll_callback);
+            if(overall_timeout > 0) {
+                struct timeval currtime;
+                gettimeofday(&currtime, NULL);
+
+                double missing_time = overall_timeout;
+                missing_time -= currtime.tv_sec-starttime.tv_sec;
+                double decimals = 0;
+                if(currtime.tv_usec < starttime.tv_usec) {
+                    missing_time -= 1;
+                    decimals = starttime.tv_usec - currtime.tv_usec;
+                } else {
+                    decimals = currtime.tv_usec - starttime.tv_usec;
+                }
+                decimals /= 1000;
+                decimals /= 1000;
+                missing_time -= decimals;
+
+                missing_time = (missing_time < 0) ? 0 : missing_time;
+                do_poll((missing_time > timeout) ? timeout : missing_time, poll_callback);                
+            } else {
+                do_poll(timeout, poll_callback);
+            }
         }
     }
-
-    printf("\n");
 }
 
 static void print_trailer()
 {
+    struct timeval endtime;
+    gettimeofday(&endtime, NULL);
+    
+    struct timeval elapsedtime;
+    
+    timersub(&endtime, &starttime, &elapsedtime);
+    
+    float msec_elapsed = elapsedtime.tv_usec % 1000;
+    msec_elapsed /= 1000; // Move microseconds
+    msec_elapsed += elapsedtime.tv_sec * 1000; // Add seconds
+    msec_elapsed += elapsedtime.tv_usec / 1000; // Add milliseconds
+    
+    if(ops->close)
+        ops->close();
+
+    printf("\n   Timedout: %s", (timedout == 1) ? "true" : "false");
+    printf("\n   Duration: %0.3f ms", msec_elapsed);
+    printf("\n   DestinationReached: %s", (destination_reached == 1) ? "true" : "false");
+
     if(overall_mtu > 0) {
         if(reliable_overall_mtu > 0)
             printf("\n   Path MTU: %d", overall_mtu);
         else
             printf("\n   Path MTU: %d (Potentially overestimated)", overall_mtu);
-    }
-    
-    if(check_ecn_tcp) {
-        if(ecn_discovery_result == DESTINATION_DOES_NOT_SUPPORT_ECN)
-            printf("\nECN mechanism is not supported by the destination");
-        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE)
-            printf("\nnECN mechanism is supported by the destination but the congestion is not properly acknowledged");
-        else if(ecn_discovery_result == DATA_ACK_DOES_NOT_CONTAIN_ECE_EXPECTED)
-            printf("\nECN mechanism is supported by the destination");
-        else if(ecn_discovery_result == ECN_IS_SUPPORTED)
-            printf("\nECN mechanism is supported by the destination and the congestion is properly acknowledged");
-        else if(ecn_discovery_result == DESTINATION_SUPPORT_ECN)
-           printf("\nECN is supported by the destination but no data ACK was received to determine if it is completely supported"); // should never happen
-        else
-            printf("\nWeird ECN behavior");
     }
     
     print_end();
@@ -1501,6 +1863,304 @@ void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sock
     }
 }
 
+uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender)
+{
+    if(family == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
+        
+        // pre-alloc for all the errors that tr is handling, which are [SOL_SOCKET-SO_TIMESTAMP] + [SOL_IP-IP_TTL] + [SOL_IP-IP_RECVERR]
+        // IP_RECVERR data is composed by a sock_extended_err followed by a sockaddr_in (the address of the offender), see ip_recv_error@ip_sockglue.c.
+        // About the spaced occupied by IP_TTL: The cmsglen is 20, but the actual data is 24 bytes, (because CMSG_SPACE(sizeof(int)) = 24, while CMSG_LEN(sizeof(int)) = 20. See put_cmsg@net/core/scm.c
+        // Also the global msg_controllen contains the computation with CMSG_SPACE, while the individual cmsg_len the actual data to read, which is the result of CMSG_LEN See put_cmsg@net/core/scm.c
+        // In summary, CMSG_LEN is used to indicate the amount to read, while CMSG_SPACE is used to reserve the actual space 
+        ret->msg_controllen = CMSG_SPACE(sizeof(struct timeval)) + CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in));
+
+        // prepare the pointers to respective headers and data
+        struct cmsghdr* cmsghdr_so_timestamp = (struct cmsghdr*)ret->msg_control;
+        struct cmsghdr* cmsghdr_ip_ttl = (struct cmsghdr*)(((char *)cmsghdr_so_timestamp) + CMSG_SPACE(sizeof(struct timeval)));
+        struct cmsghdr* cmsghdr_so_ip_recverr = (struct cmsghdr*)(((char *)cmsghdr_ip_ttl) + CMSG_SPACE(sizeof(int)));
+        
+        // data pointers
+        struct timeval* data_so_timestamp = (struct timeval*)((char *)cmsghdr_so_timestamp + sizeof(struct cmsghdr));
+        int* data_ip_ttl = (int *)((char *)cmsghdr_ip_ttl + sizeof(struct cmsghdr));
+        struct sock_extended_err* data_ip_recv_err_serr = (struct sock_extended_err*)((char *)cmsghdr_so_ip_recverr + sizeof(struct cmsghdr));
+        struct sockaddr_in* data_ip_recv_err_offender = (struct sockaddr_in*)(data_ip_recv_err_serr+1);
+        
+        // SO_TIMESTAMP
+        // See __sock_recv_timestamp@socket.c
+        cmsghdr_so_timestamp->cmsg_len = CMSG_LEN(sizeof(struct timeval));
+        cmsghdr_so_timestamp->cmsg_level = SOL_SOCKET;
+        cmsghdr_so_timestamp->cmsg_type = SO_TIMESTAMP;
+        gettimeofday(data_so_timestamp, NULL);
+        
+        // IP_TTL
+        cmsghdr_ip_ttl->cmsg_len = CMSG_LEN(sizeof(int));
+        cmsghdr_ip_ttl->cmsg_level = SOL_IP;
+        cmsghdr_ip_ttl->cmsg_type = IP_TTL;
+        // In kernel this is done by ip_cmsg_recv_ttl @net/ipv4/ip_sockglue.c
+        // The trace looks like this: SYS_recvmsg->inet_recvmsg->raw_recvmsg->ip_recv_error->ip_cmsg_recv_ttl (inferred as it is a static function)
+        // Note that we need to put the outer_ip TTL (not the ojne of the encapsulated probe)
+        *data_ip_ttl = outer_ip->ttl;
+        
+        // IP_RECVERR 
+        cmsghdr_so_ip_recverr->cmsg_len = CMSG_LEN(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in));
+        cmsghdr_so_ip_recverr->cmsg_level = SOL_IP;
+        cmsghdr_so_ip_recverr->cmsg_type = IP_RECVERR;
+        // In kernel this is filled by the ip_icmp_error @net/ipv4/ip_sockglue.c
+        // NOTE: this is executed independently from the recvmsg.
+        // The trace looks like this: ip_rcv->ip_rcv_finish->ip_local_deliver->ip_local_deliver_finish->icmp_rcv->icmp_unreach->icmp_socket_deliver->raw_icmp_error->raw_err->ip_icmp_error
+        
+        // Set data_ip_recv_err->ee_errno like raw_err@raw.c:232
+        // Also, set `info` like icmp_unreach@icmp.c:801
+        // Note that this info is propagated up to ip_icmp_error as argument
+        int err = 0;
+        uint32_t info = 0;
+        int has_recv_err = 1;
+        switch(outer_icmp->type)
+        {
+            case ICMP_ECHOREPLY:
+            {
+                // No IP_RECVERR in case of ECHO REPLY
+                has_recv_err = 0;
+                ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in)); // Do not return the ee if there is no error (this would be a mistake)
+                break;
+            }
+            case ICMP_TIME_EXCEEDED:
+            {
+                err = EHOSTUNREACH;
+                break;
+            }
+            case ICMP_SOURCE_QUENCH:
+            {
+                return 0; // TODO Thus reset the ret?
+            }
+            case ICMP_PARAMETERPROB:
+            {
+                err = EPROTO;
+                info = ntohl(outer_icmp->un.gateway) >> 24; // See icmp_unreach@icmp.c
+                break;
+            }
+            case ICMP_DEST_UNREACH:
+            {
+                // See icmp_unreach@icmp.c
+                switch(outer_icmp->code & 15)
+                {
+                    case ICMP_NET_UNREACH:
+                    case ICMP_HOST_UNREACH:
+                    case ICMP_PROT_UNREACH:
+                    case ICMP_PORT_UNREACH:
+                    {
+                        break;
+                    }
+                    case ICMP_FRAG_NEEDED: // This can be probably moved below, however moving it after the outer_icmp->code bound check is not equivalent to what is being done into the kernel, so leaving it here
+                    {
+                        // Always report mtu info
+                        info = ntohs(outer_icmp->un.frag.mtu); 
+                        break;
+                    }
+                }
+                
+                // See raw_err@raw.c
+                err = EHOSTUNREACH;
+                if(outer_icmp->code > sizeof(icmp4_err_convert) / sizeof(struct icmp4_err) - 1) // NR_ICMP_UNREACH is defined as 15 in include/net/icmp.
+                    break;
+                err = icmp4_err_convert[outer_icmp->code].error;
+                if(outer_icmp->code == ICMP_FRAG_NEEDED)
+                    err = EMSGSIZE;
+                
+                break;
+            }
+            default:
+            {
+                err = EHOSTUNREACH;
+                break;
+            }
+        }
+        
+        if(has_recv_err) {
+            // See ip_icmp_error@ip_sockglue.c
+            data_ip_recv_err_serr->ee_errno = err;
+            data_ip_recv_err_serr->ee_origin = SO_EE_ORIGIN_ICMP;
+            data_ip_recv_err_serr->ee_type = outer_icmp->type;
+            data_ip_recv_err_serr->ee_code = outer_icmp->code;
+            data_ip_recv_err_serr->ee_pad = 0;
+            data_ip_recv_err_serr->ee_info = info;
+            data_ip_recv_err_serr->ee_data = 0;
+        }
+        
+        // Now we have to do two things, see ip_recv_error@ip_sockglue.c
+        // 1. Fill the ret msg_name
+        // 2. Fill the offender address of the IP_RECVERR data
+        
+        struct sockaddr_in *sin = (struct sockaddr_in *)ret->msg_name;
+        sin->sin_family = AF_INET;
+        sin->sin_port = 0; // This is left to be zero, see the call to ip_icmp_error in raw_err@raw.c (This is the parameter after "err"). In any case it is not used by tr.
+        // NOTE: in the ip_recv_error the address put in s_addr is what is found at the "addr_offset" which is set in ip_icmp_error@ip_sockglue.c. This offset is the offset of the destination address of the packet incapsulated into the ICMP payload.
+        // NOTE: That this is equivalent to our dst_addr.sin.sin_addr.s_addr.
+        // NOTE: This is not true fror ICMP_ECHOREPLY, in this case the from is the source address of the reply
+        if(has_recv_err)
+            sin->sin_addr.s_addr = ((struct iphdr*)(outer_icmp + 1))->daddr;
+        else
+            sin->sin_addr.s_addr = outer_ip->saddr;
+        memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
+        ret->msg_namelen = sizeof(*sin);
+        
+        // Fill the offender
+        if(has_recv_err) {
+            struct iphdr* inner_ip = (struct iphdr*)(bufp + (outer_ip->ihl << 2) + sizeof(struct icmphdr));
+        
+            data_ip_recv_err_offender->sin_family = AF_INET;
+            data_ip_recv_err_offender->sin_addr.s_addr = outer_ip->saddr;
+            
+            // Return also the payload of the offending probe (and extensions, if present)
+            uint16_t tot_len = ntohs(outer_ip->tot_len);
+            uint16_t icmp_len = tot_len - (outer_ip->ihl << 2);
+            uint16_t icmp_payload_len = icmp_len - sizeof(struct icmphdr);
+            uint8_t* payload_ptr = ((uint8_t*)outer_icmp + sizeof(struct icmphdr));
+            payload_ptr += (inner_ip->ihl << 2);
+            payload_ptr += inner_proto_hlen;
+            
+            memcpy(ret->msg_iov->iov_base, payload_ptr, (icmp_payload_len > ret->msg_iov->iov_len) ? ret->msg_iov->iov_len : icmp_payload_len);
+            
+            return (outer_ip->ihl << 2) + sizeof(struct icmphdr) + (inner_ip->ihl << 2) + inner_proto_hlen;
+        }
+        
+        return (outer_ip->ihl << 2) + sizeof(struct icmphdr);
+    } else {
+        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
+        
+        // pre-alloc for all the errors that tr is handling, which are [SOL_IPV6-IPV6_HOPLIMIT] + [SOL_IPV6-IPV6_RECVERR]
+        // IPV6_RECVERR data is composed by a sock_extended_err followed by a sockaddr_in6 (the address of the offender), see ipv6_recv_error@ipv6/datagram.c.
+        // About the spaced occupied by IPV6_HOPLIMIT: the cmsglen is 20, but the actual data is 24 bytes, (because CMSG_SPACE(sizeof(int)) = 24, while CMSG_LEN(sizeof(int)) = 20. See put_cmsg@net/core/scm.c
+        // Also the global msg_controllen contains the computation with CMSG_SPACE, while the individual cmsg_len the actual data to read, so the result of CMS_LEN See put_cmsg@net/core/scm.c
+        // So it appears that CMSG_LEN is used to indicate the amount to read, while CMSG_SPACE is used to reserve the actual space 
+        ret->msg_controllen = CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6));
+        
+        // prepare the pointers to respective headers and data
+        struct cmsghdr* cmsghdr_ipv6_hoplimit = (struct cmsghdr*)ret->msg_control;
+        struct cmsghdr* cmsghdr_ipv6_recverr = (struct cmsghdr*)(((char *)cmsghdr_ipv6_hoplimit) + CMSG_SPACE(sizeof(int)));
+        
+        int* data_ip_ttl = (int *)((char *)cmsghdr_ipv6_hoplimit + sizeof(struct cmsghdr));
+        struct sock_extended_err* data_ip_recv_err_serr = (struct sock_extended_err*)((char *)cmsghdr_ipv6_recverr + sizeof(struct cmsghdr));
+        struct sockaddr_in6* data_ip_recv_err_offender = (struct sockaddr_in6*)(data_ip_recv_err_serr+1);
+        
+        // IPV6_HOPLIMIT
+        cmsghdr_ipv6_hoplimit->cmsg_len = CMSG_LEN(sizeof(int));
+        cmsghdr_ipv6_hoplimit->cmsg_level = SOL_IPV6;
+        cmsghdr_ipv6_hoplimit->cmsg_type = IPV6_HOPLIMIT;
+        // In kernel this is done by ip_cmsg_recv_ttl @net/ipv6/ipv6_sockglue.c
+        // Note that we need to put the OUTER IP TTL
+        *data_ip_ttl = 0; // This would be outer_ip->ttl, but we cannot do that without the IP header. This means that we can't use "backward" tr option.
+        
+        // IPV6_RECVERR 
+        cmsghdr_ipv6_recverr->cmsg_len = CMSG_LEN(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6));
+        cmsghdr_ipv6_recverr->cmsg_level = SOL_IPV6;
+        cmsghdr_ipv6_recverr->cmsg_type = IPV6_RECVERR;
+        // In kernel this is filled by the ipv6_recv_error@net/ipv6/datagram.c
+        
+        // Set data_ip_recv_err->ee_errno like icmpv6_err_convert@net/ipv6/icmp.c:232
+        // (called by rawv6_err@net/ipv6/raw.c, called by raw6_icmp_error@net/ipv6/raw.c, raw6_icmp_error@net/ipv6/icmp.c, icmpv6_notify@icmpv6_notify.c)
+        // Note that rawv6_err does a ntohl of info
+        // Also, et info like icmpv6_rcv@net/ipv6/icmp.c:801
+        // Note that this info is propagated up to ip_icmp_error as argument
+        int err = 0;
+        uint32_t info = 0;
+        int has_recv_err = 1;
+        struct ip6_hdr* inner_ip = NULL; // This will be useful later
+        switch(outer_icmp->icmp6_type)
+        {
+            case ICMP6_ECHO_REPLY:
+            {
+                // No IPV6_RECVERR in case of ECHO REPLY
+                has_recv_err = 0;
+                ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6)); // Do not return the ee if there is no error (this would be a mistake)
+                inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
+                break;
+            }
+            case ICMP6_TIME_EXCEEDED:
+            {
+                err = EHOSTUNREACH;
+                info = ntohl(outer_icmp->icmp6_mtu);
+                break;
+            }
+            case ICMP6_PACKET_TOO_BIG:
+            {
+                err = EMSGSIZE;
+                break;
+            }
+            case ICMP6_PARAM_PROB:
+            {
+                err = EPROTO;
+                info = ntohl(outer_icmp->icmp6_mtu);
+                break;
+            }
+            case ICMP6_DST_UNREACH:
+            {
+                info = ntohl(outer_icmp->icmp6_mtu);
+                // See icmpv6_err_convert@net/ipv6/icmp.c
+                err = EPROTO;
+                if(outer_icmp->icmp6_code > sizeof(icmp6_err_convert)/sizeof(struct icmp6_err)) 
+                    break;
+                err = icmp6_err_convert[outer_icmp->icmp6_code].err;
+                
+                break;
+            }
+            default:
+            {
+                err = EPROTO;
+                break;
+            }
+        }
+        
+        if(has_recv_err) {
+        // See ipv6_icmp_error@net/ipv6/datagram.c
+            data_ip_recv_err_serr->ee_errno = err;
+            data_ip_recv_err_serr->ee_origin = SO_EE_ORIGIN_ICMP6;
+            data_ip_recv_err_serr->ee_type = outer_icmp->icmp6_type;
+            data_ip_recv_err_serr->ee_code = outer_icmp->icmp6_code;
+            data_ip_recv_err_serr->ee_pad = 0;
+            data_ip_recv_err_serr->ee_info = info;
+            data_ip_recv_err_serr->ee_data = 0;
+        }
+        
+        // Now we have to do two things, see ip_recv_error@ip_sockglue.c
+        
+        // 1. Fill the offender address of the IP_RECVERR data
+        // Since we do not have the IP header, we need to rely on the offender given in input.
+        // Note that the "offender" given in input is contained into ret->msg_name, so we need to use it before overwriting ret->msg_name at point 2.
+        if(has_recv_err) {
+            data_ip_recv_err_offender->sin6_family = AF_INET6; 
+            memcpy(data_ip_recv_err_offender->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof((data_ip_recv_err_offender->sin6_addr.s6_addr)));
+            
+            // Return the expected payload
+            uint8_t* payload_ptr = ((uint8_t*)inner_ip + sizeof(struct ip6_hdr) + inner_proto_hlen);
+            memcpy(ret->msg_iov->iov_base, payload_ptr, ret->msg_iov->iov_len);
+            
+            return sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) + inner_proto_hlen;
+        }
+        
+        // 2. Fill the ret msg_name
+        struct sockaddr_in6 *sin = (struct sockaddr_in6 *)ret->msg_name;
+        sin->sin6_family = AF_INET6;
+        sin->sin6_flowinfo = 0; // This seems to be zero, see the ipv6_recv_error@net/ipv6/datagram.c
+        sin->sin6_port = 0; // This the destination port of the inner protocol header (if any).  See ipv6_recv_error@net/ipv6/datagram.c:425 and 293. This is not really useful here, so left zero.
+        // NOTE: in the ip_recv_error the address put in s_addr is what is found at the "addr_offset" which is set in ipv6_icmp_error@datagram.c. This offset is the offset of the destination address of the packet incapsulated into the ICMP payload.
+        // NOTE That this is equivalent to our dst_addr
+        // NOTE this is not true fror ICMP_ECHOREPLY, in this case the from is the source address of the reply
+        if(has_recv_err)
+            memcpy(sin->sin6_addr.s6_addr, inner_ip->ip6_dst.s6_addr, sizeof(sin->sin6_addr.s6_addr));
+        else
+            memcpy(sin->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof(sin->sin6_addr.s6_addr));
+        ret->msg_namelen = sizeof(*sin);
+        
+        return sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) + inner_proto_hlen;
+    }
+    
+    return 0;
+}
+
+
 void recv_reply(int sk, int err, check_reply_t check_reply) 
 {
     struct msghdr msg;
@@ -1530,16 +2190,46 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     if(n < 0)
         return;
 
-    if(ops->is_raw_icmp_sk(sk)) {
-        ops->handle_raw_icmp_packet(bufp);
-        return;
+    if(ops->is_raw_icmp_sk(sk) == 1) {
+        struct msghdr cust_msg;
+        memset(&cust_msg, 0, sizeof(cust_msg));
+        
+        cust_msg.msg_name = &from;
+        cust_msg.msg_namelen = sizeof(from);
+        
+        char buf[1280];
+        memset(&buf, 0, sizeof(buf));
+        
+        char cust_control[1024];
+        memset(cust_control, 0, sizeof(cust_control));
+        
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        
+        cust_msg.msg_iov = &iov;
+        cust_msg.msg_iovlen = 1;
+        cust_msg.msg_control = &cust_control;
+        cust_msg.msg_controllen = sizeof(cust_control);
+        
+        uint16_t overhead = 0; // from where the payload of the returned messages is supposed to start
+        pb = ops->handle_raw_icmp_packet(bufp, &overhead, &msg, &cust_msg);
+        if(!pb)
+            return;
+        
+        if(!loose_match) // If we are not running in "Lose match mode" then the handle raw icmp is used only to assign the ToS to the probe, do not use it for anything more
+            return;
+        
+        msg = cust_msg;
+        bufp = cust_msg.msg_iov->iov_base;
+        n -= overhead;
     }
     
     /*  when not MSG_ERRQUEUE, AF_INET returns full ipv4 header
         on raw sockets...
     */
 
-    if(!err && af == AF_INET && ops->header_len == 0) { /*  XXX: Assume that the presence of an extra header means that it is not a raw socket... */
+    if(!err && ops->is_raw_icmp_sk(sk) == 0 && af == AF_INET && ops->header_len == 0) { /*  XXX: Assume that the presence of an extra header means that it is not a raw socket... */
         struct iphdr *ip = (struct iphdr *) bufp;
         int hlen;
 
@@ -1552,17 +2242,19 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         n -= hlen;
     }
 
-    pb = check_reply(sk, err, &from, bufp, n);
-    if(!pb) {
-        /*  for `frag needed' case at the local host,
-        kernel >= 3.13 sends local error(no more icmp)
-        */
-        if(!n && err && dontfrag) {
-            pb = &probes[(first_hop - 1) * probes_per_hop];
-            if(pb->done)
+    if(ops->is_raw_icmp_sk(sk) == 0) {
+        pb = check_reply(sk, err, &from, bufp, n);
+        if(!pb) {
+            /*  for `frag needed' case at the local host,
+            kernel >= 3.13 sends local error(no more icmp)
+            */
+            if(!n && err && dontfrag) {
+                pb = &probes[(first_hop - 1) * probes_per_hop];
+                if(pb->done)
+                    return;
+            } else {
                 return;
-        } else {
-            return;
+            }
         }
     }
 

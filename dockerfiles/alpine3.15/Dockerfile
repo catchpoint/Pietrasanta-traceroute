@@ -1,6 +1,6 @@
-FROM ubuntu:22.04
+FROM alpine:3.15
 ARG disable_openssl
-RUN apt-get update && apt-get install -y make init gcc libipc-run-perl
+RUN apk add gcc make bash openrc musl-dev linux-headers perl-ipc-system-simple
 RUN mkdir traceroute
 ADD libsupp traceroute/libsupp/
 ADD include traceroute/include

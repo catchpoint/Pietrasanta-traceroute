@@ -49,8 +49,24 @@ gcc = $(findstring gcc,$(CC))
 $(call set, CFLAGS, $(if $(gcc), -g -Wall -std=c99, -O0))
 $(call set, CPPFLAGS, )
 $(call set, LDFLAGS, -g)
-$(call set, LIBS, )
 
+ifndef LIBSSL3_CFLAGS
+    LIBSSL3_CFLAGS=/usr/local/include/
+endif
+
+ifndef LIBSSL3_LDFLAGS
+    LIBSSL3_LDFLAGS=/usr/local/lib64
+endif
+
+ifndef DISABLE_OPENSSL
+    CFLAGS += -DHAVE_OPENSSL3
+    $(call set, LIBS, -lpthread -lssl -lcrypto)
+else
+    $(call set, LIBS, -lpthread)
+endif
+
+CFLAGS += -I$(LIBSSL3_CFLAGS)
+LDFLAGS += -L$(LIBSSL3_LDFLAGS) -Wl,-rpath,$(LIBSSL3_LDFLAGS)
 
 #  install stuff
 prefix = /usr/local

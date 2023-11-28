@@ -11,9 +11,11 @@ router configurations related to security and to ensures that packets follow a
 single flow, akin to a normal TCP session, to bypass load-balanced routers.
  - Introduced enhanced TOS (DSCP/ECN) field report. This new option allows to set 
 ToS field in outgoing packets and read the ToS field of the expiring probes. It
-includes a special output to highlight DSCP and ECN values
+includes a special output to highlight DSCP and ECN values.
+- Introduced the QUIC module to perform QUIC traceroute using --quic. This mode
+uses QUIC Initial packets as probes.
  
-Full details in ChangeLog [here](https://github.com/catchpoint/Networking.traceroute/blob/develop/ChangeLog).
+Full details in ChangeLog [here](ChangeLog).
 
 ## Building & Installation
 ```
@@ -21,15 +23,64 @@ make
 make install
 ```
 
+### OpenSSL 3 dependency
+
+Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
+traceroute. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
+QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
+
+At compile time openssl3 header files are searched by default in `/usr/local/include` 
+but the path can be changed via the `LIBSSL3_CFLAGS` argument. 
+At linking time and runtime openssl3 libraries are searched in
+`/usr/local/lib64` but the path can be changed via the `LIBSSL3_LDFLAGS` argument.
+
+A way to obtain openssl3 libraries is to compile them  from source.
+As an example these are the steps to get shared objects in `/usr/local/lib64` and
+header files in `/usr/local/include`:
+
+```
+git clone -b openssl-3.2 https://github.com/openssl/openssl.git
+cd openssl
+./Configure
+make
+make install
+```
+
 ## Binaries
 
-This tool should build on any modern Linux system.  
+This tool should build and run on any Linux system running a kernel version 2.6 or higher. This includes systems running on containers, VMs and on the Windows Subsystem for Linux (WSL).
 
-Binaries are provided for convenience [here](https://github.com/catchpoint/Networking.traceroute/tree/main/binaries) for common Linux distributions.
+Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
+
+### Building with docker
+
+The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
+For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
+To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
+Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
+If no folder is provided, traceroute binaries with QUIC disabled will be produced (like passing `DISABLE_OPENSSL=1` to `make`).
+The script places the binaries into the [binaries] folder for the given platform(s).
+
+The build script takes these options:
+
+* `--build`: build the binaries.
+* `--clean`: clean docker images and containers created during the build process.
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine3.15` (Alpine 3.15). By default they are all enabled.
+* `--openssl3=<openssl3_folder>`: The folder containing openssl3 source code.
+
+The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
+
+Example:
+
+```
+./build.sh - --build --clean --openssl3=/home/user/openssl3
+```
+
+This will produce the binaries for CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, and place them into the `binaries` folder.
 
 ## Usage
 
-See `traceroute(8)` for detailed instructions.
+See [traceroute(8)](traceroute/traceroute.8) for detailed instructions.
 
 ## Original Dmitry Butskoy README file
 
