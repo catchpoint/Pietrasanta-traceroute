@@ -277,6 +277,8 @@ const struct icmp6_err icmp6_err_convert[] = {
 extern int quic_print_dest_rtt_mode;
 #endif
 
+unsigned int compute_data_len(int packet_len);
+
 static void print_end(void) 
 {
     printf("\n");
@@ -771,6 +773,38 @@ static CLIF_argument arg_list[] = {
     CLIF_END_ARGUMENT
 };
 
+unsigned int compute_data_len(int packet_len)
+{
+    int data_len = 0;
+    
+    if(packet_len < 0) {
+     #ifdef HAVE_OPENSSL3
+        if(strcmp(module, "quic") == 0) {
+            data_len = DEF_DATA_LEN_QUIC;
+        } else if(strcmp(module, "tcpinsession") == 0) {
+            data_len = DEF_DATA_LEN_TCPINSESSION;
+        } else {
+            if(DEF_DATA_LEN >= ops->header_len)
+                data_len = DEF_DATA_LEN - ops->header_len;
+        }
+    #else
+        if(strcmp(module, "tcpinsession") == 0) {
+            data_len = DEF_DATA_LEN_TCPINSESSION;
+        } else {
+            if(DEF_DATA_LEN >= ops->header_len)
+                data_len = DEF_DATA_LEN - ops->header_len;
+        }
+    #endif
+    } else {
+        if(packet_len >= header_len)
+            data_len = packet_len - header_len;
+        else
+            data_len = packet_len;
+    }
+    
+    return data_len;
+}
+
 /*    PRINT  STUFF        */
 static void print_header(void) 
 {
@@ -881,30 +915,13 @@ int main(int argc, char *argv[])
 
     header_len = (af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr)) + rtbuf_len + ops->header_len;
 
+    data_len = compute_data_len(packet_len);
+
     if(mtudisc) {
         dontfrag = 1;
         sim_probes = 1;
-        if(packet_len < 0)
-            packet_len = MAX_PACKET_LEN;
+        data_len = compute_data_len(MAX_PACKET_LEN);
     }
-
-     if(packet_len < 0) {
-        if(strcmp(module, "quic") == 0) {
-            data_len = DEF_DATA_LEN_QUIC;
-        } else if(strcmp(module, "tcpinsession") == 0) {
-            data_len = DEF_DATA_LEN_TCPINSESSION;
-        } else {
-            if(DEF_DATA_LEN >= ops->header_len)
-                data_len = DEF_DATA_LEN - ops->header_len;
-        }
-    } else if(packet_len >= header_len) {
-        data_len = packet_len - header_len;
-    }   
-    
-#ifdef HAVE_OPENSSL3
-    if(!mtudisc && strcmp(module, "quic") == 0)
-        data_len = DEF_DATA_LEN_QUIC;
-#endif
 
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;
@@ -990,7 +1007,7 @@ int main(int argc, char *argv[])
 
         memset(&probes[0], 0x0, sizeof(probe));
         
-        data_len = saved_data_len;
+        data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
     }
     
     print_header();
@@ -1440,15 +1457,7 @@ static void do_it(void)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
                     sim_probes = DEF_SIM_PROBES;
-                    if(strcmp(module, "tcpinsession") == 0) {
-                        data_len = DEF_DATA_LEN_TCPINSESSION;
-                        data_len -= ops->header_len;
-                    } else if(strcmp(module, "quic") == 0) {
-                        data_len = DEF_DATA_LEN_QUIC; // UDP payload for quic must be 1200 bytes
-                    } else {
-                        data_len = DEF_DATA_LEN;
-                        data_len -= ops->header_len;
-                    }
+                    data_len = compute_data_len(packet_len); // We found the bottleneck hop, we can restart doing simulatneous traceroute sending probes of the default size or the one provided in input
                 }
             }
 
