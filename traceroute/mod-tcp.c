@@ -19,6 +19,14 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 
+#ifdef __APPLE__
+#include "mac/icmp.h"
+#include "mac/ip.h"
+#include "mac/types.h"
+#include <string.h>
+#include <stdio.h>
+#endif
+
 #include "common-tcp.h"
 
 #ifndef IP_MTU
@@ -43,9 +51,10 @@ static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
 extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
 extern int disable_extra_ping;
-
+extern sockaddr_any src_addr;
 static CLIF_option tcp_options[] = {
     { 0, "syn", 0, "Set tcp flag SYN (default if no other tcp flags specified)", set_tcp_flag, 0, 0, 0 },
     { 0, "ack", 0, "Set tcp flag ACK,", set_tcp_flag, 0, 0, 0 },
@@ -89,23 +98,25 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     raw_sk = socket(af, SOCK_RAW, IPPROTO_TCP);
     if(raw_sk < 0)
         error_or_perm ("socket");
-
-	#ifndef __APPLE__
-		tune_socket(raw_sk);        /*  including bind, if any   */
-		if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
-			error ("connect");
-	#endif
-
+ 
+  #ifdef __APPLE__
+    // This is needed to find the source address to use so that we can prepare the IP pseudo header.
+    // We cannot rely on getsockname called after the bind() because the source address for some reasonis not filled
+    if(findsaddr(&dest_addr.sa, &src.sa) != NULL)
+        error("findsaddr");
+    src_addr = src;
+    tune_socket(raw_sk);
+    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+       error ("connect");
+  #else
+    tune_socket(raw_sk);        /*  including bind, if any   */
+    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+       error ("connect");
     
-	#ifndef __APPLE__
     len = sizeof(struct sockaddr);
     if(getsockname(raw_sk, &src.sa, &len) < 0)
         error ("getsockname");
-	#else
-	if (findsaddr(&dest_addr.sa, &src.sa) != NULL)
-		error("findsaddr");
-	
-	#endif
+  #endif
 
     len = sizeof(mtu);
     if(getsockopt(raw_sk, af == AF_INET ? SOL_IP : SOL_IPV6, af == AF_INET ? IP_MTU : IPV6_MTU, &mtu, &len) < 0 || mtu < 576)
@@ -115,18 +126,20 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     mtu -= af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr);
     mtu -= sizeof(struct tcphdr);
 
+ #ifndef __APPLE__
     if(!raw_can_connect()) {    /*  work-around for buggy kernels  */
         close (raw_sk);
         raw_sk = socket (af, SOCK_RAW, IPPROTO_TCP);
         if(raw_sk < 0)  error ("socket");
-        tune_socket (raw_sk);
+        tune_socket(raw_sk);
         /*  but do not connect it...  */
     }
+ #endif
 
 
-    use_recverr (raw_sk);
+    use_recverr(raw_sk);
 
-    add_poll (raw_sk, POLLIN | POLLERR);
+    add_poll(raw_sk, POLLIN | POLLERR);
 
     /*  Now create the sample packet.  */
 
@@ -171,13 +184,13 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     ptr = tmp_buf;
 
     if(af == AF_INET) {
-        len = sizeof(src.sin.sin_addr);
+        len = sizeof(struct in_addr);
         memcpy (ptr, &src.sin.sin_addr, len);
         ptr += len;
         memcpy (ptr, &dest_addr.sin.sin_addr, len);
         ptr += len;
     } else {
-        len = sizeof(src.sin6.sin6_addr);
+        len = sizeof(struct in6_addr);
         memcpy (ptr, &src.sin6.sin6_addr, len);
         ptr += len;
         memcpy (ptr, &dest_addr.sin6.sin6_addr, len);
@@ -195,17 +208,27 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     pseudo_IP_header_size = ptr - tmp_buf;
     
-    th->source = 0;        /*  temporary   */
+#ifdef __APPLE__
+    th->th_sport = 0;
+    th->th_dport = dest_port;
+    th->th_seq = 0;
+    th->th_ack = 0;
+    th->th_off = 0;
+    set_th_flags(th, flags);
+    th->th_win = htons(4 * mtu);
+    th->th_sum = 0;
+    th->th_urp = 0;
+#else
+    th->source = 0;
     th->dest = dest_port;
-    th->seq = 0;        /*  temporary   */
+    th->seq = 0;
     th->ack_seq = 0;
-    th->doff = 0;        /*  later...  */
+    th->doff = 0;
     set_th_flags(th, flags);
     th->window = htons (4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
 #endif
-
 
     /*  Build TCP options   */
 
@@ -247,17 +270,16 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         *ptr++ = 2;    /*  assume some corect value...  */
     }
 
-
     len = ptr - (uint8_t*) th;
     if(len & 0x03)
         error("impossible");    /*  as >>2 ...  */
 
     *lenp = htons (len);
     #ifdef __APPLE__
-		th->th_off = len >> 2;
-	#else
-		th->doff = len >> 2;
-	#endif
+        th->th_off = len >> 2;
+    #else
+        th->doff = len >> 2;
+    #endif
 
     // Allow the filling of the TCP payload only if we are doing mtudisc, otherwise do not do that.
     // This is compliant with original traceroute TCP behavior, which does not send TCP probes with a payload never.
@@ -277,13 +299,11 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     
     if(use_additional_raw_icmp_socket) {
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-        
         if(raw_icmp_sk < 0)
             error_or_perm("raw icmp socket");
-        
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
-    
+ 
     return 0;
 }
 
@@ -292,13 +312,14 @@ static void tcp_send_probe(probe* pb, int ttl)
     int sk;
     int af = dest_addr.sa.sa_family;
     sockaddr_any addr;
-    socklen_t len = sizeof(addr);
+    memset(&addr, 0, sizeof(addr));
+    
+    socklen_t len = sizeof(struct sockaddr);
 
     /*  To make sure we have chosen a free unused "source port",
        just create, (auto)bind and hold a socket while the port is needed.
     */
 
-#ifndef __APPLE__
     sk = socket(af, SOCK_STREAM, 0);
     if(sk < 0)
         error("socket");
@@ -307,11 +328,9 @@ static void tcp_send_probe(probe* pb, int ttl)
         error ("setsockopt SO_REUSEADDR");
 
     bind_socket(sk);
-
-	
-		if(getsockname (sk, &addr.sa, &len) < 0)
-			error ("getsockname");
-	#endif
+    
+    if(getsockname (sk, &addr.sa, &len) < 0)
+        error ("getsockname");
 
     /*  When we reach the target host, it can send us either RST or SYN+ACK.
       For RST all is OK (we and kernel just answer nothing), but
@@ -323,25 +342,21 @@ static void tcp_send_probe(probe* pb, int ttl)
       it means "no such port yet" for remote ends, and kernel always
       send RST in such a situation automatically (we have to do nothing).
     */
-	#ifdef __APPLE__
-		if(th->th_sport == 0)
-			th->th_sport = (getpid() & 0xffff) | 0x8000;
-		else
-			th->th_sport++;
-		th->th_seq = random_seq();
-		addr.sin.sin_port = th->th_sport;
-	#else
-		th->source = src.sin.sin_port;
-		th->seq = random_seq();
-	#endif
+    #ifdef __APPLE__
+        th->th_sport = addr.sin.sin_port;
+        th->th_seq = random_seq();
+    #else
+        th->source = addr.sin.sin_port;
+        th->seq = random_seq();
+    #endif
 
     #ifdef __APPLE__
-		th->th_sum = 0;
-		th->th_sum = in_csum(buf, (*length_p)+pseudo_IP_header_size);
-	#else
-		th->check = 0;
-		th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
-	#endif
+        th->th_sum = 0;
+        th->th_sum = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+    #else
+        th->check = 0;
+        th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+    #endif
 
     if(ttl != last_ttl) {
         set_ttl (raw_sk, ttl);
@@ -356,23 +371,23 @@ static void tcp_send_probe(probe* pb, int ttl)
         return;
     }
 
-	#ifdef __APPLE__
-		pb->seq = th->th_sport;
-		src.sin.sin_port = th->th_sport;
-	#else
-		size_t len2 = sizeof(src);
-		if(getsockname(raw_sk, &src.sa, &len2) < 0)
-			error ("getsockname");
-		pb->seq = th->source;
-	#endif
+    #ifdef __APPLE__
+        pb->seq = th->th_sport;
+        src.sin.sin_port = th->th_sport;
+    #else
+        size_t len2 = sizeof(src);
+        if(getsockname(raw_sk, &src.sa, &len2) < 0)
+            error ("getsockname");
+        pb->seq = th->source;
+    #endif
     
-	pb->sk = sk;
+    pb->sk = sk;
 
     // Note that the dest port is incremented for each probe, so we have to specify it explicitly
     // Note also that the source port is changed for each probe (determined by bind) so we have to specify it explicitly too
-    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
+    memcpy(&pb->dest, &dest_addr, sizeof(sockaddr_any));
     pb->dest.sin.sin_port = dest_port; // valid also for IPv6 as we have a union
-    memcpy(&pb->src, &src, sizeof(src));
+    memcpy(&pb->src, &src, sizeof(sockaddr_any));
     pb->src.sin.sin_port = addr.sin.sin_port; // valid also for IPv6 as we have a union
     
     return;
@@ -388,23 +403,23 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         return NULL;        /*  too short   */
 
 
-	#ifdef __APPLE__
-		if(err) {
-			sport = tcp->th_sport;
-			dport = tcp->th_dport;
-		} else {
-			sport = tcp->th_dport;
-			dport = tcp->th_sport;
-		}
-	#else
-		if(err) {
-			sport = tcp->source;
-			dport = tcp->dest;
-		} else {
-			sport = tcp->dest;
-			dport = tcp->source;
-		}
-	#endif
+    #ifdef __APPLE__
+        if(err) {
+            sport = tcp->th_sport;
+            dport = tcp->th_dport;
+        } else {
+            sport = tcp->th_dport;
+            dport = tcp->th_sport;
+        }
+    #else
+        if(err) {
+            sport = tcp->source;
+            dport = tcp->dest;
+        } else {
+            sport = tcp->dest;
+            dport = tcp->source;
+        }
+    #endif
 
     if(dport != dest_port)
         return NULL;
@@ -442,15 +457,28 @@ static int tcp_is_raw_icmp_sk(int sk)
 
 static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
-    probe* pb = NULL;
+    sockaddr_any offending_probe_dest;
+    sockaddr_any offending_probe_src;
+    struct tcphdr* offending_probe = NULL;
+    int proto = 0;
+    int returned_tos = 0;
+    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_TCP)
         return NULL;
         
     offending_probe = (struct tcphdr*)offending_probe;
+    
+#ifdef __APPLE__
+    offending_probe_dest.sin.sin_port = offending_probe->th_dport;
+    offending_probe_src.sin.sin_port = offending_probe->th_sport;
+    offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin);
+    offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
+#else
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
-    
+#endif
+
     probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
     if(!pb)
@@ -459,11 +487,11 @@ static probe* tcp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
     
-    if(loose_match) 
+    if(loose_match || tr_via_additional_raw_icmp_socket) 
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
-    
     return pb;
 }
+
 
 static void tcp_close()
 {

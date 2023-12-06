@@ -63,6 +63,7 @@ static unsigned mss_received = 0;
 static int info = 0;
 
 extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 uint32_t initial_seq_num = 0;
 uint32_t seq_num = 0;
@@ -96,17 +97,17 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     if(raw_sk < 0)
         error_or_perm("socket");
 
-    tune_socket(raw_sk);
+    //tune_socket(raw_sk);
     
     double connect_starttime = get_time();
     
-    if(connect(raw_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         error("connect");
     
     sk = socket(af, SOCK_STREAM, 0);
     tune_socket(sk);    /*  common stuff  */
     
-    if(connect(sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         if(errno != EINPROGRESS) // note that we don't need to wait the connect to be successful since the loop below will wait for the syn+ack.
             error("connect");
 
@@ -288,15 +289,12 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     pseudo_IP_header_size = ptr - tmp_buf;
 
 #ifdef __APPLE__
-    th->th_sport = 0;        /*  temporary   */
+    th->th_sport = 0;
     th->th_dport = dest_port;
-    th->th_seq = 0;        /*  temporary   */
+    th->th_seq = 0;
     th->th_ack = htonl(ack_num);
-    th->th_off = 0;        /*  later...  */
-    flags = 0x00;
-    flags |= TH_PSH;
-    flags |= TH_ACK;
-    flags |= FL_TSTAMP;
+    th->th_off = 0;
+    set_th_flags(th, flags);
     (((uint8_t *)(th))[13]) = flags;
     th->th_win = htons(4 * mtu);
     th->th_sum = 0;
@@ -377,6 +375,7 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
 #else
     th->source = src.sin.sin_port;
     th->seq = htonl(seq_num);
+#endif
     pb->seq_num = seq_num;
     
     if(counter_pointer == NULL)
@@ -531,16 +530,15 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
 #ifdef __APPLE__
         uint16_t dport = tcp->th_dport; 
-        if(dport != dest_port)
-            return NULL;
-
         uint32_t seq_num_returned = ntohl(tcp->th_seq);
 #else
         uint16_t dport = tcp->dest; 
+        uint32_t seq_num_returned = ntohl(tcp->seq);
+#endif
         if(dport != dest_port)
             return NULL;
 
-        seq_num_returned = ntohl(tcp->seq);
+
         return probe_by_seq_num(seq_num_returned);
     }
     
@@ -610,8 +608,6 @@ static int tcpinsession_is_raw_icmp_sk(int sk)
 */
 static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
-    probe* pb = NULL;
-
     sockaddr_any offending_probe_dest;
     sockaddr_any offending_probe_src;
     struct tcphdr* offending_probe = NULL;
@@ -626,20 +622,23 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     
 #ifdef __APPLE__
     uint32_t probe_seq_num = ntohl(offending_probe->th_seq);
+    offending_probe_dest.sin.sin_port = offending_probe->th_dport;
+    offending_probe_src.sin.sin_port = offending_probe->th_sport;
 #else
     uint32_t probe_seq_num = ntohl(offending_probe->seq);
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+#endif
     probe* pb = probe_by_seq_num(probe_seq_num);
     
     if(!pb)
         return NULL;
     
-    offending_probe_dest.sin.sin_port = offending_probe->dest;
-    offending_probe_src.sin.sin_port = offending_probe->source;
     
     if((loose_match || equal_sockaddr(&src, &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
         pb->returned_tos = returned_tos;
         probe_done(pb, &pb->icmp_done);
-        if(loose_match)
+        if(loose_match || tr_via_additional_raw_icmp_socket)
             *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
     }
     

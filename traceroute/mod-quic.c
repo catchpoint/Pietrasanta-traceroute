@@ -16,12 +16,24 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __APPLE__
+#include "mac/icmp.h"
+#include "mac/ip.h"
+#include "mac/udp.h"
+#else
 #include <netinet/udp.h>
+#endif
+
 #include <unistd.h>
 #include <sys/socket.h>
 #include <poll.h>
 #include <stdio.h>
 #include "traceroute.h"
+
+#ifdef __APPLE__
+#include <libkern/OSByteOrder.h>
+#endif
 
 #define SUPPORTED_QUIC_VERSION 0x01
 #define INITIAL_PACKET_LEN 1182
@@ -34,7 +46,8 @@ static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
 static int raw_icmp_sk = -1;
-extern int use_additional_raw_icmp_socket; 
+extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
 
 static uint8_t initial_packet_header[INITIAL_PACKET_HEADER_LEN];
@@ -623,7 +636,7 @@ static void quic_send_probe(probe* pb, int ttl)
 
     set_ttl(sk, ttl);
 
-    if(connect(sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         error("connect");
 
     use_recverr(sk);
@@ -684,7 +697,12 @@ static uint64_t get_vlint8(uint8_t* buf)
 {
     uint64_t ret = *((uint64_t*)buf);
     *((uint8_t*)&ret) &= 0x3f;
-    return be64toh(ret);
+    
+    #ifdef __APPLE__
+        return OSSwapBigToHostInt64(ret);
+    #else
+        return be64toh(ret);
+    #endif
 }
 
 size_t get_vlint(uint8_t* buf, uint8_t* len_size)
@@ -1087,6 +1105,11 @@ static probe* quic_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
     
+#ifdef __APPLE__
+    offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin);
+    offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
+#endif
+    
     probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
     if(!pb)
@@ -1095,7 +1118,7 @@ static probe* quic_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
     
-    if(loose_match) 
+    if(loose_match || tr_via_additional_raw_icmp_socket) 
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
     
     return pb;

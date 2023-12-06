@@ -184,13 +184,29 @@ const tr_module *tr_get_module(const char *name);
 void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos);
 uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender);
 
-uint16_t prepare_ancillary_data(struct iphdr* outer_ip, struct icmphdr* outer_icmp, struct iphdr* inner_ip, uint16_t inner_proto_hlen, struct msghdr* ret);
-uint16_t prepare_ancillary_data_v6(sockaddr_any* outer_ip, struct icmp6_hdr* outer_icmp, struct ip6_hdr* inner_ip, uint16_t inner_proto_hlen, struct msghdr* ret);
-
 #define TR_MODULE(MOD)    \
 static void __init_ ## MOD (void) __attribute__ ((constructor));    \
 static void __init_ ## MOD (void) {    \
                 \
     tr_register_module (&MOD);    \
 }
+
+#ifdef __APPLE__
+
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <net/route.h>
+#include <netinet/in.h>
+
+#define SALEN(sa) ((sa)->sa_len)
+#define roundup(x, y)   ((((x)+((y)-1))/(y))*(y))
+
+struct rtmsg {
+    struct rt_msghdr rtmsg;
+    uint8_t data[512];
+};
+
+const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from);
+
+#endif 
 

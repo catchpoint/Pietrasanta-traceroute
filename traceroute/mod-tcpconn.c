@@ -24,6 +24,8 @@
 
 #ifdef __APPLE__
 #include <string.h>
+#include "mac/icmp.h"
+#include "mac/ip.h"
 #endif
 
 static sockaddr_any dest_addr = {{ 0, }, };

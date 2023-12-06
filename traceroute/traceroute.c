@@ -33,8 +33,10 @@
 #include "mac/errqueue.h" 
 #include "mac/icmp.h"
 #include "mac/ip.h" 
+#include <dispatch/dispatch.h>
 #else
 #include <linux/errqueue.h>
+#include <semaphore.h>
 #endif
 
 /*  XXX: Remove this when things will be defined properly in netinet/ ...  */
@@ -45,7 +47,6 @@
 #include "traceroute.h"
 
 #include <pthread.h>
-#include <semaphore.h>
 
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
 #ifdef ICMP6_DST_UNREACH_NOTNEIGHBOR
@@ -146,7 +147,7 @@ static int backward = 0;
 static sockaddr_any dst_addr = {{ 0, }, };
 static char* dst_name = NULL;
 static char* device = NULL;
-static sockaddr_any src_addr = {{ 0, }, };
+sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
 static unsigned int overall_timeout = 0;
 static unsigned int timedout = 0;
@@ -162,117 +163,8 @@ static int extra_ping_ongoing = 0;
 static int last_hop_reached = 0;
 static void print_trailer();
 
-// This is taken from net/ipv4/icmp.c
-/* An array of errno for error messages from dest unreach. */
-/* RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'. */
-struct icmp_err {
-  int error;
-  unsigned int fatal;
-};
-
-const struct icmp_err icmp_err_convert[] = {
-    {
-        .error = ENETUNREACH,    /* ICMP_NET_UNREACH */
-        .fatal = 0,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_UNREACH */
-        .fatal = 0,
-    },
-    {
-        .error = ENOPROTOOPT    /* ICMP_PROT_UNREACH */,
-        .fatal = 1,
-    },
-    {
-        .error = ECONNREFUSED,    /* ICMP_PORT_UNREACH */
-        .fatal = 1,
-    },
-    {
-        .error = EMSGSIZE,    /* ICMP_FRAG_NEEDED */
-        .fatal = 0,
-    },
-    {
-        .error = EOPNOTSUPP,    /* ICMP_SR_FAILED */
-        .fatal = 0,
-    },
-    {
-        .error = ENETUNREACH,    /* ICMP_NET_UNKNOWN */
-        .fatal = 1,
-    },
-    {
-        .error = EHOSTDOWN,    /* ICMP_HOST_UNKNOWN */
-        .fatal = 1,
-    },
-    {
-        .error = 64,    /* ICMP_HOST_ISOLATED */
-        .fatal = 1,
-    },
-    {
-        .error = ENETUNREACH,    /* ICMP_NET_ANO    */
-        .fatal = 1,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_ANO */
-        .fatal = 1,
-    },
-    {
-        .error = ENETUNREACH,    /* ICMP_NET_UNR_TOS */
-        .fatal = 0,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_HOST_UNR_TOS */
-        .fatal = 0,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_PKT_FILTERED */
-        .fatal = 1,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_PREC_VIOLATION */
-        .fatal = 1,
-    },
-    {
-        .error = EHOSTUNREACH,    /* ICMP_PREC_CUTOFF */
-        .fatal = 1,
-    },
-};
-
-// Same but for IPv6 (see net/ipv6/icmp.c)
-static const struct icmp6_err {
-    int err;
-    int fatal;
-} tab_unreach[] = {
-    {    /* NOROUTE */
-        .err = ENETUNREACH,
-        .fatal = 0,
-    },
-    {    /* ADM_PROHIBITED */
-        .err = EACCES,
-        .fatal = 1,
-    },
-    {    /* Was NOT_NEIGHBOUR, now reserved */
-        .err = EHOSTUNREACH,
-        .fatal = 0,
-    },
-    {    /* ADDR_UNREACH    */
-        .err = EHOSTUNREACH,
-        .fatal = 0,
-    },
-    {    /* PORT_UNREACH    */
-        .err = ECONNREFUSED,
-        .fatal = 1,
-    },
-    {    /* POLICY_FAIL */
-        .err = EACCES,
-        .fatal = 1,
-    },
-    {    /* REJECT_ROUTE    */
-        .err = EACCES,
-        .fatal = 1,
-    },
-};
-
 int use_additional_raw_icmp_socket = 0;
+int tr_via_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
 int mtudisc = 0;
@@ -321,7 +213,11 @@ const struct icmp4_err icmp4_err_convert[] = {
         .fatal = 1,
     },
     {
+    #ifdef __APPLE__
+        .error = EHOSTDOWN,
+    #else
         .error = ENONET,    // ICMP_HOST_ISOLATED
+    #endif
         .fatal = 1,
     },
     {
@@ -401,7 +297,12 @@ static void print_end(void)
 
 struct timeval starttime;
 
-sem_t probe_semaphore;
+#ifdef __APPLE__
+    dispatch_semaphore_t probe_semaphore;
+#else
+    sem_t probe_semaphore;
+#endif
+
 pthread_t printer_thr;
 
 void ex_error(const char *format, ...) 
@@ -433,7 +334,7 @@ void error_or_perm(const char *str)
     error(str);
 }
 
-#define SYSCTL_PREFIX	"/proc/sys/net/ipv4/tcp_"
+#define SYSCTL_PREFIX    "/proc/sys/net/ipv4/tcp_"
 int check_sysctl(const char* name) 
 {
     int fd;
@@ -475,7 +376,11 @@ static void* printer(void* args)
     int replace_idx = 0;
     
     for(int idx = start; idx < end; idx++) {
+    #ifdef __APPLE__
+        dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
+    #else
         sem_wait(&probe_semaphore);
+    #endif
         
         probe* pb = &probes[idx];
 
@@ -1022,6 +927,11 @@ int main(int argc, char *argv[])
         data_len = MIN_DATA_LEN_QUIC;
 #endif
 
+#ifdef __APPLE__
+    tr_via_additional_raw_icmp_socket = 1;
+    use_additional_raw_icmp_socket = 1;
+#endif
+
     unsigned int saved_max_hops = max_hops;
     unsigned int saved_first_hop = first_hop;
     unsigned int saved_sim_probes = sim_probes;
@@ -1043,7 +953,11 @@ int main(int argc, char *argv[])
     if(!probes)
         error("calloc");
 
+#ifdef __APPLE__
+    probe_semaphore = dispatch_semaphore_create(0);
+#else
     sem_init(&probe_semaphore, 0, 0);
+#endif
 
     if(ops->options && opts_idx > 1) {
         opts[0] = strdup(module);        /*  aka argv[0] ...  */
@@ -1078,7 +992,11 @@ int main(int argc, char *argv[])
         if(!probes)
             error("calloc");
         
-        sem_init(&probe_semaphore, 0, 0); // Ignore the destination probes at the moment
+    #ifdef __APPLE__
+        probe_semaphore = dispatch_semaphore_create(0);
+    #else
+        sem_init(&probe_semaphore, 0, 0);  // Ignore the destination probes at the moment
+    #endif
     }
     
     if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
@@ -1529,7 +1447,11 @@ static void do_it(void)
                 if(currtime.tv_sec-starttime.tv_sec >= overall_timeout) {
                     if(n < end) {
                         probes[n].exit_please = 1;
-                        sem_post(&probe_semaphore);
+                        #ifdef __APPLE__
+                            dispatch_semaphore_signal(probe_semaphore);
+                        #else
+                            sem_post(&probe_semaphore);
+                        #endif
                     }
                     timedout = 1;
                     break;
@@ -1569,13 +1491,21 @@ static void do_it(void)
                         consecutive_probe_failures++;
                     else
                         consecutive_probe_failures = 0;
-                        
+                    
+                #ifdef __APPLE__
+                    dispatch_semaphore_signal(probe_semaphore);
+                #else
                     sem_post(&probe_semaphore);
+                #endif
                     
                     if(max_consecutive_hop_failures >= 0 && max_consecutive_hop_failures <= (consecutive_probe_failures/probes_per_hop)) {
                         if(n+1 < end) {
                             probes[n+1].exit_please = 1;
+                        #ifdef __APPLE__
+                            dispatch_semaphore_signal(probe_semaphore);
+                        #else
                             sem_post(&probe_semaphore);
+                        #endif
                         }
                         
                         if(strcmp(module, "tcpinsession") == 0)
@@ -1726,9 +1656,8 @@ void tune_socket(int sk)
 
     if(af == AF_INET) {
         i = dontfrag ? IP_PMTUDISC_PROBE : IP_PMTUDISC_DONT;
-        if(setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0 && (!dontfrag ||(i = IP_PMTUDISC_DO, setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0)))
-            error("setsockopt IP_MTU_DISCOVER");
-
+        /*if(setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0 && (!dontfrag ||(i = IP_PMTUDISC_DO, setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0)))
+            error("setsockopt IP_MTU_DISCOVER");*/
         if(tos) {
             i = tos;
             if(setsockopt(sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
@@ -2304,6 +2233,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     msg.msg_iovlen = 1;
 
     n = recvmsg(sk, &msg, err ? MSG_ERRQUEUE : 0);
+    
     if(n < 0)
         return;
 
@@ -2334,7 +2264,8 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         if(!pb)
             return;
         
-        if(!loose_match) // If we are not running in "Lose match mode" then the handle raw icmp is used only to assign the ToS to the probe, do not use it for anything more
+        // If we are not running in "Lose match mode" nor via re using the additional raw icmp socket to do traceroute, then the handle raw icmp is used only to assign the ToS to the probe, do not use it for anything more
+        if(!loose_match && !tr_via_additional_raw_icmp_socket)
             return;
         
         msg = cust_msg;
@@ -2560,10 +2491,10 @@ int do_send(int sk, const void *data, size_t len, const sockaddr_any *addr)
 {
     int res;
 
-    //if(!addr || raw_can_connect())
-    //    res = send(sk, data, len, 0);
-    //else
-        res = sendto(sk, data, len, 0, &addr->sa, sizeof(*addr));
+    if(!addr || raw_can_connect())
+        res = send(sk, data, len, 0);
+    else
+        res = sendto(sk, data, len, 0, &addr->sa, sizeof(struct sockaddr));
 
     if(res < 0) {
         if(errno == ENOBUFS || errno == EAGAIN)
@@ -2606,135 +2537,124 @@ int raw_can_connect(void)
 
 #ifdef __APPLE__
 
-#ifndef HAVE_SOCKADDR_SA_LEN
-static int salen(struct sockaddr *);
-#endif
-
 /*
  * Return the source address for the given destination address
+ * Original: https://opensource.apple.com/source/network_cmds/network_cmds-606.140.1/traceroute.tproj/findsaddr-socket.c.auto.html
  */
-const char *
-findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from)
+const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from)
 {
-	register struct rt_msghdr *rp;
-	register u_char *cp;
+    struct sockaddr_in* ifa;
+    struct sockaddr *sa;
+    
+    static char errbuf[512];
 
-	register struct sockaddr_in *sp, *ifa;
-	register struct sockaddr *sa;
-	register int s, size, cc, seq, i;
-	register pid_t pid;
-	static char errbuf[512];
+    int s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
+    if (s < 0) {
+        snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
+        return (errbuf);
+    }
 
-	s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
-	if (s < 0) {
-		snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
-		return (errbuf);
-	}
+    pid_t pid = getpid();
+    int seq = 0;
+    
+    struct rtmsg rtmsg;
+    memset(&rtmsg, 0, sizeof(rtmsg));
+    
+    struct rt_msghdr* rp = &rtmsg.rtmsg; // Points to the header
+    rp->rtm_type = RTM_GET;
+    rp->rtm_version = RTM_VERSION;
+    rp->rtm_flags = RTF_UP | RTF_GATEWAY | RTF_HOST | RTF_STATIC;
+    rp->rtm_addrs = RTA_DST | RTA_IFA;
+    rp->rtm_seq = ++seq;
+    rp->rtm_pid = pid;
+    
+    uint8_t* cp = rtmsg.data;
 
-	seq = 0;
-	pid = getpid();
+    // Fill the data with the destination address
+    struct sockaddr_in* sp = (struct sockaddr_in*)cp;
+    *sp = *to;
+    // align
+    int l = roundup(SALEN((struct sockaddr *)sp), sizeof(uint32_t));
+    cp += l;
 
-	rp = &rtmsg.rtmsg;
-	rp->rtm_seq = ++seq;
-	cp = (u_char *)(rp + 1);
+    int size = cp - (uint8_t*)rp; // Size is the length of the header plus the data
+    rp->rtm_msglen = size;
 
-	sp = (struct sockaddr_in *)cp;
-	*sp = *to;
-	cp += roundup(SALEN((struct sockaddr *)sp), sizeof(u_int32_t));
+    int cc = write(s, (char *)rp, size);
+    if(cc < 0) {
+        snprintf(errbuf, sizeof(errbuf), "write: %.128s", strerror(errno));
+        close(s);
+        return (errbuf);
+    }
+    
+    if(cc != size) {
+        snprintf(errbuf, sizeof(errbuf), "short write (%d != %d)", cc, size);
+        close(s);
+        return (errbuf);
+    }
 
-	size = cp - (u_char *)rp;
-	rp->rtm_msglen = size;
+    size = sizeof(rtmsg);
+    
+    // Read the answer
+    do {
+        memset(rp, 0, size);
+        cc = read(s, (char *)rp, size);
+        if(cc < 0) {
+            snprintf(errbuf, sizeof(errbuf), "read: %.128s", strerror(errno));
+            close(s);
+            return (errbuf);
+        }
+    } while(rp->rtm_seq != seq || rp->rtm_pid != pid); // Read until we get the message for us
+    
+    close(s);
 
-	cc = write(s, (char *)rp, size);
-	if (cc < 0) {
-		snprintf(errbuf, sizeof(errbuf), "write: %.128s", strerror(errno));
-		close(s);
-		return (errbuf);
-	}
-	if (cc != size) {
-		snprintf(errbuf, sizeof(errbuf), "short write (%d != %d)", cc, size);
-		close(s);
-		return (errbuf);
-	}
+    if(rp->rtm_version != RTM_VERSION) {
+        snprintf(errbuf, sizeof(errbuf), "bad version %d", rp->rtm_version);
+        return (errbuf);
+    }
+    
+    if(rp->rtm_msglen > cc) {
+        snprintf(errbuf, sizeof(errbuf), "bad msglen %d > %d", rp->rtm_msglen, cc);
+        return (errbuf);
+    }
+    
+    if(rp->rtm_errno != 0) {
+        snprintf(errbuf, sizeof(errbuf), "rtm_errno: %.128s", strerror(rp->rtm_errno));
+        return (errbuf);
+    }
 
-	size = sizeof(rtmsg);
-	do {
-		memset(rp, 0, size);
-		cc = read(s, (char *)rp, size);
-		if (cc < 0) {
-			snprintf(errbuf, sizeof(errbuf), "read: %.128s", strerror(errno));
-			close(s);
-			return (errbuf);
-		}
+    // Find the interface sockaddr
+    cp = (uint8_t *)(rp + 1); // Points to the answer's data
+    
+    for(int i = 1; i != 0; i <<= 1) {
+        if(i & rp->rtm_addrs) {
+            sa = (struct sockaddr *)cp;
+            switch(i) {
+                case RTA_IFA:
+                {
+                    if (sa->sa_family == AF_INET) {
+                        ifa = (struct sockaddr_in *)cp;
+                        if (ifa->sin_addr.s_addr != 0) {
+                            *from = *ifa;
+                            return NULL;
+                        }
+                    }
+                    break;
+                }
+                default:
+                {
+                    break;
+                }
+            }
 
-	} while (rp->rtm_seq != seq || rp->rtm_pid != pid);
-	close(s);
+            if (SALEN(sa) == 0)
+                cp += sizeof (uint32_t);
+            else
+                cp += roundup(SALEN(sa), sizeof (uint32_t));
+        }
+    }
 
-
-	if (rp->rtm_version != RTM_VERSION) {
-		snprintf(errbuf, sizeof(errbuf), "bad version %d", rp->rtm_version);
-		return (errbuf);
-	}
-	if (rp->rtm_msglen > cc) {
-		snprintf(errbuf, sizeof(errbuf), "bad msglen %d > %d", rp->rtm_msglen, cc);
-		return (errbuf);
-	}
-	if (rp->rtm_errno != 0) {
-		snprintf(errbuf, sizeof(errbuf), "rtm_errno: %.128s", strerror(rp->rtm_errno));
-		return (errbuf);
-	}
-
-printf("RTA_IFA is %d\n", RTA_IFA);
-
-	/* Find the interface sockaddr */
-	cp = (u_char *)(rp + 1);
-	for (i = 1; i != 0; i <<= 1)
-		if ((i & rp->rtm_addrs) != 0) {
-			sa = (struct sockaddr *)cp;
-			printf("i is %d\n", i);
-			switch (i) {
-
-			case RTA_IFA:
-				printf("family is %d (AF_INET is %d)\n", sa->sa_family, AF_INET);
-				if (sa->sa_family == AF_INET) {
-					ifa = (struct sockaddr_in *)cp;
-					if (ifa->sin_addr.s_addr != 0) {
-						*from = *ifa;
-						return (NULL);
-					}
-				}
-				break;
-
-			default:
-				break;
-				/* empty */
-			}
-
-			if (SALEN(sa) == 0)
-				cp += sizeof (u_int32_t);
-			else
-				cp += roundup(SALEN(sa), sizeof (u_int32_t));
-		}
-
-	return ("failed!");
+    return ("failed!");
 }
-
-#ifndef HAVE_SOCKADDR_SA_LEN
-static int
-salen(struct sockaddr *sa)
-{
-	switch (sa->sa_family) {
-
-	case AF_INET:
-		return (sizeof(struct sockaddr_in));
-
-	case AF_LINK:
-		return (sizeof(struct sockaddr_dl));
-
-	default:
-		return (sizeof(struct sockaddr));
-	}
-}
-#endif
 
 #endif

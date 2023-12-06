@@ -30,23 +30,21 @@ static sockaddr_any dest_addr = {{ 0, }, };
 static sockaddr_any source_addr = {{0, }, };
 static uint16_t seq = 1;
 static uint16_t ident = 0;
-
 static char *data;
 static size_t *length_p;
-
 static int icmp_sk = -1;
 static int raw_icmp_sk = -1; // cannot use icmp_sk because it is used with recverr (thus no full ICMP packet is received but only the payload of the offending ICMP packet)
 static int last_ttl = 0;
 static int raw = 0;
 static int dgram = 0;
+extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 static CLIF_option icmp_options[] = {
     { 0, "raw", 0, "Use raw sockets way only. Default is try this way first (probably not allowed for unprivileged users), then try dgram", CLIF_set_flag, &raw, 0, CLIF_EXCL },
     { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented by old kernels or restricted by sysadmins", CLIF_set_flag, &dgram, 0, CLIF_EXCL },
     CLIF_END_OPTION
 };
-
-extern int use_additional_raw_icmp_socket;
 
 static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *packet_len_p)
 {
@@ -114,8 +112,7 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
         ident = getpid() & 0xffff;
     }
 
-    if(!loose_match)
-        add_poll(icmp_sk, POLLIN | POLLERR);
+    add_poll(icmp_sk, POLLIN | POLLERR);
  
     if(use_additional_raw_icmp_socket) {
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
@@ -253,7 +250,12 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            recv_seq = ntohs(icmp_packet->icmp_seq);
+            #ifdef __APPLE__
+                recv_seq = ntohs(outer_icmp->un.echo.sequence);
+            #else
+                recv_seq = ntohs(outer_icmp->icmp_seq);
+            #endif
+            
             pb = probe_by_seq(recv_seq);
             
             if(!pb)
@@ -288,7 +290,7 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            recv_seq = ntohs(icmp_packet->icmp6_seq);
+            recv_seq = ntohs(outer_icmp->icmp6_seq);
             pb = probe_by_seq(recv_seq);
         
             if(!pb)
@@ -318,7 +320,7 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
     }
     
     probe_done(pb, &pb->icmp_done);
-    if(loose_match)
+    if(loose_match || tr_via_additional_raw_icmp_socket)
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, 0, ret, response_get->msg_name);
     
     return pb;
