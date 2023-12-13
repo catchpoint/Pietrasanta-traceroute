@@ -56,7 +56,7 @@ A way to use the provided binaries is the following:
 
 * Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/traceroute`
 * Provide executable permission (e.g. `chmod +x <binary>`)
-* Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`
+* Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (e.g. like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`.
 * Ensure that openssl3 libraries are available in the system. For example for ubuntu 22.04 they should be installed by default. See `OpenSSL 3 dependency` section for more information about that.
 
 ### Building with docker
