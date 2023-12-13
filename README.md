@@ -52,9 +52,9 @@ This tool should build and run on any Linux system running a kernel version 2.6 
 
 Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
 
-A way to use the provided binaries is the following
+A way to use the provided binaries is the following:
 
-* Download the binary
+* Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/traceroute`
 * Provide executable permission (e.g. `chmod +x <binary>`)
 * Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`
 * Ensure that openssl3 libraries are available in the system. For example for ubuntu 22.04 they should be installed by default. See `OpenSSL 3 dependency` section for more information about that.
