@@ -1,6 +1,21 @@
 #!/bin/bash
 
-# Sample usage: ./build.sh - --clean --build -openssl3=<openssl3 folder>
+usage()
+{
+    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms> [--openssl3=<openssl3_folder>]"
+    echo -e "\n--openssl3: openssl3_folder is the absolute path to a folder containing OpenSSL3 code. If not provided traceroute will be comopiled without OpenSSL3 support (thus QUIC will not be available)."
+    echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
+    echo -e "--build: Build traceroute binaries for the provided platforms."
+    echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
+    echo -e "\talpine3.15: Alpine 3.15"
+    echo -e "\tcentos7: CentOS 7.9"
+    echo -e "\tdebian11: Debian 11"
+    echo -e "\tubuntu22: Ubuntu 22.04"
+    echo -e "\tBy default all are enabled (\"centos7 debian11 ubuntu22 alpine3.15\")"
+    echo -e "\n"
+    echo -e "Example: $0 - --build --clean --openssl3=/home/user/openssl3"
+    echo -e "\n"
+}
 
 clean_folder()
 {
@@ -84,7 +99,7 @@ build()
     else
         if [ ! -e "$OPENSSL3_FOLDER" ]
         then
-            echo "openssl3 folder ${$OPENSSL3_FOLDER} does not exist"
+            echo "openssl3 folder ${OPENSSL3_FOLDER} does not exist."
             exit 1
         fi
     fi
@@ -140,7 +155,7 @@ while true; do
         --clean)
             CLEAN=1; shift ;;
         --help)
-            echo "Usage: $0 - --clean --build -openssl3=<openssl3 folder>"
+            usage
             exit 0 ;;
         --platform)
             PLATFORM=$2; shift 2 ;;
@@ -150,6 +165,12 @@ while true; do
             echo "Internal error!" >&2; exit 2 ;;
     esac
 done
+
+if [ $BUILD -eq 0 ] && [ $CLEAN -eq 0 ]
+then
+    usage
+    exit 1
+fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
 echo "OPENSSL3_FOLDER=${OPENSSL3_FOLDER}"

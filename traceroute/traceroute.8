@@ -33,7 +33,7 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--tcpinsession" "]
 .br
 .ti +8
-.BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
+.BR "" [ "--ecn=num" "] [" "--dscp=num" "]
 .br
 .ti +8
 .BR "" [ "--quic ]
@@ -227,21 +227,25 @@ by each probe too).
 For TCP and others specifies just the (constant) destination
 port to connect.
 .TP
-.BI \-t " tos" ", --tos=" tos
+.BI \-t " tos" ", --tos=" num
 For IPv4, set the Type of Service (TOS) and Precedence value. Useful values
 are 16 (low delay) and 8 (high throughput). Note that in order to use
-some TOS precedence values, you have to be super user.
+some TOS precedence values, you have to be super user. 
+This option excludes --ecn and -dscp. Allowed values are between
+0 and 255. 
 .br
 For IPv6, set the Traffic Control value.
 .TP
-.BI \-\-ecn=ecn
+.BI \-\-ecn=num
 Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
 be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
-report the ECN value for each expiring probe.
+report the ECN value for each expiring probe. This option excludes -t (--tos) and
+might be used in conjunction with --dscp. Allowed values are between 0 and 3.
 .TP
 .BI \-\-dscp=dscp
-Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
-0 to 63.
+Set the DSCP value in the Type of Service (TOS) field.
+This option excludes -t (--tos) and might be used in conjunction with --ecn.
+Allowed values are between 0 and 63.
 .TP
 .BI \-l " flow_label" ", --flowlabel=" flow_label
 Use specified flow_label for IPv6 packets.
