@@ -809,7 +809,7 @@ unsigned int compute_data_len(int packet_len)
 static void print_header(void) 
 {
     /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    printf("traceroute to %s(%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
     
     if(overall_timeout > 0)
         printf("%us overall timeout", overall_timeout);
