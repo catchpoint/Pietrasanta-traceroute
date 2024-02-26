@@ -437,6 +437,39 @@ int tcp_need_extra_ping()
     return 0;
 }
 
+int tcp_setup_extra_ping()
+{
+    int i = 0;
+    if(dest_addr.sa.sa_family == AF_INET) {
+        if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
+            error("setsockopt IP_TOS");
+    } else if(dest_addr.sa.sa_family == AF_INET6) {
+        // For IPv6 things are a little bit more complicated because for
+        // some reaason on CentOS7 setting again IPV6_TCLASS does not have
+        // effect. So here we open a dedicated socket just to perform the
+        // check about "Classic ECN"
+        int extra_ping_sk = socket(AF_INET6, SOCK_RAW, IPPROTO_TCP);
+        if(extra_ping_sk < 0)
+            error_or_perm("extra_ping_sk: socket");
+
+        // Setup the dedicated socket by forcing tos = 0
+        int save_tos = tos;
+        tos = 0;
+        tune_socket(extra_ping_sk);
+        tos = save_tos;
+
+        if(connect(extra_ping_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+            error("connect");
+
+        close(raw_sk);
+        raw_sk = extra_ping_sk; // in this way do_it() will use the new socket
+        add_poll(raw_sk, POLLIN | POLLERR);
+    } else {
+        ex_error("Unhandled family %d\n", dest_addr.sa.sa_family);
+    }
+    return 0;
+}
+
 static tr_module tcp_ops = {
     .name = "tcp",
     .init = tcp_init,
