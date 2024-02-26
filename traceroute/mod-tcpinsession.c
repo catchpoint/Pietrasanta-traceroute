@@ -340,9 +340,11 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
     (*counter_pointer)++;
     
     uint8_t* ts_ptr = ((uint8_t*)th)+ts_value_offset;
-    uint32_t val = htonl(*((uint32_t*)ts_ptr));
-    val++;
-    *((uint32_t*)ts_ptr) = htonl(val);
+    if(ts_value_offset > 0) {
+        uint32_t val = htonl(*((uint32_t*)ts_ptr));
+        val++;
+        *((uint32_t*)ts_ptr) = htonl(val);
+    }
     *lenp = htons(*length_p); 
     th->check = 0;
     th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
