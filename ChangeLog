@@ -1,3 +1,9 @@
+2024-02-26  Luca Sani  <lsani@catchpoint.com> - 0.1.8
+    *  Fix "Classic ECN" check over IPv6
+        
+       Classic ECN check over IPv6 failed because IP_TOS was used to reset the
+       ToS to zero, while IPV6_TCLASS is needed.
+    
 2023-12-13  Luca Sani  <lsani@catchpoint.com> - 0.1.7
     *  Fix/corroborate help and manpage
     
