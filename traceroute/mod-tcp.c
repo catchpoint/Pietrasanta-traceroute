@@ -468,7 +468,6 @@ int tcp_setup_extra_ping()
         ex_error("Unhandled family %d\n", dest_addr.sa.sa_family);
     }
     return 0;
-
 }
 
 static tr_module tcp_ops = {
