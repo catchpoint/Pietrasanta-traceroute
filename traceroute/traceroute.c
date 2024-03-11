@@ -2085,7 +2085,6 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
         int err = 0;
         uint32_t info = 0;
         int has_recv_err = 1;
-        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr)); // This will be useful later
         switch(outer_icmp->icmp6_type)
         {
             case ICMP6_ECHO_REPLY:
@@ -2146,11 +2145,13 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
         // 1. Fill the offender address of the IP_RECVERR data
         // Since we do not have the IP header, we need to rely on the offender given in input.
         // Note that the "offender" given in input is contained into ret->msg_name, so we need to use it before overwriting ret->msg_name at point 2.
+        struct ip6_hdr* inner_ip = NULL;
         if(has_recv_err) {
             data_ip_recv_err_offender->sin6_family = AF_INET6; 
             memcpy(data_ip_recv_err_offender->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof((data_ip_recv_err_offender->sin6_addr.s6_addr)));
             
             // Return the expected payload
+            inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
             uint8_t* payload_ptr = ((uint8_t*)inner_ip + sizeof(struct ip6_hdr) + inner_proto_hlen);
             memcpy(ret->msg_iov->iov_base, payload_ptr, ret->msg_iov->iov_len);
             
