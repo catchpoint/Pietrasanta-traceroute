@@ -1,3 +1,8 @@
+2024-03-11  Luca Sani  <lsani@catchpoint.com> - 0.1.9
+    *  Fix LooseMatch mode on IPv6
+        
+       Fix segfault always happening in LosseMatch mode on IPv6.
+       
 2024-02-26  Luca Sani  <lsani@catchpoint.com> - 0.1.9
     *  Fix "Classic ECN" check over IPv6
         
