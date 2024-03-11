@@ -2085,7 +2085,7 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
         int err = 0;
         uint32_t info = 0;
         int has_recv_err = 1;
-        struct ip6_hdr* inner_ip = NULL; // This will be useful later
+        struct ip6_hdr* inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr)); // This will be useful later
         switch(outer_icmp->icmp6_type)
         {
             case ICMP6_ECHO_REPLY:
@@ -2093,7 +2093,6 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
                 // No IPV6_RECVERR in case of ECHO REPLY
                 has_recv_err = 0;
                 ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6)); // Do not return the ee if there is no error (this would be a mistake)
-                inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
                 break;
             }
             case ICMP6_TIME_EXCEEDED:
