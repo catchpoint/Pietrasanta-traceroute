@@ -1,4 +1,4 @@
-2024-03-11  Luca Sani  <lsani@catchpoint.com> - 0.1.9
+2024-03-11  Luca Sani  <lsani@catchpoint.com> - 0.1.10
     *  Fix LooseMatch mode on IPv6
         
        Fix segfault always happening in LosseMatch mode on IPv6.
