@@ -377,7 +377,7 @@ static void* printer(void* args)
             }
             return NULL;
         }
-
+        
         print_probe(pb);
 
         if(pb->done && pb->final) {
@@ -494,7 +494,6 @@ static char addr2str_buf[INET6_ADDRSTRLEN];
 static const char *addr2str(const sockaddr_any *addr) 
 {
     getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-
     return addr2str_buf;
 }
 
@@ -951,6 +950,8 @@ int main(int argc, char *argv[])
         if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
             exit(2);
     }
+    
+    print_header();
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
         ex_error("trace method's init failed");
@@ -1009,8 +1010,6 @@ int main(int argc, char *argv[])
         
         data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
     }
-    
-    print_header();
 
     do_it();
 
@@ -1069,7 +1068,7 @@ static void print_addr(sockaddr_any *res)
         char buf[1024];
 
         buf[0] = '\0';
-        
+
         if(do_not_resolve_due_to_timeout == 0)
             getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
         printf(" %s (%s)", buf[0] ? buf : str, str);
@@ -1100,7 +1099,6 @@ void print_probe(probe *pb)
         printf(" *");
     } else {
         int prn = !np;    /*  print if the first...  */
-
         if(np) {        /*  ...and if differs with previous   */
             probe *p;
 
@@ -1113,7 +1111,6 @@ void print_probe(probe *pb)
 
         if(prn) {
             print_addr(&pb->res);
-
             if(pb->ext) {
                 printf(" <%s>", pb->ext);
                 free(pb->ext);
@@ -1126,13 +1123,13 @@ void print_probe(probe *pb)
                     printf(" '-%d'", hops);
             }
         }
-        
+
         if(pb->proto_details != NULL) {
             printf(" <%s>", pb->proto_details);
             free(pb->proto_details);
             pb->proto_details = NULL;
         }
-        
+
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
@@ -1186,7 +1183,7 @@ void print_probe(probe *pb)
     fflush(stdout);
 }
 
-/*    Compute  timeout  stuff        */
+/*    Compute timeout stuff   */
 static double get_timeout(probe *pb) 
 {
     double value;

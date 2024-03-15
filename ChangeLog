@@ -1,3 +1,16 @@
+2024-03-15  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.11
+    *  Show MSS sent by destination
+    
+       Traceroute TCP and TCP InSession now show the content of MSS shared by the
+       destination when then option mss is set. 
+       
+       We added to the TCP InSession output an additional header showing the RTT, 
+       the flags (lower letters, only if option info has been set), the MSS value 
+       (only if option mss has been set) and the SACK capability (only if option 
+       sack has been set). 
+       
+       We also added the same support to TCP.
+
 2024-03-11  Luca Sani  <lsani@catchpoint.com> - 0.1.10
     *  Fix LooseMatch mode on IPv6
         
