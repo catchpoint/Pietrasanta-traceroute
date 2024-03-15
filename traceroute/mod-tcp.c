@@ -16,10 +16,11 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
+#include <stdio.h>
 #include "common-tcp.h"
 
 #ifndef IP_MTU
-#define IP_MTU    14
+#define IP_MTU 14
 #endif
 
 static sockaddr_any dest_addr = {{ 0, }, };
@@ -335,20 +336,17 @@ static void tcp_send_probe(probe* pb, int ttl)
     pb->dest.sin.sin_port = dest_port; // valid also for IPv6 as we have a union
     memcpy(&pb->src, &src, sizeof(src));
     pb->src.sin.sin_port = addr.sin.sin_port; // valid also for IPv6 as we have a union
-    
-    return;
 }
-
 
 static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len)
 {
     probe* pb;
     struct tcphdr* tcp = (struct tcphdr*) buf;
-    uint16_t sport, dport;
+    uint16_t sport = 0;
+    uint16_t dport = 0;
 
     if(len < 8)
         return NULL;        /*  too short   */
-
 
     if(err) {
         sport = tcp->source;
@@ -365,19 +363,55 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         return NULL;
 
     pb = probe_by_seq (sport);
-    if(!pb)  return NULL;
-
+    if(!pb)
+        return NULL;
 
     if(!err) {
         pb->final = 1;
 
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
+        
+        if(mss > 0) {
+            int length = (th->doff * 4) - sizeof(struct tcphdr);
+            const unsigned char* ptr = (const unsigned char*)(tcp + 1);
+            
+            while(length > 0) {
+                int opcode = *ptr++;
+                if(opcode == 0) // End of options (EOL)
+                    break;
+                    
+                if(opcode == 1) // NOP with no length
+                    continue;
+                
+                uint8_t size = *ptr++;
+                if(opcode == 2) {
+                    uint16_t mss_received = ntohs(*(uint16_t*)ptr);
+                    
+                    if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
+                        char str[100] = {};    /*  enough...  */
+                        sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
+                        free(pb->ext);
+                        pb->ext = strdup(str);
+                    } else {
+                        char str[10] = {};    /*  enough...  */
+                        sprintf(str, "MSS:%d", mss_received);
+                        pb->ext = strdup(str);
+                    }
+                    break; // Only need MSS from options
+                }
+
+                if(size < 2)
+                    break;
+
+                ptr += (size - 2);
+                length -= size;
+            }
+        }
     }
 
     return pb;
 }
-
 
 static void tcp_recv_probe(int sk, int revents)
 {
