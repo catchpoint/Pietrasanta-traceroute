@@ -162,6 +162,10 @@ int mtudisc = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
 
+static unsigned int saved_max_hops = -1;
+static unsigned int saved_first_hop = -1;
+static unsigned int saved_sim_probes = -1;
+
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
 
@@ -916,17 +920,16 @@ int main(int argc, char *argv[])
 
     data_len = compute_data_len(packet_len);
 
+    saved_max_hops = max_hops;
+    saved_first_hop = first_hop;
+    saved_sim_probes = sim_probes;
+    
     if(mtudisc) {
         dontfrag = 1;
         sim_probes = 1;
         data_len = compute_data_len(MAX_PACKET_LEN);
     }
-
-    unsigned int saved_max_hops = max_hops;
-    unsigned int saved_first_hop = first_hop;
-    unsigned int saved_sim_probes = sim_probes;
-    unsigned int saved_data_len = data_len;
-    
+  
     if(strcmp(module, "tcpinsession") == 0) {
         max_hops = 255;
         first_hop = 255;
@@ -966,20 +969,19 @@ int main(int argc, char *argv[])
         
         if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
             tcpinsession_print_allowed = 1;
-                
+        
+        memset(probes, 0x0, sizeof(*probes)*num_probes); // Reset the content of all probes used so far
+
+        if(!mtudisc)
+            sim_probes = saved_sim_probes; // In case of mtudisc we still need to use 1 probe for the initial part of the algorithm
+
+        data_len = compute_data_len(packet_len); // After the pre-send, restore the probe size to whatever the user decided (or the default)
+        last_probe = -1;
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
-        sim_probes = saved_sim_probes;
-        data_len = saved_data_len;
-        last_probe = -1;
-        
-        free(probes);
-        
-        num_probes = max_hops * probes_per_hop;
-        probes = calloc(num_probes, sizeof(*probes));
-        if(!probes)
-            error("calloc");
-        
+        num_probes = max_hops * probes_per_hop; // Recompute the max probes with the original value of "max_hops"
+
+        destination_reached = 0;
         sem_init(&probe_semaphore, 0, 0); // Ignore the destination probes at the moment
     }
     
@@ -1453,7 +1455,7 @@ static void do_it(void)
                     if(overall_mtu > mtu_value)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
-                    sim_probes = DEF_SIM_PROBES;
+                    sim_probes = saved_sim_probes;
                     data_len = compute_data_len(packet_len); // We found the bottleneck hop, we can restart doing simulatneous traceroute sending probes of the default size or the one provided in input
                 }
             }
