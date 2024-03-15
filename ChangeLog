@@ -1,3 +1,11 @@
+2024-03-15  Luca Sani  <lsani@catchpoint.com> - 0.1.12
+    *  Fix Simultaneous probe reset after MTU discovery
+    
+       After MTU discovery found the bottleneck hop, the number of simultaneous
+       probes is reset to the value given input. In addition to that, we fixed
+       also a condition for which the Max Hops given in input were not respected
+       when doing MTU discovery.
+       
 2024-03-15  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.11
     *  Show MSS sent by destination
     
