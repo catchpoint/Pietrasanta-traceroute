@@ -989,6 +989,8 @@ int main(int argc, char *argv[])
         ex_error("printer thread creation failed");
 
     if(mtudisc) {
+        data_len = compute_data_len(MAX_PACKET_LEN);
+        
         int i = 0;
         while(!probes[0].final) {
             i++;
