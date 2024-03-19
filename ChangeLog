@@ -3,6 +3,8 @@
     
        Fixed issue while running path MTU on TCP InSession.
        
+       Introduced check on boundaries for the integer options of the tool.
+       
        Added missing info on TCP InSession output in the manual.
 
 2024-03-15  Luca Sani  <lsani@catchpoint.com> - 0.1.12
