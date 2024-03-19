@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 #include "clif.h"
 
@@ -262,7 +263,7 @@ static void err_bad_arg(const CLIF_option* optn, char c, int n)
     err_report("%s `%s' (argc %d) requires an argument: `%s'", (c || !is_keyword (optn)) ? "Option" : "Keyword", ss, n, s);
 }
     
-static void err_bad_res(const CLIF_option* optn, char c, const char* opt_arg, int n) 
+static void err_bad_res(const CLIF_option* optn, char c, const char* opt_arg, int n, int err) 
 {
     CLIF_option tmp = *optn;
     char* ss = NULL;
@@ -278,10 +279,13 @@ static void err_bad_res(const CLIF_option* optn, char c, const char* opt_arg, in
         type = is_keyword (optn) ? "keyword" : "option";
     }
 
+    char err_str[16];
+    sprintf(err_str, "%s", (err == -2) ? "Out of bound" : "Cannot handle");
+    
     if(optn->arg_name)
-        err_report("Cannot handle `%s' %s with arg `%s' (argc %d)", ss, type, opt_arg, n);
+        err_report("%s `%s' %s with arg `%s' (argc %d)", err_str, ss, type, opt_arg, n);
     else
-        err_report("Cannot handle `%s' %s (argc %d)", ss, type, n);
+        err_report("%s `%s' %s (argc %d)", err_str, ss, type, n);
 }
 
 static void err_bad_excl(const CLIF_option* optn, char c, int n) 
@@ -570,8 +574,9 @@ int CLIF_parse_cmdline(int argc, char *argv[], CLIF_option *option_list, CLIF_ar
             }
         }
 
-        if(call_function(optn, opt_arg, sym) < 0) {
-            err_bad_res(optn, 0, opt_arg, i);
+        int err = call_function(optn, opt_arg, sym);
+        if(err < 0) {
+            err_bad_res(optn, 0, opt_arg, i, err);
             return -1;
         }
 
@@ -653,8 +658,9 @@ int CLIF_parse_cmdline(int argc, char *argv[], CLIF_option *option_list, CLIF_ar
                 }
             }
 
-            if(call_function (optn, opt_arg, sym) < 0) {
-                err_bad_res (optn, optn->short_opt[0], opt_arg, i);
+            int err = call_function(optn, opt_arg, sym);
+            if(err < 0) {
+                err_bad_res(optn, optn->short_opt[0], opt_arg, i, err);
                 return -1;
             }
 
@@ -1134,7 +1140,7 @@ static int set_uint(unsigned int* data, char* arg)
     return (q == arg || *q) ? -1 : 0;
 }
 
-static int set_uint16(uint64_t* data, char* arg)
+static int set_uint16(uint32_t* data, char* arg)
 {
     char *q;
 
