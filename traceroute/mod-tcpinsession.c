@@ -256,7 +256,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     if(SACK_permitted == 0) {
         close(sk);
         close(raw_sk);
-        ex_error("TCP SACK not permitted from destination");
+        ex_error("\nTCP SACK not permitted from destination");
     }
     
     socklen_t len;
