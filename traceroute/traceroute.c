@@ -739,7 +739,7 @@ static CLIF_option option_list[] = {
     { "t", "tos", "num", "Set the TOS (IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn. Allowed values are between 0 and 255", CLIF_set_uint, &tos_input_value, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
-    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint, &overall_timeout, 0, 0 },
+    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint16, &overall_timeout, 0, 0 },
     { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },

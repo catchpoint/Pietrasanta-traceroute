@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 #include "clif.h"
 
@@ -242,7 +243,7 @@ static void err_bad_arg (const CLIF_option *optn, char c, int n) {
 }
 	
 static void err_bad_res (const CLIF_option *optn, char c,
-					const char *opt_arg, int n) {
+					const char *opt_arg, int n, int err) {
 	CLIF_option tmp = *optn;
 	char *ss;
 	const char *type;
@@ -257,9 +258,14 @@ static void err_bad_res (const CLIF_option *optn, char c,
 	    type = is_keyword (optn) ? "keyword" : "option";
 	}
 
-	if (optn->arg_name)
-	    err_report ("Cannot handle `%s' %s with arg `%s' (argc %d)",
+	if (optn->arg_name) {
+	    if(err == -2)
+            err_report ("Out of bound `%s' %s with arg `%s' (argc %d)",
 							ss, type, opt_arg, n);
+        else
+	        err_report ("Cannot handle `%s' %s with arg `%s' (argc %d)",
+							ss, type, opt_arg, n);
+    }
 	else
 	    err_report ("Cannot handle `%s' %s (argc %d)", ss, type, n);
 }
@@ -565,9 +571,9 @@ int CLIF_parse_cmdline (int argc, char *argv[],
 		   
 	    }
 
-
-	    if (call_function (optn, opt_arg, sym) < 0) {
-		err_bad_res (optn, 0, opt_arg, i);
+        int err = call_function (optn, opt_arg, sym);
+	    if (err < 0) {
+		err_bad_res (optn, 0, opt_arg, i, err);
 		return -1;
 	    }
 
@@ -664,8 +670,9 @@ int CLIF_parse_cmdline (int argc, char *argv[],
 		    }
 		}
 
-		if (call_function (optn, opt_arg, sym) < 0) {
-		    err_bad_res (optn, optn->short_opt[0], opt_arg, i);
+        int err = call_function (optn, opt_arg, sym);
+		if (err < 0) {
+		    err_bad_res (optn, optn->short_opt[0], opt_arg, i, err);
 		    return -1;
 		}
 
@@ -1101,159 +1108,181 @@ void CLIF_print_usage (const char *header, const char *progname,
 }
 
 
-int CLIF_current_help (void) {
+int CLIF_current_help(void)
+{
+    if(!curr.argc)
+        return -1; /*  i.e., not inited...  */
 
-	if (!curr.argc)  return -1;	/*  i.e., not inited...  */
+    CLIF_print_usage("Usage:", curr.argv[0], curr.option_list, curr.argument_list);
 
-	CLIF_print_usage ("Usage:", curr.argv[0], curr.option_list,
-							curr.argument_list);
+    if(curr.option_list)
+        CLIF_print_options("Options:", curr.option_list);
 
-	if (curr.option_list)
-		CLIF_print_options ("Options:", curr.option_list);
-	
-	if (curr.argument_list)
-		CLIF_print_arguments ("\nArguments:", curr.argument_list);
+    if(curr.argument_list)
+        CLIF_print_arguments("\nArguments:", curr.argument_list);
 
-	return 0;
+    return 0;
 }
-
 
 /*  Common useful option handlers.  */
 
-int CLIF_version_handler (CLIF_option *optn, char *arg) {
+int CLIF_version_handler(CLIF_option* optn, char* arg)
+{
+    if(!optn->data)
+        return -1;
 
-	if (!optn->data)  return -1;
+    fprintf(stderr, "%s\n", ((char *)optn->data));
 
-	fprintf (stderr, "%s\n", ((char *) optn->data));
-
-	return 0;	/*  be happy   */
-}
-	
-
-int CLIF_set_flag (CLIF_option *optn, char *arg) {
-
-	if (!optn->data)  return -1;
-
-	*((int *) optn->data) = 1;
-
-	return 0;
+    return 0; /*  be happy   */
 }
 
+int CLIF_set_flag(CLIF_option* optn, char* arg) {
 
-int CLIF_unset_flag (CLIF_option *optn, char *arg) {
+    if(!optn->data)
+        return -1;
 
-	if (!optn->data)  return -1;
+    *((int *)optn->data) = 1;
 
-	*((int *) optn->data) = 0;
-
-	return 0;
+    return 0;
 }
 
+int CLIF_unset_flag(CLIF_option* optn, char* arg)
+{
+    if(!optn->data)
+        return -1;
 
-static int set_string (char **data, char *arg) {
+    *((int *)optn->data) = 0;
 
-	if (!data)  return -1;
-
-	*data = arg;
-
-	return 0;
+    return 0;
 }
 
-int CLIF_set_string (CLIF_option *optn, char *arg) {
+static int set_string (char** data, char* arg)
+{
+    if(!data)
+        return -1;
 
-	return  set_string (optn->data, arg);
+    *data = arg;
+    return 0;
 }
 
-int CLIF_arg_string (CLIF_argument *argm, char *arg, int index) {
-
-	return  set_string (argm->data, arg);
+int CLIF_set_string(CLIF_option* optn, char* arg)
+{
+    return set_string(optn->data, arg);
 }
 
-
-static int set_int (int *data, char *arg) {
-	char *q;
-
-	if (!data)  return -1;
-
-	*data = (int) strtol (arg, &q, 0);
-
-	return  (q == arg || *q) ? -1 : 0;
+int CLIF_arg_string(CLIF_argument* argm, char* arg, int index)
+{
+    return set_string(argm->data, arg);
 }
 
-static int set_uint (unsigned int *data, char *arg) {
-	char *q;
+static int set_int(int *data, char *arg)
+{
+    char *q;
 
-	if (!data)  return -1;
+    if(!data) 
+        return -1;
 
-	*data = (unsigned int) strtoul (arg, &q, 0);
+    *data = (int)strtol(arg, &q, 0);
 
-	return  (q == arg || *q) ? -1 : 0;
+    return (q == arg || *q) ? -1 : 0;
 }
 
-static int set_double (double *data, char *arg) {
-	char *q;
+static int set_uint(unsigned int* data, char* arg)
+{
+    char *q;
 
-	if (!data)  return -1;
+    if(!data)
+        return -1;
 
-	*data = strtod (arg, &q);
+    *data = (unsigned int)strtoul(arg, &q, 0);
 
-	return  (q == arg || *q) ? -1 : 0;
+    return (q == arg || *q) ? -1 : 0;
 }
 
+static int set_uint16(uint64_t* data, char* arg)
+{
+    char *q;
 
-int CLIF_set_int (CLIF_option *optn, char *arg) {
+    if(!data)
+        return -1;
 
-	return  set_int (optn->data, arg);
+    *data = (uint32_t)strtoull(arg, &q, 0);
+
+    if(q == arg || *q)
+        return -1;
+
+    if(*data > UINT16_MAX)
+        return -2;
+
+    return  0;
 }
 
-int CLIF_set_uint (CLIF_option *optn, char *arg) {
-
-	return  set_uint (optn->data, arg);
+static int set_double (double* data, char* arg)
+{
+    char *q;
+    if(!data)
+        return -1;
+    *data = strtod(arg, &q);
+    
+    return (q == arg || *q) ? -1 : 0;
 }
 
-int CLIF_set_double (CLIF_option *optn, char *arg) {
-
-	return  set_double (optn->data, arg);
+int CLIF_set_int(CLIF_option* optn, char* arg)
+{
+    return set_int(optn->data, arg);
 }
 
-int CLIF_arg_int (CLIF_argument *argm, char *arg, int index) {
-
-	return  set_int (argm->data, arg);
+int CLIF_set_uint(CLIF_option* optn, char* arg)
+{
+    return set_uint(optn->data, arg);
 }
 
-int CLIF_arg_uint (CLIF_argument *argm, char *arg, int index) {
-
-	return  set_uint (argm->data, arg);
+int CLIF_set_uint16(CLIF_option* optn, char* arg)
+{
+    return set_uint16(optn->data, arg);
 }
 
-int CLIF_arg_double (CLIF_argument *argm, char *arg, int index) {
-
-	return  set_double (argm->data, arg);
+int CLIF_set_double(CLIF_option* optn, char* arg)
+{
+    return set_double(optn->data, arg);
 }
 
-
-int CLIF_call_func (CLIF_option *optn, char *arg) {
-
-	if (!optn->data)  return -1;
-
-	if (optn->arg_name) {
-	    int (*func) (char *) = optn->data;
-
-	    return  func (arg);
-	} else {
-	    int (*func) (void) = optn->data;
-
-	    return  func ();
-	}
+int CLIF_arg_int(CLIF_argument* argm, char* arg, int index)
+{
+    return  set_int(argm->data, arg);
 }
 
-int CLIF_arg_func (CLIF_argument *argm, char *arg, int index) {
-	int (*func) (char *, int);
+int CLIF_arg_uint(CLIF_argument* argm, char* arg, int index)
+{
+    return set_uint(argm->data, arg);
+}
 
-	if (!argm->data)  return -1;
+int CLIF_arg_double(CLIF_argument *argm, char *arg, int index)
+{
+    return set_double(argm->data, arg);
+}
 
-	func = (int (*) (char *, int)) argm->data;
+int CLIF_call_func(CLIF_option* optn, char* arg)
+{
+    if(!optn->data)
+        return -1;
 
-	return  func (arg, index);
+    if(optn->arg_name) {
+        int (*func)(char *) = optn->data;
+        return func (arg);
+    } else {
+        int (*func)(void) = optn->data;
+        return func ();
+    }
+}
+
+int CLIF_arg_func(CLIF_argument* argm, char* arg, int index)
+{
+    int (*func)(char *, int);
+    if(!argm->data)
+        return -1;
+
+    func = (int (*)(char*, int))argm->data;
+    return func (arg, index);
 }
 
