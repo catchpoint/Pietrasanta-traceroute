@@ -1,6 +1,12 @@
 /*
+    Copyright (c)  2024             Catchpoint Systems, Inc.    
+    Copyright (c)  2024             Alessandro Improta, Luca Sani
+                    <aimprota@catchpoint.com>    
+                    <lsani@catchpoint.com>
+                    
     Copyright (c)  2000, 2003        Dmitry Butskoy
                     <buc@citadel.stu.neva.ru>
+                    
     License:  LGPL v2.1 or any later
 
     See COPYING.LIB for the status of this software.
@@ -986,10 +992,7 @@ void CLIF_print_usage(const char* header, const char* progname, const CLIF_optio
 
         /*  third, print all another...  */
 
-        for(optn = option_list;
-            optn->short_opt || optn->long_opt;
-            optn++
-        ) {
+        for(optn = option_list; optn->short_opt || optn->long_opt; optn++) {
             if(optn->flags & CLIF_EXTRA)
                 continue;
 
@@ -1076,7 +1079,7 @@ int CLIF_set_flag(CLIF_option* optn, char* arg) {
     if(!optn->data)
         return -1;
 
-    *((int *)optn->data) = 1;
+    *((int*)optn->data) = 1;
 
     return 0;
 }
@@ -1086,7 +1089,7 @@ int CLIF_unset_flag(CLIF_option* optn, char* arg)
     if(!optn->data)
         return -1;
 
-    *((int *)optn->data) = 0;
+    *((int*)optn->data) = 0;
 
     return 0;
 }
@@ -1112,7 +1115,7 @@ int CLIF_arg_string(CLIF_argument* argm, char* arg, int index)
 
 static int set_int(int *data, char *arg)
 {
-    char *q;
+    char* q = NULL;
 
     if(!data) 
         return -1;
@@ -1124,7 +1127,7 @@ static int set_int(int *data, char *arg)
 
 static int set_uint(unsigned int* data, char* arg)
 {
-    char *q;
+    char* q = NULL;
 
     if(!data)
         return -1;
@@ -1136,7 +1139,7 @@ static int set_uint(unsigned int* data, char* arg)
 
 static int set_uint16(uint64_t* data, char* arg)
 {
-    char *q;
+    char* q = NULL;
 
     if(!data)
         return -1;
@@ -1154,9 +1157,11 @@ static int set_uint16(uint64_t* data, char* arg)
 
 static int set_double (double* data, char* arg)
 {
-    char *q;
+    char* q = NULL;
+    
     if(!data)
         return -1;
+        
     *data = strtod(arg, &q);
     
     return (q == arg || *q) ? -1 : 0;
@@ -1184,7 +1189,7 @@ int CLIF_set_double(CLIF_option* optn, char* arg)
 
 int CLIF_arg_int(CLIF_argument* argm, char* arg, int index)
 {
-    return  set_int(argm->data, arg);
+    return set_int(argm->data, arg);
 }
 
 int CLIF_arg_uint(CLIF_argument* argm, char* arg, int index)
@@ -1203,21 +1208,22 @@ int CLIF_call_func(CLIF_option* optn, char* arg)
         return -1;
 
     if(optn->arg_name) {
-        int (*func)(char *) = optn->data;
-        return func (arg);
+        int (*func)(char*) = optn->data;
+        return func(arg);
     } else {
         int (*func)(void) = optn->data;
-        return func ();
+        return func();
     }
 }
 
 int CLIF_arg_func(CLIF_argument* argm, char* arg, int index)
 {
-    int (*func)(char *, int);
+    int (*func)(char*, int);
+    
     if(!argm->data)
         return -1;
 
     func = (int (*)(char*, int))argm->data;
-    return func (arg, index);
+    return func(arg, index);
 }
 
