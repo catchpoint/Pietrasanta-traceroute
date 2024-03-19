@@ -481,7 +481,7 @@ probe sent. Note that when running in TCP mode, the source port of the probe sen
 by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
 Note also that the source TCP port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
-Note that in TCP and Tcp InSession mode the destination port is preserved
+Note that in TCP and TCP InSession mode the destination port is preserved
 across probes.
 Note also that the source TCP port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
@@ -584,7 +584,7 @@ and all is done. For active listening ports we receive tcp syn+ack, but
 answer by tcp reset (instead of expected tcp ack), this way the remote tcp
 session is dropped even without the application ever taking notice.
 .P
-There is a couple of options for
+There are a few options for
 .I tcp
 method:
 .TP
@@ -635,9 +635,7 @@ for maxseg tcp header option (when
 .B info
 Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
-other useful things. This option is valid also for
-.BR tcpinsession
-mode.
+other useful things.
 .TP
 .B acc-ecn
 Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
@@ -718,17 +716,30 @@ The default destination port is 80.
 This method prevents false packet loss introduced by firewall and router configurations related to
 security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
 .P
-With this method most of the usual TCP options are not available, because probes being sent are data probes.
-Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes. The only option
-available for this method is the
-.BR info
-option which behaves exacly like the 
-.BR tcp
-option.
-.P
 This method uses the connect() syscall to open the session with the destination,
 thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
 the TCP handshake.
+.P
+Differently from other methods, 
+.I tcpinsession
+will show an additional first line containing the RTT related to the initial TCP handshake, as well as the TCP info requested
+via the options described hereafter.
+.P
+Please bear in mind that with this method most of the usual TCP options are not available because probes being sent are data probes.
+Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes.
+The options available for
+.I tcpinsession
+method are the following:
+.TP
+.B sack
+Show whether the other party supports SACK or not in the syn/ack received from the destination during the initial TCP handshake.
+.TP
+.B mss
+Show the value of maxseg tcp header option found in the syn/ack received from the destination during the initial TCP handshake.
+.TP
+.B info
+Print tcp flags found in the syn/ack received from the destination during the initial TCP handshake.
+.br
 
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
