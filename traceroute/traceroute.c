@@ -144,6 +144,9 @@ static double send_secs = DEF_SEND_SECS;
 static int overall_mtu = -1;
 static int reliable_overall_mtu = 0;
 static int backward = 0;
+#ifdef SO_MARK
+static unsigned int fwmark = 0;
+#endif
 static sockaddr_any dst_addr = {{ 0, }, };
 static char* dst_name = NULL;
 static char* device = NULL;
