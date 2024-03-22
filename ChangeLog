@@ -1,3 +1,11 @@
+2024-03-22  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.14
+            Luca Sani  <lsani@catchpoint.com> - 0.1.14
+            
+    *  MacOS support (partial)
+    
+       Introduced the possibility to run on MacOS platform, for the moment with
+       the limitation that TCP and TCP InSession modes are not yet supported.
+       
 2024-03-19  Luca Sani  <lsani@catchpoint.com> - 0.1.13
     *  Minor fixes
     

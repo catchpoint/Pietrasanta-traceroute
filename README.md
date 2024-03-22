@@ -50,6 +50,8 @@ make install
 
 This tool should build and run on any Linux system running a kernel version 2.6 or higher. This includes systems running on containers, VMs and on the Windows Subsystem for Linux (WSL).
 
+Since version 0.1.14 this tool should also work on MacOS, with the limitation that TCP and TCP InSession mode are not yet available.
+
 Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
 
 A way to use the provided binaries is the following:
