@@ -1,7 +1,7 @@
 /*
     Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
     
-    Copyright(c)  2012        Samuel Jero <sj323707@ohio.edu>
+    Copyright(c)  2012   Samuel Jero <sj323707@ohio.edu>
     License:  GPL v2 or any later
 
     See COPYING for the status of this software.

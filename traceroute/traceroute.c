@@ -1655,9 +1655,14 @@ void tune_socket(int sk)
     bind_socket(sk);
 
     if(af == AF_INET) {
+      #ifdef __APPLE__
+        if(dontfrag && setsockopt(sk, IPPROTO_IP, IP_DONTFRAG, &i, sizeof(i)) < 0)
+            error("setsockopt IP_DONTFRAG");
+      #else
         i = dontfrag ? IP_PMTUDISC_PROBE : IP_PMTUDISC_DONT;
-        /*if(setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0 && (!dontfrag ||(i = IP_PMTUDISC_DO, setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0)))
-            error("setsockopt IP_MTU_DISCOVER");*/
+        if(setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0 && (!dontfrag ||(i = IP_PMTUDISC_DO, setsockopt(sk, SOL_IP, IP_MTU_DISCOVER, &i, sizeof(i)) < 0)))
+            error("setsockopt IP_MTU_DISCOVER");
+      #endif
         if(tos) {
             i = tos;
             if(setsockopt(sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
@@ -2233,7 +2238,6 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
     msg.msg_iovlen = 1;
 
     n = recvmsg(sk, &msg, err ? MSG_ERRQUEUE : 0);
-    
     if(n < 0)
         return;
 
