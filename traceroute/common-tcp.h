@@ -1,3 +1,13 @@
+/*
+    Copyright (c)  2024             Catchpoint Systems, Inc.    
+    Copyright (c)  2024             Alessandro Improta, Luca Sani
+                    <aimprota@catchpoint.com>    
+                    <lsani@catchpoint.com>    
+    License:  GPL v2 or any later
+
+    See COPYING for the status of this software.
+*/
+
 #ifndef COMMON_TCP_H
 #define COMMON_TCP_H
 

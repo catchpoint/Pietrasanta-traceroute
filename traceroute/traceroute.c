@@ -95,7 +95,7 @@
 #define DEF_DATA_LEN 40    /*  all but IP header...  */
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
 #ifdef HAVE_OPENSSL3
-#define MIN_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#define DEF_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
 #endif
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
@@ -173,6 +173,10 @@ int loose_match = 0;
 int mtudisc = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
+
+static unsigned int saved_max_hops = -1;
+static unsigned int saved_first_hop = -1;
+static unsigned int saved_sim_probes = -1;
 
 // The following tables are inspired from kernel 3.10 (net/ipv4/icmp.c and net/ipv6/icmp.c)
 // RFC 1122: 3.2.2.1 States that NET_UNREACH, HOST_UNREACH and SR_FAILED MUST be considered 'transient errs'.
@@ -293,6 +297,8 @@ const struct icmp6_err icmp6_err_convert[] = {
 extern int quic_print_dest_rtt_mode;
 #endif
 
+unsigned int compute_data_len(int packet_len);
+
 static void print_end(void) 
 {
     printf("\n");
@@ -400,7 +406,7 @@ static void* printer(void* args)
             }
             return NULL;
         }
-
+        
         print_probe(pb);
 
         if(pb->done && pb->final) {
@@ -517,7 +523,6 @@ static char addr2str_buf[INET6_ADDRSTRLEN];
 static const char *addr2str(const sockaddr_any *addr) 
 {
     getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-
     return addr2str_buf;
 }
 
@@ -746,21 +751,21 @@ static CLIF_option option_list[] = {
     { "6", 0, 0, "Use IPv6", set_af, (void *) 6, 0, 0 },
     { "d", "debug", 0, "Enable socket level debugging", CLIF_set_flag, &debug, 0, 0 },
     { "F", "dont-fragment", 0, "Do not fragment packets", CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
-    { "f", "first", "first_ttl", "Start from the %s hop (instead from 1)", CLIF_set_uint, &first_hop, 0, 0 },
+    { "f", "first", "first_ttl", "Start from the %s hop (instead from 1)", CLIF_set_uint16, &first_hop, 0, 0 },
     { "g", "gateway", "gate", "Route packets through the specified gateway (maximum " _TEXT(MAX_GATEWAYS_4) " for IPv4 and " _TEXT(MAX_GATEWAYS_6) " for IPv6)", add_gateway, 0, 0, CLIF_SEVERAL },
-    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting", CLIF_set_uint, &max_consecutive_hop_failures, 0, 0 },
+    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting", CLIF_set_uint16, &max_consecutive_hop_failures, 0, 0 },
     { "I", "icmp", 0, "Use ICMP ECHO for tracerouting", set_module, "icmp", 0, 0 },
     { "i", "interface", "device", "Specify a network interface to operate with", CLIF_set_string, &device, 0, 0 },
     { "m", "max-hops", "max_ttl", "Set the max number of hops (max TTL to be reached). Default is " _TEXT(DEF_HOPS) ,
-            CLIF_set_uint, &max_hops, 0, 0 },
-    { "N", "sim-queries", "squeries", "Set the number of probes to be tried simultaneously (default is " _TEXT(DEF_SIM_PROBES) ")", CLIF_set_uint, &sim_probes, 0, 0 },
+            CLIF_set_uint16, &max_hops, 0, 0 },
+    { "N", "sim-queries", "squeries", "Set the number of probes to be tried simultaneously (default is " _TEXT(DEF_SIM_PROBES) ")", CLIF_set_uint16, &sim_probes, 0, 0 },
     { "n", 0, 0, "Do not resolve IP addresses to their domain names", CLIF_set_flag, &noresolve, 0, 0 },
     { "p", "port", "port", "Set the destination port to use. It is either initial udp port value for \"default\" method(incremented by each probe, default is " _TEXT(DEF_START_PORT) "), or initial seq for \"icmp\"(incremented as well, default from 1), or some constant destination port for other methods(with default of " _TEXT(DEF_TCP_PORT) " for \"tcp\", " _TEXT(DEF_UDP_PORT) " for \"udp\", etc.)", set_port, &dst_port_seq, 0, 0 },
-    { "t", "tos", "tos", "Set the TOS(IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn", CLIF_set_uint, &tos_input_value, 0, 0 },
-    { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint, &flow_label, 0, 0 },
+    { "t", "tos", "num", "Set the TOS (IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn. Allowed values are between 0 and 255", CLIF_set_uint16, &tos_input_value, 0, 0 },
+    { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint16, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
-    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint, &overall_timeout, 0, 0 },
-    { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint, &probes_per_hop, 0, 0 },
+    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint16, &overall_timeout, 0, 0 },
+    { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint16, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
     { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
@@ -771,7 +776,7 @@ static CLIF_option option_list[] = {
     { "O", "options", "OPTS", "Use module-specific option %s for the traceroute module. Several %s allowed, separated by comma. If %s is \"help\", print info about available options", set_mod_option, 0, 0, CLIF_SEVERAL | CLIF_EXTRA },
     { 0, "sport", "num", "Use source port %s for outgoing packets. Implies `-N 1'", set_port, &src_port, 0, CLIF_EXTRA },
 #ifdef SO_MARK
-    { 0, "fwmark", "num", "Set firewall mark for outgoing packets", CLIF_set_uint, &fwmark, 0, 0 },
+    { 0, "fwmark", "num", "Set firewall mark for outgoing packets", CLIF_set_uint16, &fwmark, 0, 0 },
 #endif
     { "U", "udp", 0, "Use UDP to particular port for tracerouting (instead of increasing the port per each probe), default port is " _TEXT(DEF_UDP_PORT), set_module, "udp", 0, CLIF_EXTRA },
     { 0, "UL", 0, "Use UDPLITE for tracerouting(default dest port is " _TEXT(DEF_UDP_PORT) ")", set_module, "udplite", 0, CLIF_ONEDASH|CLIF_EXTRA },
@@ -780,8 +785,8 @@ static CLIF_option option_list[] = {
     { 0, "mtu", 0, "Discover MTU along the path being traced. Implies `-F -N 1'", CLIF_set_flag, &mtudisc, 0, CLIF_EXTRA },
     { 0, "back", 0, "Guess the number of hops in the backward path and print if it differs", CLIF_set_flag, &backward, 0, CLIF_EXTRA },
     { 0, "tcpinsession", 0, "Run in TCP InSession mode", set_module, "tcpinsession", 0, 0 },
-    { 0, "dscp", "dscp", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn", CLIF_set_uint, &dscp_input_value, 0, 0 },
-    { 0, "ecn", "ecn", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp", CLIF_set_uint, &ecn_input_value, 0, 0 },
+    { 0, "dscp", "num", "Set the DSCP bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --ecn. Allowed values are between 0 and 63", CLIF_set_uint16, &dscp_input_value, 0, 0 },
+    { 0, "ecn", "num", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp. Allowed values are between 0 and 3", CLIF_set_uint16, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
     { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
@@ -796,11 +801,43 @@ static CLIF_argument arg_list[] = {
     CLIF_END_ARGUMENT
 };
 
+unsigned int compute_data_len(int packet_len)
+{
+    int data_len = 0;
+    
+    if(packet_len < 0) {
+     #ifdef HAVE_OPENSSL3
+        if(strcmp(module, "quic") == 0) {
+            data_len = DEF_DATA_LEN_QUIC;
+        } else if(strcmp(module, "tcpinsession") == 0) {
+            data_len = DEF_DATA_LEN_TCPINSESSION;
+        } else {
+            if(DEF_DATA_LEN >= ops->header_len)
+                data_len = DEF_DATA_LEN - ops->header_len;
+        }
+    #else
+        if(strcmp(module, "tcpinsession") == 0) {
+            data_len = DEF_DATA_LEN_TCPINSESSION;
+        } else {
+            if(DEF_DATA_LEN >= ops->header_len)
+                data_len = DEF_DATA_LEN - ops->header_len;
+        }
+    #endif
+    } else {
+        if(packet_len >= header_len)
+            data_len = packet_len - header_len;
+        else
+            data_len = packet_len;
+    }
+    
+    return data_len;
+}
+
 /*    PRINT  STUFF        */
 static void print_header(void) 
 {
     /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    printf("traceroute to %s(%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
     
     if(overall_timeout > 0)
         printf("%us overall timeout", overall_timeout);
@@ -906,40 +943,23 @@ int main(int argc, char *argv[])
 
     header_len = (af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr)) + rtbuf_len + ops->header_len;
 
+    data_len = compute_data_len(packet_len);
+
+    saved_max_hops = max_hops;
+    saved_first_hop = first_hop;
+    saved_sim_probes = sim_probes;
+    
     if(mtudisc) {
         dontfrag = 1;
         sim_probes = 1;
-        if(packet_len < 0)
-            packet_len = MAX_PACKET_LEN;
+        data_len = compute_data_len(MAX_PACKET_LEN);
     }
-
-    if(packet_len < 0) {
-        if(strcmp(module, "tcpinsession") != 0) {
-            if(DEF_DATA_LEN >= ops->header_len)
-                data_len = DEF_DATA_LEN - ops->header_len;
-        } else {
-            data_len = DEF_DATA_LEN_TCPINSESSION;
-        }
-    } else {
-        if(packet_len >= header_len)
-            data_len = packet_len - header_len;
-    }
-    
-#ifdef HAVE_OPENSSL3
-    if(!mtudisc && strcmp(module, "quic") == 0)
-        data_len = MIN_DATA_LEN_QUIC;
-#endif
 
 #ifdef __APPLE__
     tr_via_additional_raw_icmp_socket = 1;
     use_additional_raw_icmp_socket = 1;
 #endif
 
-    unsigned int saved_max_hops = max_hops;
-    unsigned int saved_first_hop = first_hop;
-    unsigned int saved_sim_probes = sim_probes;
-    size_t saved_data_len = data_len;
-    
     if(strcmp(module, "tcpinsession") == 0) {
         max_hops = 255;
         first_hop = 255;
@@ -967,6 +987,8 @@ int main(int argc, char *argv[])
         if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
             exit(2);
     }
+    
+    print_header();
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
         ex_error("trace method's init failed");
@@ -981,31 +1003,33 @@ int main(int argc, char *argv[])
         
         if(last_probe == -1) // The destination did not reply with any TCP message back to our gaps
             tcpinsession_print_allowed = 1;
-                
+        
+        memset(probes, 0x0, sizeof(*probes)*num_probes); // Reset the content of all probes used so far
+
+        if(!mtudisc)
+            sim_probes = saved_sim_probes; // In case of mtudisc we still need to use 1 probe for the initial part of the algorithm
+
+        data_len = compute_data_len(packet_len); // After the pre-send, restore the probe size to whatever the user decided (or the default)
+        last_probe = -1;
         max_hops = saved_max_hops;
         first_hop = saved_first_hop;
-        sim_probes = saved_sim_probes;
-        data_len = saved_data_len;
-        last_probe = -1;
-        
-        free(probes);
-        
-        num_probes = max_hops * probes_per_hop;
-        probes = calloc(num_probes, sizeof(*probes));
-        if(!probes)
-            error("calloc");
-        
-    #ifdef __APPLE__
+
+        num_probes = max_hops * probes_per_hop; // Recompute the max probes with the original value of "max_hops"
+
+        destination_reached = 0;
+      #ifdef __APPLE__
         probe_semaphore = dispatch_semaphore_create(0);
-    #else
+      #else
         sem_init(&probe_semaphore, 0, 0);  // Ignore the destination probes at the moment
-    #endif
+      #endif
     }
     
     if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
         ex_error("printer thread creation failed");
 
     if(mtudisc) {
+        data_len = compute_data_len(MAX_PACKET_LEN);
+        
         int i = 0;
         while(!probes[0].final) {
             i++;
@@ -1027,10 +1051,8 @@ int main(int argc, char *argv[])
 
         memset(&probes[0], 0x0, sizeof(probe));
         
-        data_len = saved_data_len;
+        data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
     }
-    
-    print_header();
 
     do_it();
 
@@ -1089,7 +1111,7 @@ static void print_addr(sockaddr_any *res)
         char buf[1024];
 
         buf[0] = '\0';
-        
+
         if(do_not_resolve_due_to_timeout == 0)
             getnameinfo(&res->sa, sizeof(*res), buf, sizeof(buf), 0, 0, NI_IDN);
         printf(" %s (%s)", buf[0] ? buf : str, str);
@@ -1120,7 +1142,6 @@ void print_probe(probe *pb)
         printf(" *");
     } else {
         int prn = !np;    /*  print if the first...  */
-
         if(np) {        /*  ...and if differs with previous   */
             probe *p;
 
@@ -1133,7 +1154,6 @@ void print_probe(probe *pb)
 
         if(prn) {
             print_addr(&pb->res);
-
             if(pb->ext) {
                 printf(" <%s>", pb->ext);
                 free(pb->ext);
@@ -1146,13 +1166,13 @@ void print_probe(probe *pb)
                     printf(" '-%d'", hops);
             }
         }
-        
+
         if(pb->proto_details != NULL) {
             printf(" <%s>", pb->proto_details);
             free(pb->proto_details);
             pb->proto_details = NULL;
         }
-        
+
         if(tos_input_value >= 0 && !pb->final) {
             uint8_t ecn = pb->returned_tos & 3;
             uint8_t dscp = ((pb->returned_tos - ecn) >> 2);
@@ -1206,7 +1226,7 @@ void print_probe(probe *pb)
     fflush(stdout);
 }
 
-/*    Compute  timeout  stuff        */
+/*    Compute timeout stuff   */
 static double get_timeout(probe *pb) 
 {
     double value;
@@ -1480,8 +1500,8 @@ static void do_it(void)
                     if(overall_mtu > mtu_value)
                         overall_mtu = mtu_value;
                     dontfrag = 0;
-                    sim_probes = DEF_SIM_PROBES;
-                    data_len = (strcmp(module, "tcpinsession") == 0) ? DEF_DATA_LEN_TCPINSESSION : DEF_DATA_LEN - ops->header_len;
+                    sim_probes = saved_sim_probes;
+                    data_len = compute_data_len(packet_len); // We found the bottleneck hop, we can restart doing simulatneous traceroute sending probes of the default size or the one provided in input
                 }
             }
 
@@ -2121,7 +2141,6 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
         int err = 0;
         uint32_t info = 0;
         int has_recv_err = 1;
-        struct ip6_hdr* inner_ip = NULL; // This will be useful later
         switch(outer_icmp->icmp6_type)
         {
             case ICMP6_ECHO_REPLY:
@@ -2129,7 +2148,6 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
                 // No IPV6_RECVERR in case of ECHO REPLY
                 has_recv_err = 0;
                 ret->msg_controllen -= CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(struct sockaddr_in6)); // Do not return the ee if there is no error (this would be a mistake)
-                inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
                 break;
             }
             case ICMP6_TIME_EXCEEDED:
@@ -2183,11 +2201,13 @@ uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hle
         // 1. Fill the offender address of the IP_RECVERR data
         // Since we do not have the IP header, we need to rely on the offender given in input.
         // Note that the "offender" given in input is contained into ret->msg_name, so we need to use it before overwriting ret->msg_name at point 2.
+        struct ip6_hdr* inner_ip = NULL;
         if(has_recv_err) {
             data_ip_recv_err_offender->sin6_family = AF_INET6; 
             memcpy(data_ip_recv_err_offender->sin6_addr.s6_addr, ((struct sockaddr_in6*)offender)->sin6_addr.s6_addr, sizeof((data_ip_recv_err_offender->sin6_addr.s6_addr)));
             
             // Return the expected payload
+            inner_ip = (struct ip6_hdr*) (bufp + sizeof(struct icmp6_hdr));
             uint8_t* payload_ptr = ((uint8_t*)inner_ip + sizeof(struct ip6_hdr) + inner_proto_hlen);
             memcpy(ret->msg_iov->iov_base, payload_ptr, ret->msg_iov->iov_len);
             

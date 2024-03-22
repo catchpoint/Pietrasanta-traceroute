@@ -10,6 +10,7 @@ ADD Make.rules traceroute/
 ADD Make.defines traceroute/
 ADD default.rules traceroute/
 ADD VERSION traceroute/
+RUN mkdir /openssl
 COPY placeholder_openssl openssl* /openssl
 ADD compile.sh /
 RUN chmod +x ./compile.sh

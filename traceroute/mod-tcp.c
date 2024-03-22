@@ -18,7 +18,6 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
-
 #ifdef __APPLE__
 #include "mac/icmp.h"
 #include "mac/ip.h"
@@ -26,11 +25,11 @@
 #include <string.h>
 #include <stdio.h>
 #endif
-
+#include <stdio.h>
 #include "common-tcp.h"
 
 #ifndef IP_MTU
-#define IP_MTU    14
+#define IP_MTU 14
 #endif
 
 static sockaddr_any dest_addr = {{ 0, }, };
@@ -72,7 +71,7 @@ static CLIF_option tcp_options[] = {
     { 0, "window_scaling", 0, "window_scaling option for tcp", set_tcp_option, (void*)OPT_WSCALE, 0, CLIF_ABBREV },
     { 0, "sysctl", 0, "Use current sysctl (/proc/sys/net/*) setting for the tcp options and ecn/acc_ecn. Always set by default (with \"syn\") if nothing else specified", CLIF_set_flag, &sysctl, 0, 0 },
     { 0, "reuse", 0, "Allow to reuse local port numbers for the huge workloads (SO_REUSEADDR)", CLIF_set_flag, &reuse, 0, 0 },
-    { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint, &mss, 0, 0 },
+    { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint16, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     CLIF_END_OPTION
@@ -389,19 +388,17 @@ static void tcp_send_probe(probe* pb, int ttl)
     pb->dest.sin.sin_port = dest_port; // valid also for IPv6 as we have a union
     memcpy(&pb->src, &src, sizeof(sockaddr_any));
     pb->src.sin.sin_port = addr.sin.sin_port; // valid also for IPv6 as we have a union
-    
-    return;
 }
 
 static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len)
 {
     probe* pb;
     struct tcphdr* tcp = (struct tcphdr*) buf;
-    uint16_t sport, dport;
+    uint16_t sport = 0;
+    uint16_t dport = 0;
 
     if(len < 8)
         return NULL;        /*  too short   */
-
 
     #ifdef __APPLE__
         if(err) {
@@ -428,14 +425,51 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         return NULL;
 
     pb = probe_by_seq (sport);
-    if(!pb)  return NULL;
-
+    if(!pb)
+        return NULL;
 
     if(!err) {
         pb->final = 1;
 
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
+        
+        if(mss > 0) {
+            int length = (th->doff * 4) - sizeof(struct tcphdr);
+            const unsigned char* ptr = (const unsigned char*)(tcp + 1);
+            
+            while(length > 0) {
+                int opcode = *ptr++;
+                if(opcode == 0) // End of options (EOL)
+                    break;
+                    
+                if(opcode == 1) // NOP with no length
+                    continue;
+                
+                uint8_t size = *ptr++;
+                if(opcode == 2) {
+                    uint16_t mss_received = ntohs(*(uint16_t*)ptr);
+                    
+                    if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
+                        char str[100] = {};    /*  enough...  */
+                        sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
+                        free(pb->ext);
+                        pb->ext = strdup(str);
+                    } else {
+                        char str[10] = {};    /*  enough...  */
+                        sprintf(str, "MSS:%d", mss_received);
+                        pb->ext = strdup(str);
+                    }
+                    break; // Only need MSS from options
+                }
+
+                if(size < 2)
+                    break;
+
+                ptr += (size - 2);
+                length -= size;
+            }
+        }
     }
 
     return pb;
@@ -510,10 +544,34 @@ int tcp_need_extra_ping()
 int tcp_setup_extra_ping()
 {
     int i = 0;
-    if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
-        error("setsockopt IP_TOS");
-    return 0;
+    if(dest_addr.sa.sa_family == AF_INET) {
+        if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
+            error("setsockopt IP_TOS");
+    } else if(dest_addr.sa.sa_family == AF_INET6) {
+        // For IPv6 things are a little bit more complicated because for
+        // some reaason on CentOS7 setting again IPV6_TCLASS does not have
+        // effect. So here we open a dedicated socket just to perform the
+        // check about "Classic ECN"
+        int extra_ping_sk = socket(AF_INET6, SOCK_RAW, IPPROTO_TCP);
+        if(extra_ping_sk < 0)
+            error_or_perm("extra_ping_sk: socket");
 
+        // Setup the dedicated socket by forcing tos = 0
+        int save_tos = tos;
+        tos = 0;
+        tune_socket(extra_ping_sk);
+        tos = save_tos;
+
+        if(connect(extra_ping_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+            error("connect");
+
+        close(raw_sk);
+        raw_sk = extra_ping_sk; // in this way do_it() will use the new socket
+        add_poll(raw_sk, POLLIN | POLLERR);
+    } else {
+        ex_error("Unhandled family %d\n", dest_addr.sa.sa_family);
+    }
+    return 0;
 }
 
 static tr_module tcp_ops = {

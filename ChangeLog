@@ -1,3 +1,56 @@
+2024-03-19  Luca Sani  <lsani@catchpoint.com> - 0.1.13
+    *  Minor fixes
+    
+       Fixed issue while running path MTU on TCP InSession.
+       
+       Introduced check on boundaries for the integer options of the tool.
+       
+       Added missing info on TCP InSession output in the manual.
+
+2024-03-15  Luca Sani  <lsani@catchpoint.com> - 0.1.12
+    *  Fix Simultaneous probe reset after MTU discovery
+    
+       After MTU discovery found the bottleneck hop, the number of simultaneous
+       probes is reset to the value given input. In addition to that, we fixed
+       also a condition for which the Max Hops given in input were not respected
+       when doing MTU discovery.
+       
+2024-03-15  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.11
+    *  Show MSS sent by destination
+    
+       Traceroute TCP and TCP InSession now show the content of MSS shared by the
+       destination when then option mss is set. 
+       
+       We added to the TCP InSession output an additional header showing the RTT, 
+       the flags (lower letters, only if option info has been set), the MSS value 
+       (only if option mss has been set) and the SACK capability (only if option 
+       sack has been set). 
+       
+       We also added the same support to TCP.
+
+2024-03-11  Luca Sani  <lsani@catchpoint.com> - 0.1.10
+    *  Fix LooseMatch mode on IPv6
+        
+       Fix segfault always happening in LooseMatch mode on IPv6.
+       
+2024-02-26  Luca Sani  <lsani@catchpoint.com> - 0.1.9
+    *  Fix "Classic ECN" check over IPv6
+        
+       Classic ECN check over IPv6 failed because IP_TOS was used to reset the
+       ToS of extra pings to zero, while IPV6_TCLASS is needed.
+    
+2024-02-23  Alessandro Improta  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.8
+    *  TCP InSession bug fix
+    
+        Fixed a bug happening whenever the destination did not reply to TCP 
+        InSession with TIMESTAMP option set.
+        
+2023-12-13  Luca Sani  <lsani@catchpoint.com> - 0.1.7
+    *  Fix/corroborate help and manpage
+    
+2023-11-24  Luca Sani  <lsani@catchpoint.com> - 0.1.6
+    *  Bugfix on PMTU with QUIC and TcpInSession with PMTU not reaching destination
+    
 2023-11-16  Luca Sani  <lsani@catchpoint.com> - 0.1.5
     *  Introduce ECN and AccECN check at TCP level
         

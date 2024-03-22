@@ -60,6 +60,7 @@ static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static unsigned mss_received = 0;
+static unsigned int mss = 0;
 static int info = 0;
 
 extern int use_additional_raw_icmp_socket;
@@ -70,9 +71,13 @@ uint32_t seq_num = 0;
 uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
+int SACK_permitted = 0;
+int sack = 0;
 
 static CLIF_option tcp_options[] = {
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
+    { 0, "mss", 0, "Show maxseg tcp option proposed by the destination during handshake,", CLIF_set_flag, &mss, 0, 0 },
+    { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -126,9 +131,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     memset(&response_src_addr, 0, sizeof(response_src_addr));
     socklen_t src_addr_len = sizeof(response_src_addr);
     
+    double recv_time = 0;
+    struct tcphdr* response_tcp_hdr = NULL;
+    
     do {
         if((received = recvfrom(raw_sk, ack_buf, sizeof(ack_buf), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
-            struct tcphdr* response_tcp_hdr = NULL;
+            recv_time = get_time();
+            response_tcp_hdr = NULL;
             uint8_t* opt_ptr = NULL;
             uint16_t option_len = 0;
             
@@ -183,7 +192,8 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 seq_num = initial_seq_num;
                 ack_num = ntohl(response_tcp_hdr->seq)+1;
 #endif          
-                int SACK_permitted = 0;
+                
+                SACK_permitted = 0;
                 for(uint16_t i = 0; i < option_len; i++) {
                     uint8_t opt_kind = *opt_ptr;
                     if(opt_kind == TCPOPT_EOL)
@@ -219,12 +229,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                         break;
                     }
                 }
-                
-                if(SACK_permitted == 0) {
-                    close(sk);
-                    close(raw_sk);
-                    ex_error("TCP SACK not permitted from destination");
-                }
             }
         } else {
             if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
@@ -238,6 +242,44 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         close(sk);
         close(raw_sk);
         ex_error("Cannot complete initial TCP handshake");
+    }
+    
+    double diff = (recv_time - connect_starttime) * 1000;
+    
+    printf("\nhand  %.3f ms", diff);
+    
+    char* res = NULL;
+    
+    if(info && response_tcp_hdr)
+        res = names_by_flags(get_th_flags(response_tcp_hdr));
+   
+    if(res && strlen(res) > 0) {
+        if(mss > 0 && mss_received > 0) {
+            if(sack > 0 && SACK_permitted > 0)
+                printf(" <%s,MSS:%d,SACK>", res, mss_received);
+            else
+                printf(" <%s,MSS:%d>", res, mss_received);
+        } else {
+            if(sack > 0 && SACK_permitted > 0)
+                printf(" <%s,SACK>", res);
+            else
+                printf(" <%s>", res);
+        }
+    } else if(sack > 0 && SACK_permitted > 0) {
+        printf(" <MSS:%d,SACK>", mss_received);
+    } else if(mss > 0) {
+        printf(" <MSS:%d>", mss_received);
+    }
+    
+    fflush(stdout);
+    
+    if(res != NULL)
+        free(res);
+                
+    if(SACK_permitted == 0) {
+        close(sk);
+        close(raw_sk);
+        ex_error("\nTCP SACK not permitted from destination");
     }
     
     socklen_t len;
@@ -359,11 +401,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(raw_icmp_sk < 0)
             error_or_perm("raw icmp socket");
         
-        lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
-        
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
     
+    lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
+        
     return 0;
 }
 
@@ -384,9 +426,11 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
     (*counter_pointer)++;
     
     uint8_t* ts_ptr = ((uint8_t*)th)+ts_value_offset;
-    uint32_t val = htonl(*((uint32_t*)ts_ptr));
-    val++;
-    *((uint32_t*)ts_ptr) = htonl(val);
+    if(ts_value_offset > 0) {
+        uint32_t val = htonl(*((uint32_t*)ts_ptr));
+        val++;
+        *((uint32_t*)ts_ptr) = htonl(val);
+    }
     *lenp = htons(*length_p); 
 #ifdef __APPLE__
     th->th_sum = 0;
