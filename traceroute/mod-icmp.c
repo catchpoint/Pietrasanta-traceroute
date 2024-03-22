@@ -250,11 +250,7 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             if(recv_id != ident)
                 return NULL;
             
-            #ifdef __APPLE__
-                recv_seq = ntohs(outer_icmp->un.echo.sequence);
-            #else
-                recv_seq = ntohs(outer_icmp->icmp_seq);
-            #endif
+            recv_seq = ntohs(outer_icmp->un.echo.sequence);
             
             pb = probe_by_seq(recv_seq);
             

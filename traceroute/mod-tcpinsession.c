@@ -525,7 +525,6 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         return NULL;
         
     struct tcphdr* tcp = (struct tcphdr*)buf;
-    uint32_t seq_num_returned = 0;
     
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
 #ifdef __APPLE__

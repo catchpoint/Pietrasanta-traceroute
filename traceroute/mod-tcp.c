@@ -375,7 +375,7 @@ static void tcp_send_probe(probe* pb, int ttl)
         pb->seq = th->th_sport;
         src.sin.sin_port = th->th_sport;
     #else
-        size_t len2 = sizeof(src);
+        socklen_t len2 = sizeof(src);
         if(getsockname(raw_sk, &src.sa, &len2) < 0)
             error ("getsockname");
         pb->seq = th->source;
