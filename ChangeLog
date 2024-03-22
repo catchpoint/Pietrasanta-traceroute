@@ -4,7 +4,8 @@
     *  MacOS support (partial)
     
        Introduced the possibility to run on MacOS platform, for the moment with
-       the limitation that TCP and TCP InSession modes are not yet supported.
+       the limitation that TCP and TCP InSession modes are not yet supported, and
+       Path MTU discovery is not available for any mode.
        
 2024-03-19  Luca Sani  <lsani@catchpoint.com> - 0.1.13
     *  Minor fixes
