@@ -435,7 +435,11 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
             pb->ext = names_by_flags(get_th_flags(tcp));
         
         if(mss > 0) {
+          #ifdef __APPLE__
+            int length = (th->off * 4) - sizeof(struct tcphdr);
+          #else
             int length = (th->doff * 4) - sizeof(struct tcphdr);
+          #endif
             const unsigned char* ptr = (const unsigned char*)(tcp + 1);
             
             while(length > 0) {
