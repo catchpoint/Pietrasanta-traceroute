@@ -877,8 +877,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
     
-     if(strcmp(module, "tcp") == 0) {
+    if(strcmp(module, "tcp") == 0) {
         printf("Traceroute TCP is not yet available on MacOS.\n");
+        exit(1);
+    }
+    
+    if(mtudisc) {
+        printf("Path MTU discovery is not yet available on MacOS.\n");
         exit(1);
     }
 #endif
