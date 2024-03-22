@@ -436,7 +436,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         
         if(mss > 0) {
           #ifdef __APPLE__
-            int length = (th->off * 4) - sizeof(struct tcphdr);
+            int length = (th->th_off * 4) - sizeof(struct tcphdr);
           #else
             int length = (th->doff * 4) - sizeof(struct tcphdr);
           #endif
