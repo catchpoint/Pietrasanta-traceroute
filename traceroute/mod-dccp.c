@@ -14,7 +14,12 @@
 #include <poll.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
+
+#ifdef __APPLE__
+#include "mac/dccp.h" 
+#else
 #include <linux/dccp.h>
+#endif
 
 #include "traceroute.h"
 

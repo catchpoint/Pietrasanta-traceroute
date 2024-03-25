@@ -1,4 +1,6 @@
 /*
+    Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    
     Copyright (c)  2006, 2007        Dmitry Butskoy
                     <buc@citadel.stu.neva.ru>
     License:  GPL v2 or any later
@@ -18,27 +20,31 @@
 
 #include "traceroute.h"
 
+#ifdef __APPLE__
+#include "mac/icmp.h"
+#include "mac/ip.h"
+#include <string.h>
+#endif
 
 static sockaddr_any dest_addr = {{ 0, }, };
+static sockaddr_any source_addr = {{0, }, };
 static uint16_t seq = 1;
 static uint16_t ident = 0;
-
 static char *data;
 static size_t *length_p;
-
 static int icmp_sk = -1;
 static int raw_icmp_sk = -1; // cannot use icmp_sk because it is used with recverr (thus no full ICMP packet is received but only the payload of the offending ICMP packet)
 static int last_ttl = 0;
 static int raw = 0;
 static int dgram = 0;
+extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 static CLIF_option icmp_options[] = {
     { 0, "raw", 0, "Use raw sockets way only. Default is try this way first (probably not allowed for unprivileged users), then try dgram", CLIF_set_flag, &raw, 0, CLIF_EXCL },
     { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented by old kernels or restricted by sysadmins", CLIF_set_flag, &dgram, 0, CLIF_EXCL },
     CLIF_END_OPTION
 };
-
-extern int use_additional_raw_icmp_socket;
 
 static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *packet_len_p)
 {
@@ -87,20 +93,22 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
     tune_socket(icmp_sk);
 
     /*  Don't want to catch packets from another hosts   */
-    if(raw_can_connect() && connect(icmp_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(raw_can_connect() && connect(icmp_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         error("connect");
 
     use_recverr(icmp_sk);
 
-    if(dgram) {
-        sockaddr_any addr;
-        socklen_t len = sizeof(addr);
+     if(dgram) {
+        socklen_t len = sizeof(source_addr);
 
-        if(getsockname(icmp_sk, &addr.sa, &len) < 0)
+        if(getsockname(icmp_sk, &source_addr.sa, &len) < 0)
             error("getsockname");
-        ident = ntohs(addr.sin.sin_port);    /*  both IPv4 and IPv6   */
-
+        ident = ntohs(source_addr.sin.sin_port);    /*  both IPv4 and IPv6  */
     } else {
+        socklen_t len = sizeof(source_addr);
+
+        if(getsockname(icmp_sk, &source_addr.sa, &len) < 0)
+            error("getsockname");
         ident = getpid() & 0xffff;
     }
 
@@ -117,7 +125,6 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
     
     return 0;
 }
-
 
 static void icmp_send_probe(probe *pb, int ttl)
 {
@@ -183,14 +190,12 @@ static probe *icmp_check_reply(int sk, int err, sockaddr_any *from, char *buf, s
         recv_seq = ntohs(icmp6->icmp6_seq);
     }
 
-
     if(recv_id != ident)
         return NULL;
 
     pb = probe_by_seq(recv_seq);
     if(!pb)
         return NULL;
-
 
     if(!err) {
         if(!(af == AF_INET && type == ICMP_ECHOREPLY) && !(af == AF_INET6 && type == ICMP6_ECHO_REPLY)) 
@@ -201,7 +206,6 @@ static probe *icmp_check_reply(int sk, int err, sockaddr_any *from, char *buf, s
 
     return pb;
 }
-
 
 static void icmp_recv_probe(int sk, int revents)
 {
@@ -225,18 +229,29 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
     
     if(dest_addr.sa.sa_family == AF_INET) {
         struct iphdr* outer_ip = (struct iphdr*)bufp;
-        struct icmp* icmp_packet = (struct icmp*) (bufp + (outer_ip->ihl << 2));
+        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
         
-        int type = icmp_packet->icmp_type;
+        int type = outer_icmp->type;
         uint16_t recv_seq = 0;
         
         if(type == ICMP_ECHOREPLY) {
-            uint16_t recv_id = ntohs(icmp_packet->icmp_id);
+            sockaddr_any echo_reply_dest;
+            memset(&echo_reply_dest, 0, sizeof(echo_reply_dest));
+            echo_reply_dest.sin.sin_family = AF_INET;
+            echo_reply_dest.sin.sin_addr.s_addr = outer_ip->daddr;
+            
+            sockaddr_any echo_reply_src;
+            memset(&echo_reply_src, 0, sizeof(echo_reply_src));
+            echo_reply_src.sin.sin_family = AF_INET;
+            echo_reply_src.sin.sin_addr.s_addr = outer_ip->saddr;
+            
+            uint16_t recv_id = ntohs(outer_icmp->un.echo.id);
             
             if(recv_id != ident)
                 return NULL;
             
-            recv_seq = ntohs(icmp_packet->icmp_seq);
+            recv_seq = ntohs(outer_icmp->un.echo.sequence);
+            
             pb = probe_by_seq(recv_seq);
             
             if(!pb)
@@ -261,18 +276,17 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
             pb->returned_tos = inner_ip->tos;
         }
     } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct icmp6_hdr* icmp_packet = (struct icmp6_hdr*)bufp;
-        
-        int type = icmp_packet->icmp6_type;
+        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
+        int type = outer_icmp->icmp6_type;
         uint16_t recv_seq = 0;
         
         if(type == ICMP6_ECHO_REPLY) {
-            uint16_t recv_id = ntohs(icmp_packet->icmp6_id);
+            uint16_t recv_id = ntohs(outer_icmp->icmp6_id);
             
             if(recv_id != ident)
                 return NULL;
             
-            recv_seq = ntohs(icmp_packet->icmp6_seq);
+            recv_seq = ntohs(outer_icmp->icmp6_seq);
             pb = probe_by_seq(recv_seq);
         
             if(!pb)
@@ -302,7 +316,7 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
     }
     
     probe_done(pb, &pb->icmp_done);
-    if(loose_match)
+    if(loose_match || tr_via_additional_raw_icmp_socket)
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, 0, ret, response_get->msg_name);
     
     return pb;
