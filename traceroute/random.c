@@ -14,8 +14,8 @@
 
 #include "traceroute.h"
 
-static void __init_random_seq (void) __attribute__ ((constructor));
-static void __init_random_seq (void) 
+static void __init_random_seq(void) __attribute__ ((constructor));
+static void __init_random_seq(void) 
 {
     struct tms buf;
     srand(times(&buf) + getpid());
