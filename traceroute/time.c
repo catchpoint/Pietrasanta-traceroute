@@ -21,7 +21,7 @@ double get_time(void)
     struct timeval tv;
     double d;
 
-    gettimeofday (&tv, NULL);
+    gettimeofday(&tv, NULL);
 
     d = ((double)tv.tv_usec) / 1000000. + (unsigned long)tv.tv_sec;
 
