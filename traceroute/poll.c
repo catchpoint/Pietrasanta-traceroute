@@ -16,7 +16,7 @@
 
 #include "traceroute.h"
 
-static struct pollfd *pfd = NULL;
+static struct pollfd* pfd = NULL;
 static unsigned int num_polls = 0;
 
 void add_poll(int fd, int events) 
