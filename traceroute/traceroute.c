@@ -343,7 +343,7 @@ void error_or_perm(const char *str)
     error(str);
 }
 
-#define SYSCTL_PREFIX    "/proc/sys/net/ipv4/tcp_"
+#define SYSCTL_PREFIX "/proc/sys/net/ipv4/tcp_"
 int check_sysctl(const char* name) 
 {
     int fd;
