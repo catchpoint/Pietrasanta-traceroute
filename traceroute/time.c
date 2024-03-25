@@ -16,7 +16,7 @@
 
 /*  Just returns current time as double, with most possible precision...  */
 
-double get_time (void) 
+double get_time(void) 
 {
     struct timeval tv;
     double d;
