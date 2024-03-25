@@ -101,8 +101,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     raw_sk = socket(af, SOCK_RAW, IPPROTO_TCP);
     if(raw_sk < 0)
         error_or_perm("socket");
-
-    //tune_socket(raw_sk);
     
     double connect_starttime = get_time();
     
