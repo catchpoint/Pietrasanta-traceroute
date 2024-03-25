@@ -280,7 +280,7 @@ static probe* icmp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct
         int type = outer_icmp->icmp6_type;
         uint16_t recv_seq = 0;
         
-        if(type == ICMP6_ECHO_REPLY) {            
+        if(type == ICMP6_ECHO_REPLY) {
             uint16_t recv_id = ntohs(outer_icmp->icmp6_id);
             
             if(recv_id != ident)
