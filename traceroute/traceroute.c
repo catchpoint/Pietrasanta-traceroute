@@ -896,8 +896,10 @@ int main(int argc, char *argv[])
         ex_error("first hop out of range");
     if(max_hops > MAX_HOPS)
         ex_error("max hops cannot be more than " _TEXT(MAX_HOPS));
-    if(!probes_per_hop || probes_per_hop > MAX_PROBES)
+    if(probes_per_hop > MAX_PROBES)
         ex_error("no more than " _TEXT(MAX_PROBES) " probes per hop");
+    if(!probes_per_hop)
+       ex_error("Need to have at least 1 probe per hop");
     if(wait_secs < 0 || here_factor < 0 || near_factor < 0)
         ex_error("bad wait specifications `%g,%g,%g' used", wait_secs, here_factor, near_factor);
     if(packet_len > MAX_PACKET_LEN)
