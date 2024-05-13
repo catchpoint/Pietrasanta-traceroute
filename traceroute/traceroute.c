@@ -911,7 +911,7 @@ int main(int argc, char *argv[])
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
     if(max_consecutive_hop_failures <= 0 || max_consecutive_hop_failures > MAX_HOP_FAILURES)
-        ex_error("max consecutive hop failures out of range");
+        ex_error("max consecutive hop failures cannot be more than " _TEXT(MAX_HOP_FAILURES));
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
 

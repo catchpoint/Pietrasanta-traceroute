@@ -146,15 +146,6 @@ Enable socket level debugging (when the Linux kernel supports it)
 .B \-F, --dont-fragment
 Do not fragment probe packets. (For IPv4 it also sets DF bit, which tells
 intermediate routers not to fragment remotely as well).
-.TP
-.B \-Q, --timeout
-Specifies the overall timeout in seconds for the tool execution.
-.br
-.B \-H, --failures
-Sets the max number of consecutive hops that can fail before terminating traceroute.
-By default this limit is set to max_hops, but it can be changed via this option.
-An hop is considered to be "failed" when all the probes within the probe timeout.
-.TP
 
 .br
 Varying the size of the probing packet by the
@@ -174,6 +165,16 @@ work properly since the Linux kernel 2.6.22 only.
 Before that version, IPv6 was always fragmented, IPv4 could use
 the once the discovered final mtu only (from the route cache), which can be
 less than the actual mtu of a device.
+
+.TP
+.B \-Q, --timeout
+Specifies the overall timeout in seconds for the tool execution.
+.br
+.TP
+.B \-H, --failures
+Sets the max number of consecutive hops that can fail before terminating traceroute.
+By default this limit is set to max_hops (255), but it can be changed via this option.
+An hop is considered to be "failed" when all the probes within the probe timeout.
 .TP
 .BI \-f " first_ttl" ", --first=" first_ttl
 Specifies with what TTL to start. Defaults to 1.
@@ -202,7 +203,7 @@ according to the routing table.
 .BI \-m " max_ttl" ", --max-hops=" max_ttl
 Specifies the maximum number of hops (max time-to-live value)
 .I traceroute
-will probe. The default is 30.
+will probe. The default is 30, the max is 255.
 .TP
 .BI \-N " squeries" ", --sim-queries=" squeries
 Specifies the number of probe packets sent out simultaneously.
