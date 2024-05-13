@@ -82,7 +82,6 @@
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
 #define MAX_MTU_RETRIES 3
-#define MAX_OVERALL_TIMEOUT 3600
 #define DEF_HOPS 30
 #define DEF_SIM_PROBES 16    /*  including several hops   */
 #define DEF_NUM_PROBES 3
@@ -915,8 +914,6 @@ int main(int argc, char *argv[])
         ex_error("max consecutive hop failures cannot be more than " _TEXT(MAX_HOP_FAILURES));
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
-    if(overall_timeout > MAX_OVERALL_TIMEOUT)
-        ex_error("Overall timeout cannot be more than " _TEXT(MAX_OVERALL_TIMEOUT));
 
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");

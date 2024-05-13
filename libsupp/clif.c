@@ -286,7 +286,7 @@ static void err_bad_res(const CLIF_option* optn, char c, const char* opt_arg, in
     }
 
     char err_str[16];
-    sprintf(err_str, "%s", (err == -2) ? "Out of bound" : "Cannot handle");
+    sprintf(err_str, "%s", (err == -2) ? "GOut of bound" : "Cannot handle");
     
     if(optn->arg_name)
         err_report("%s `%s' %s with arg `%s' (argc %d)", err_str, ss, type, opt_arg, n);
