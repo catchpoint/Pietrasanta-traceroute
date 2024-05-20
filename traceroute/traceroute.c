@@ -753,7 +753,7 @@ static CLIF_option option_list[] = {
     { "F", "dont-fragment", 0, "Do not fragment packets", CLIF_set_flag, &dontfrag, 0, CLIF_ABBREV },
     { "f", "first", "first_ttl", "Start from the %s hop (instead from 1)", CLIF_set_uint16, &first_hop, 0, 0 },
     { "g", "gateway", "gate", "Route packets through the specified gateway (maximum " _TEXT(MAX_GATEWAYS_4) " for IPv4 and " _TEXT(MAX_GATEWAYS_6) " for IPv6)", add_gateway, 0, 0, CLIF_SEVERAL },
-    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting", CLIF_set_uint16, &max_consecutive_hop_failures, 0, 0 },
+    { "H", "failures", "hop failures", "Set a max number of hop not replying before exiting, max is "_TEXT(MAX_HOP_FAILURES), CLIF_set_uint16, &max_consecutive_hop_failures, 0, 0 },
     { "I", "icmp", 0, "Use ICMP ECHO for tracerouting", set_module, "icmp", 0, 0 },
     { "i", "interface", "device", "Specify a network interface to operate with", CLIF_set_string, &device, 0, 0 },
     { "m", "max-hops", "max_ttl", "Set the max number of hops (max TTL to be reached). Default is " _TEXT(DEF_HOPS) ,
@@ -764,8 +764,8 @@ static CLIF_option option_list[] = {
     { "t", "tos", "num", "Set the TOS (IPv4 type of service) or TC (IPv6 traffic class) value for outgoing packets. This option excludes --dscp and --ecn. Allowed values are between 0 and 255", CLIF_set_uint16, &tos_input_value, 0, 0 },
     { "l", "flowlabel", "flow_label", "Use specified %s for IPv6 packets", CLIF_set_uint16, &flow_label, 0, 0 },
     { "w", "wait", "MAX,HERE,NEAR", "Wait for a probe no more than HERE (default " _TEXT(DEF_HERE_FACTOR) ") times longer than a response from the same hop, or no more than NEAR(default " _TEXT(DEF_NEAR_FACTOR) ") times than some next hop, or MAX(default " _TEXT(DEF_WAIT_SECS) ") seconds (float point values allowed too)", set_wait_specs, 0, 0, 0 },
-    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed", CLIF_set_uint16, &overall_timeout, 0, 0 },
-    { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES), CLIF_set_uint16, &probes_per_hop, 0, 0 },
+    { "Q", "timeout", "timeout", "Set a max timeout for traceroute to be completed (max 65535 seconds)", CLIF_set_uint16, &overall_timeout, 0, 0 },
+    { "q", "queries", "nqueries", "Set the number of probes per each hop. Default is " _TEXT(DEF_NUM_PROBES)", max is " _TEXT(MAX_PROBES), CLIF_set_uint16, &probes_per_hop, 0, 0 },
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
     { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
@@ -896,8 +896,10 @@ int main(int argc, char *argv[])
         ex_error("first hop out of range");
     if(max_hops > MAX_HOPS)
         ex_error("max hops cannot be more than " _TEXT(MAX_HOPS));
-    if(!probes_per_hop || probes_per_hop > MAX_PROBES)
+    if(probes_per_hop > MAX_PROBES)
         ex_error("no more than " _TEXT(MAX_PROBES) " probes per hop");
+    if(!probes_per_hop)
+       ex_error("Need to have at least 1 probe per hop");
     if(wait_secs < 0 || here_factor < 0 || near_factor < 0)
         ex_error("bad wait specifications `%g,%g,%g' used", wait_secs, here_factor, near_factor);
     if(packet_len > MAX_PACKET_LEN)
@@ -909,7 +911,7 @@ int main(int argc, char *argv[])
     if(send_secs >= 10)    /*  it is milliseconds   */
         send_secs /= 1000;
     if(max_consecutive_hop_failures <= 0 || max_consecutive_hop_failures > MAX_HOP_FAILURES)
-        ex_error("max consecutive hop failures out of range");
+        ex_error("max consecutive hop failures cannot be more than " _TEXT(MAX_HOP_FAILURES));
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
 
