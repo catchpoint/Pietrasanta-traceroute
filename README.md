@@ -1,9 +1,15 @@
-# Catchpoint traceroute
+# Catchpoint's Pietrasanta traceroute
 
 ## Introduction
 
 This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint.  
-There are a number of improvements.  The main ones are enumerated here:
+
+Traceroute is one of the oldest network diagnostic tools. It was first built to answer 
+the thorny question, where are the packets going? However, various challenges introduced 
+by firewalls and load balancers have made the original traceroute less useful and 
+reliable than it once was.
+
+We did a number of improvements to Dmitry's work.  The main ones are enumerated here:
 * Support for "TCP InSession" method. This method opens a TCP connection with
 the destination and sends TCP probes within the opened session with incremental
 TTL. The aim is to prevent false packet loss introduced by firewall and
@@ -15,7 +21,13 @@ includes a special output to highlight DSCP and ECN values.
 - Introduced the QUIC module to perform QUIC traceroute using --quic. This mode
 uses QUIC Initial packets as probes.
  
-Full details in ChangeLog [here](ChangeLog).
+Full details in ChangeLog [here](ChangeLog). 
+
+Following the convention of naming traceroute after the place where they are developed,
+we named our traceroute after the tiny town where the Catchpoint Italian branch is based: 
+Pietrasanta traceroute.
+
+Happy (Pietrasanta) tracerouting!
 
 ## Building & Installation
 ```
