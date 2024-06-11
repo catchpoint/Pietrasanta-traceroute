@@ -191,3 +191,22 @@ static void __init_ ## MOD (void) {    \
     tr_register_module (&MOD);    \
 }
 
+#ifdef __APPLE__
+
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <net/route.h>
+#include <netinet/in.h>
+
+#define SALEN(sa) ((sa)->sa_len)
+#define roundup(x, y)   ((((x)+((y)-1))/(y))*(y))
+
+struct rtmsg {
+    struct rt_msghdr rtmsg;
+    uint8_t data[512];
+};
+
+const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from);
+
+#endif 
+

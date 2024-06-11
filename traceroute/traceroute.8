@@ -33,7 +33,7 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--tcpinsession" "]
 .br
 .ti +8
-.BR "" [ "--ecn=ecn" "] [" "--dscp=dscp" "]
+.BR "" [ "--ecn=num" "] [" "--dscp=num" "]
 .br
 .ti +8
 .BR "" [ "--quic ]
@@ -146,15 +146,6 @@ Enable socket level debugging (when the Linux kernel supports it)
 .B \-F, --dont-fragment
 Do not fragment probe packets. (For IPv4 it also sets DF bit, which tells
 intermediate routers not to fragment remotely as well).
-.TP
-.B \-Q, --timeout
-Specifies the overall timeout in seconds for the tool execution.
-.br
-.B \-H, --failures
-Sets the max number of consecutive hops that can fail before terminating traceroute.
-By default this limit is set to max_hops, but it can be changed via this option.
-An hop is considered to be "failed" when all the probes within the probe timeout.
-.TP
 
 .br
 Varying the size of the probing packet by the
@@ -174,6 +165,16 @@ work properly since the Linux kernel 2.6.22 only.
 Before that version, IPv6 was always fragmented, IPv4 could use
 the once the discovered final mtu only (from the route cache), which can be
 less than the actual mtu of a device.
+
+.TP
+.B \-Q, --timeout
+Specifies the overall timeout in seconds for the tool execution (max 65535 seconds).
+.br
+.TP
+.B \-H, --failures
+Sets the max number of consecutive hops that can fail before terminating traceroute.
+By default this limit is set to max_hops (255), but it can be changed via this option.
+An hop is considered to be "failed" when all the probes within the probe timeout.
 .TP
 .BI \-f " first_ttl" ", --first=" first_ttl
 Specifies with what TTL to start. Defaults to 1.
@@ -202,7 +203,7 @@ according to the routing table.
 .BI \-m " max_ttl" ", --max-hops=" max_ttl
 Specifies the maximum number of hops (max time-to-live value)
 .I traceroute
-will probe. The default is 30.
+will probe. The default is 30, the max is 255.
 .TP
 .BI \-N " squeries" ", --sim-queries=" squeries
 Specifies the number of probe packets sent out simultaneously.
@@ -227,21 +228,25 @@ by each probe too).
 For TCP and others specifies just the (constant) destination
 port to connect.
 .TP
-.BI \-t " tos" ", --tos=" tos
+.BI \-t " tos" ", --tos=" num
 For IPv4, set the Type of Service (TOS) and Precedence value. Useful values
 are 16 (low delay) and 8 (high throughput). Note that in order to use
-some TOS precedence values, you have to be super user.
+some TOS precedence values, you have to be super user. 
+This option excludes --ecn and -dscp. Allowed values are between
+0 and 255. 
 .br
 For IPv6, set the Traffic Control value.
 .TP
-.BI \-\-ecn=ecn
+.BI \-\-ecn=num
 Set the ECN value in the Type of Service (TOS) field. ECN (rfc3168) values can either
 be 0 for non-ECT, 1 for ECT(0), 2 for ECT(1) and 3 for CE. Traceroute will
-report the ECN value for each expiring probe.
+report the ECN value for each expiring probe. This option excludes -t (--tos) and
+might be used in conjunction with --dscp. Allowed values are between 0 and 3.
 .TP
 .BI \-\-dscp=dscp
-Set the DSCP value in the Type of Service (TOS) field. DSCP values can range from
-0 to 63.
+Set the DSCP value in the Type of Service (TOS) field.
+This option excludes -t (--tos) and might be used in conjunction with --ecn.
+Allowed values are between 0 and 63.
 .TP
 .BI \-l " flow_label" ", --flowlabel=" flow_label
 Use specified flow_label for IPv6 packets.
@@ -307,7 +312,7 @@ are always set to zero if only
 is specified (for compatibility with previous versions).
 .TP
 .BI \-q " nqueries" ", --queries=" nqueries
-Sets the number of probe packets per hop. The default is 3.
+Sets the number of probe packets per hop. The default is 3, the max is 10.
 .TP
 .BI \-r
 Bypass the normal routing tables and send directly to a host on
@@ -477,7 +482,7 @@ probe sent. Note that when running in TCP mode, the source port of the probe sen
 by the OS via the `bind` syscall, thus it is ensured to be unique across processes.
 Note also that the source TCP port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
-Note that in TCP and Tcp InSession mode the destination port is preserved
+Note that in TCP and TCP InSession mode the destination port is preserved
 across probes.
 Note also that the source TCP port is preserved (or translated back) correctly
 for this reason can be used in the checks (differently from the source IP).
@@ -580,7 +585,7 @@ and all is done. For active listening ports we receive tcp syn+ack, but
 answer by tcp reset (instead of expected tcp ack), this way the remote tcp
 session is dropped even without the application ever taking notice.
 .P
-There is a couple of options for
+There are a few options for
 .I tcp
 method:
 .TP
@@ -631,9 +636,7 @@ for maxseg tcp header option (when
 .B info
 Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
-other useful things. This option is valid also for
-.BR tcpinsession
-mode.
+other useful things.
 .TP
 .B acc-ecn
 Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
@@ -714,17 +717,30 @@ The default destination port is 80.
 This method prevents false packet loss introduced by firewall and router configurations related to
 security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
 .P
-With this method most of the usual TCP options are not available, because probes being sent are data probes.
-Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes. The only option
-available for this method is the
-.BR info
-option which behaves exacly like the 
-.BR tcp
-option.
-.P
 This method uses the connect() syscall to open the session with the destination,
 thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
 the TCP handshake.
+.P
+Differently from other methods, 
+.I tcpinsession
+will show an additional first line containing the RTT related to the initial TCP handshake ("hand"), as well as the TCP info requested
+via the options described hereafter.
+.P
+Please bear in mind that with this method most of the usual TCP options are not available because probes being sent are data probes.
+Thus it does not make sense -- for example -- to allow to set a SYN flag to data probes.
+The options available for
+.I tcpinsession
+method are the following:
+.TP
+.B sack
+Show whether the other party supports SACK or not in the syn/ack received from the destination during the initial TCP handshake.
+.TP
+.B mss
+Show the value of maxseg tcp header option found in the syn/ack received from the destination during the initial TCP handshake.
+.TP
+.B info
+Print tcp flags found in the syn/ack received from the destination during the initial TCP handshake.
+.br
 
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO

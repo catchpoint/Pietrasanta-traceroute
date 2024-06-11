@@ -19,7 +19,6 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <netinet/tcp.h>
-#include <linux/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
        
@@ -30,6 +29,13 @@
 
 #ifndef IP_MTU
 #define IP_MTU 14
+#endif
+
+#ifdef __APPLE__
+#include "mac/ip.h"
+#include "mac/types.h"
+#include <string.h>
+#undef TH_FLAGS
 #endif
 
 static sockaddr_any dest_addr = {{ 0, }, };
@@ -54,18 +60,24 @@ static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static unsigned mss_received = 0;
+static unsigned int mss = 0;
 static int info = 0;
 
 extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 uint32_t initial_seq_num = 0;
 uint32_t seq_num = 0;
 uint32_t ack_num = 0;
 uint32_t ts_value = 0;
 uint32_t ts_echo_reply = 0;
+int SACK_permitted = 0;
+int sack = 0;
 
 static CLIF_option tcp_options[] = {
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
+    { 0, "mss", 0, "Show maxseg tcp option proposed by the destination during handshake,", CLIF_set_flag, &mss, 0, 0 },
+    { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -89,18 +101,16 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     raw_sk = socket(af, SOCK_RAW, IPPROTO_TCP);
     if(raw_sk < 0)
         error_or_perm("socket");
-
-    tune_socket(raw_sk);
     
     double connect_starttime = get_time();
     
-    if(connect(raw_sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         error("connect");
     
     sk = socket(af, SOCK_STREAM, 0);
     tune_socket(sk);    /*  common stuff  */
     
-    if(connect(sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         if(errno != EINPROGRESS) // note that we don't need to wait the connect to be successful since the loop below will wait for the syn+ack.
             error("connect");
 
@@ -119,20 +129,29 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     memset(&response_src_addr, 0, sizeof(response_src_addr));
     socklen_t src_addr_len = sizeof(response_src_addr);
     
+    double recv_time = 0;
+    struct tcphdr* response_tcp_hdr = NULL;
+    
     do {
         if((received = recvfrom(raw_sk, ack_buf, sizeof(ack_buf), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
-            struct tcphdr* response_tcp_hdr = NULL;
+            recv_time = get_time();
+            response_tcp_hdr = NULL;
             uint8_t* opt_ptr = NULL;
             uint16_t option_len = 0;
             
             if(af == AF_INET) {
                 struct iphdr* response_iphdr = (struct iphdr*)ack_buf;
                 response_tcp_hdr = (struct tcphdr*) (ack_buf + (response_iphdr->ihl << 2));
+#ifdef __APPLE__
+                if(response_tcp_hdr->th_dport == src.sin.sin_port) {
+                    if(((((uint8_t*)(response_tcp_hdr))[13]) & TH_SYN) && ((((uint8_t*)(response_tcp_hdr))[13]) & TH_ACK)) { // paranoid
+                        response_src_addr.sin.sin_port = response_tcp_hdr->th_sport;
+#else
                 if(response_tcp_hdr->dest == src.sin.sin_port) {
                     uint16_t response_flags = get_th_flags(response_tcp_hdr);
                     if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
                         response_src_addr.sin.sin_port = response_tcp_hdr->source;
-                        
+#endif
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
@@ -142,11 +161,16 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 }
             } else if(af == AF_INET6) {
                 response_tcp_hdr = (struct tcphdr*)ack_buf;
+#ifdef __APPLE__
+                if(response_tcp_hdr->th_dport == src.sin6.sin6_port) {
+                    if(((((uint8_t*)(response_tcp_hdr))[13]) & TH_SYN) && ((((uint8_t*)(response_tcp_hdr))[13]) & TH_ACK)) { // paranoid
+                        response_src_addr.sin6.sin6_port = response_tcp_hdr->th_sport;
+#else
                 if(response_tcp_hdr->dest == src.sin6.sin6_port) {
                     uint16_t response_flags = get_th_flags(response_tcp_hdr);
                     if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
                         response_src_addr.sin6.sin6_port = response_tcp_hdr->source;
-                        
+#endif
                         if(equal_sockaddr(&dest_addr, &response_src_addr)) {
                             found = 1;
                             opt_ptr = ((uint8_t*)response_tcp_hdr)+sizeof(*response_tcp_hdr);
@@ -157,11 +181,17 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             }
                     
             if(found) {
+#ifdef __APPLE__
+                initial_seq_num = ntohl(response_tcp_hdr->th_ack)+1;
+                seq_num = initial_seq_num;
+                ack_num = ntohl(response_tcp_hdr->th_seq)+1;
+#else
                 initial_seq_num = ntohl(response_tcp_hdr->ack_seq)+1;
                 seq_num = initial_seq_num;
                 ack_num = ntohl(response_tcp_hdr->seq)+1;
+#endif          
                 
-                int SACK_permitted = 0;
+                SACK_permitted = 0;
                 for(uint16_t i = 0; i < option_len; i++) {
                     uint8_t opt_kind = *opt_ptr;
                     if(opt_kind == TCPOPT_EOL)
@@ -197,12 +227,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                         break;
                     }
                 }
-                
-                if(SACK_permitted == 0) {
-                    close(sk);
-                    close(raw_sk);
-                    ex_error("TCP SACK not permitted from destination");
-                }
             }
         } else {
             if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
@@ -216,6 +240,44 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         close(sk);
         close(raw_sk);
         ex_error("Cannot complete initial TCP handshake");
+    }
+    
+    double diff = (recv_time - connect_starttime) * 1000;
+    
+    printf("\nhand  %.3f ms", diff);
+    
+    char* res = NULL;
+    
+    if(info && response_tcp_hdr)
+        res = names_by_flags(get_th_flags(response_tcp_hdr));
+   
+    if(res && strlen(res) > 0) {
+        if(mss > 0 && mss_received > 0) {
+            if(sack > 0 && SACK_permitted > 0)
+                printf(" <%s,MSS:%d,SACK>", res, mss_received);
+            else
+                printf(" <%s,MSS:%d>", res, mss_received);
+        } else {
+            if(sack > 0 && SACK_permitted > 0)
+                printf(" <%s,SACK>", res);
+            else
+                printf(" <%s>", res);
+        }
+    } else if(sack > 0 && SACK_permitted > 0) {
+        printf(" <MSS:%d,SACK>", mss_received);
+    } else if(mss > 0) {
+        printf(" <MSS:%d>", mss_received);
+    }
+    
+    fflush(stdout);
+    
+    if(res != NULL)
+        free(res);
+                
+    if(SACK_permitted == 0) {
+        close(sk);
+        close(raw_sk);
+        ex_error("\nTCP SACK not permitted from destination");
     }
     
     socklen_t len;
@@ -266,6 +328,18 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     pseudo_IP_header_size = ptr - tmp_buf;
 
+#ifdef __APPLE__
+    th->th_sport = 0;
+    th->th_dport = dest_port;
+    th->th_seq = 0;
+    th->th_ack = htonl(ack_num);
+    th->th_off = 0;
+    set_th_flags(th, flags);
+    (((uint8_t *)(th))[13]) = flags;
+    th->th_win = htons(4 * mtu);
+    th->th_sum = 0;
+    th->th_urp = 0;
+#else
     th->source = 0;
     th->dest = dest_port;
     th->seq = 0;
@@ -275,6 +349,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     th->window = htons(4 * mtu);
     th->check = 0;
     th->urg_ptr = 0;
+#endif
 
     ptr = (uint8_t*)(th + 1);
 
@@ -296,7 +371,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     if(len & 0x03)
         ex_error("impossible");    /*  as >>2 ...  */
 
+#ifdef __APPLE__
+    th->th_off = len >> 2;
+#else
     th->doff = len >> 2;
+#endif
     
     length_p = packet_len_p;
     *lenp = htons(*length_p);
@@ -320,18 +399,23 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(raw_icmp_sk < 0)
             error_or_perm("raw icmp socket");
         
-        lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
-        
         add_poll(raw_icmp_sk, POLLIN | POLLERR);
     }
     
+    lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes 
+        
     return 0;
 }
 
 static void tcpinsession_send_probe(probe* pb, int ttl) 
 {
+#ifdef __APPLE__
+    th->th_sport = src.sin.sin_port;
+    th->th_seq = htonl(seq_num);
+#else
     th->source = src.sin.sin_port;
     th->seq = htonl(seq_num);
+#endif
     pb->seq_num = seq_num;
     
     if(counter_pointer == NULL)
@@ -340,12 +424,19 @@ static void tcpinsession_send_probe(probe* pb, int ttl)
     (*counter_pointer)++;
     
     uint8_t* ts_ptr = ((uint8_t*)th)+ts_value_offset;
-    uint32_t val = htonl(*((uint32_t*)ts_ptr));
-    val++;
-    *((uint32_t*)ts_ptr) = htonl(val);
+    if(ts_value_offset > 0) {
+        uint32_t val = htonl(*((uint32_t*)ts_ptr));
+        val++;
+        *((uint32_t*)ts_ptr) = htonl(val);
+    }
     *lenp = htons(*length_p); 
+#ifdef __APPLE__
+    th->th_sum = 0;
+    th->th_sum = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+#else
     th->check = 0;
     th->check = in_csum(buf, (*length_p)+pseudo_IP_header_size);
+#endif
     if(ttl != last_ttl) {
         set_ttl(raw_sk, ttl);
         last_ttl = ttl;
@@ -382,7 +473,11 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
 {
     const uint8_t* ptr = (const uint8_t*)(tcp + 1);
     
+#ifdef __APPLE__
+    int opt_len = (tcp->th_off * 4) - sizeof(struct tcphdr);
+#else
     int opt_len = (tcp->doff * 4) - sizeof(struct tcphdr);
+#endif
     
     sack_blocks curr_sack_blocks;
     memset(&curr_sack_blocks, 0, sizeof(curr_sack_blocks));
@@ -472,22 +567,36 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         return NULL;
         
     struct tcphdr* tcp = (struct tcphdr*)buf;
-    uint32_t seq_num_returned = 0;
     
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
+#ifdef __APPLE__
+        uint16_t dport = tcp->th_dport; 
+        uint32_t seq_num_returned = ntohl(tcp->th_seq);
+#else
         uint16_t dport = tcp->dest; 
+        uint32_t seq_num_returned = ntohl(tcp->seq);
+#endif
         if(dport != dest_port)
             return NULL;
 
-        seq_num_returned = ntohl(tcp->seq);
+
         return probe_by_seq_num(seq_num_returned);
     }
     
+#ifdef __APPLE__
+    uint16_t dport = tcp->th_sport;
+    if(dport != dest_port)
+        return NULL;
+        
+    uint16_t sport = tcp->th_dport;
+#else
     uint16_t dport = tcp->source;
     if(dport != dest_port)
         return NULL;
         
     uint16_t sport = tcp->dest;
+#endif
+
     if(src.sa.sa_family == AF_INET6) {
         if(sport != src.sin6.sin6_port) 
             return NULL;
@@ -531,7 +640,12 @@ static int tcpinsession_is_raw_icmp_sk(int sk)
 
 /*
     Here we need to slightly change the logic wrt the same function in other modules.
-    Since in this module all the probes share the same five tuple, we recover the probe by looking at the sequence number of the offending probe and finding the probe with the same value (as in thethe check_reply). Furthermore, to be extrasure that this is a probe for us (since this is a RAW ICMP socket), once the probe is found, we check if the destination and source address of the offendng probe matches the ones that we are using to perform the traceroute
+    Since in this module all the probes share the same five tuple, we recover the probe
+    by looking at the sequence number of the offending probe and finding the probe with 
+    the same value (as in the check_reply). Furthermore, to be extra-sure that this 
+    is a probe for us (since this is a RAW ICMP socket), once the probe is found, we 
+    check if the destination and source address of the offending probe matches the ones 
+    that we are using to perform the traceroute
 */
 static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct msghdr* response_get, struct msghdr* ret)
 {
@@ -547,19 +661,25 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     
     offending_probe = (struct tcphdr*)offending_probe;
     
+#ifdef __APPLE__
+    uint32_t probe_seq_num = ntohl(offending_probe->th_seq);
+    offending_probe_dest.sin.sin_port = offending_probe->th_dport;
+    offending_probe_src.sin.sin_port = offending_probe->th_sport;
+#else
     uint32_t probe_seq_num = ntohl(offending_probe->seq);
+    offending_probe_dest.sin.sin_port = offending_probe->dest;
+    offending_probe_src.sin.sin_port = offending_probe->source;
+#endif
     probe* pb = probe_by_seq_num(probe_seq_num);
     
     if(!pb)
         return NULL;
     
-    offending_probe_dest.sin.sin_port = offending_probe->dest;
-    offending_probe_src.sin.sin_port = offending_probe->source;
     
     if((loose_match || equal_sockaddr(&src, &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
         pb->returned_tos = returned_tos;
         probe_done(pb, &pb->icmp_done);
-        if(loose_match)
+        if(loose_match || tr_via_additional_raw_icmp_socket)
             *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
     }
     

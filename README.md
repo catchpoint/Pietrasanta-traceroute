@@ -1,9 +1,15 @@
-# Catchpoint traceroute
+# Catchpoint's Pietrasanta traceroute
 
 ## Introduction
 
 This is an enhanced version of Dmitry Butskoy traceroute developed by Catchpoint.  
-There are a number of improvements.  The main ones are enumerated here:
+
+Traceroute is one of the oldest network diagnostic tools. It was first built to answer 
+the thorny question, where are the packets going? However, various challenges introduced 
+by firewalls and load balancers have made the original traceroute less useful and 
+reliable than it once was.
+
+We did a number of improvements to Dmitry's work.  The main ones are enumerated here:
 * Support for "TCP InSession" method. This method opens a TCP connection with
 the destination and sends TCP probes within the opened session with incremental
 TTL. The aim is to prevent false packet loss introduced by firewall and
@@ -15,7 +21,13 @@ includes a special output to highlight DSCP and ECN values.
 - Introduced the QUIC module to perform QUIC traceroute using --quic. This mode
 uses QUIC Initial packets as probes.
  
-Full details in ChangeLog [here](ChangeLog).
+Full details in ChangeLog [here](ChangeLog). 
+
+Following the convention of naming traceroute after the place where they are developed,
+we named our traceroute after the tiny town where the Catchpoint Italian branch is based: 
+Pietrasanta traceroute.
+
+Happy (Pietrasanta) tracerouting!
 
 ## Building & Installation
 ```
@@ -50,7 +62,16 @@ make install
 
 This tool should build and run on any Linux system running a kernel version 2.6 or higher. This includes systems running on containers, VMs and on the Windows Subsystem for Linux (WSL).
 
+Since version 0.1.14 this tool should also work on MacOS, with the known limitations that TCP and TCP InSession mode are not yet available and Path MTU discovery is not supported for any mode.
+
 Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
+
+A way to use the provided binaries is the following:
+
+* Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/traceroute`
+* Provide executable permission (e.g. `chmod +x <binary>`)
+* Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (e.g. like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`.
+* Ensure that openssl3 libraries are available in the system. For example for ubuntu 22.04 they should be installed by default. See `OpenSSL 3 dependency` section for more information about that.
 
 ### Building with docker
 

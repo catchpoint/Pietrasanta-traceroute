@@ -1,10 +1,24 @@
 /*
-   It is just a stripped copy of the kernel header "linux/in6.h"
+    Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    
+    It is just a stripped copy of the kernel header "linux/in6.h"
 
-   "Flow label" things are still not defined in "netinet/in*.h" headers,
-   but we cannot use "linux/in6.h" immediately because it currently
-   conflicts with "netinet/in.h" .
+    "Flow label" things are still not defined in "netinet/in*.h" headers,
+    but we cannot use "linux/in6.h" immediately because it currently
+    conflicts with "netinet/in.h" .
+    
+    Copyright(c)  2006, 2007        Dmitry Butskoy
+                    <buc@citadel.stu.neva.ru>
+    License:  GPL v2 or any later
+
+    See COPYING for the status of this software.
 */
+
+#ifdef __APPLE__
+#include "mac/types.h" 
+#else
+#include <linux/types.h>
+#endif
 
 struct in6_flowlabel_req
 {

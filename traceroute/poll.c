@@ -86,4 +86,3 @@ void do_poll(double timeout, void(*callback)(int fd, int revents))
         }
     }
 }
-

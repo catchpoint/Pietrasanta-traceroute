@@ -14,7 +14,15 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <netinet/in.h>
+
+#ifdef __APPLE__
+#include "mac/icmp.h"
+#include "mac/ip.h"
+#include "mac/udp.h"
+#include <string.h>
+#else
 #include <netinet/udp.h>
+#endif
 
 #include "traceroute.h"
 
@@ -38,6 +46,7 @@ static size_t *length_p;
 static int raw_icmp_sk = -1;
 static int port_seq_specified = 0;
 extern int use_additional_raw_icmp_socket;
+extern int tr_via_additional_raw_icmp_socket;
 
 static void fill_data(size_t* packet_len_p) 
 {
@@ -150,7 +159,7 @@ static void udp_send_probe(probe* pb, int ttl)
 
     set_ttl(sk, ttl);
 
-    if(connect(sk, &dest_addr.sa, sizeof(dest_addr)) < 0)
+    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
         error("connect");
 
     use_recverr(sk);
@@ -230,6 +239,11 @@ static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
     offending_probe_dest.sin.sin_port = offending_probe->dest;
     offending_probe_src.sin.sin_port = offending_probe->source;
     
+#ifdef __APPLE__
+    offending_probe_dest.sin.sin_len = sizeof(offending_probe_dest.sin);
+    offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
+#endif
+    
     probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
     
     if(!pb)
@@ -238,7 +252,7 @@ static probe* udp_handle_raw_icmp_packet(char* bufp, uint16_t* overhead, struct 
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
     
-    if(loose_match) 
+    if(loose_match || tr_via_additional_raw_icmp_socket) 
         *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
     
     return pb;
@@ -260,7 +274,6 @@ static tr_module default_ops = {
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
-    .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .close = udp_close
 };
 
@@ -274,7 +287,6 @@ static tr_module udp_ops = {
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
-    .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .close = udp_close
 };
 
