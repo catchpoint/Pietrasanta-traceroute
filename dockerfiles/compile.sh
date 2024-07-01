@@ -7,7 +7,7 @@ then
     cd openssl
     make clean
     ./config
-    make -j4
+    make
     make install
     cd ..
 fi
