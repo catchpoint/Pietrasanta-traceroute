@@ -11,6 +11,8 @@
 
 	   Speedup QUIC mtudisc (do not honor RETRY packets)
 
+	   Allow DSCP to be specified without ECN
+
 2024-03-22  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.14
             Luca Sani  <lsani@catchpoint.com> - 0.1.14
             
