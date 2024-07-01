@@ -173,6 +173,7 @@ int loose_match = 0;
 int mtudisc = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
+int mtudisc_phase = 0;
 
 static unsigned int saved_max_hops = -1;
 static unsigned int saved_first_hop = -1;
@@ -746,6 +747,42 @@ static int set_host(CLIF_argument *argm, char *arg, int index)
     return 0;
 }
 
+int allowed_icmp(char* bufp)
+{
+    if(af == AF_INET) {
+        struct iphdr* outer_ip = (struct iphdr*)bufp;
+        struct icmphdr* outer_icmp = (struct icmphdr*)(bufp + (outer_ip->ihl << 2));
+        switch(outer_icmp->type)
+        {
+            case ICMP_TIME_EXCEEDED:
+            case ICMP_DEST_UNREACH:
+            {
+                return 1;
+            }
+            default:
+            {
+                return 0;
+            }
+        }
+    } else if(af == AF_INET6) {
+        struct icmp6_hdr* outer_icmp = (struct icmp6_hdr*)bufp;
+        switch(outer_icmp->icmp6_type)
+        {
+            case ICMP6_TIME_EXCEEDED:
+            case ICMP6_DST_UNREACH:
+            {
+                return 1;
+            }
+            default:
+            {
+                return 0;
+            }
+        }
+    } else {
+        return 0;
+    }
+}
+
 static CLIF_option option_list[] = {
     { "4", 0, 0, "Use IPv4", set_af, (void *) 4, 0, CLIF_EXTRA },
     { "6", 0, 0, "Use IPv6", set_af, (void *) 6, 0, 0 },
@@ -927,7 +964,7 @@ int main(int argc, char *argv[])
             
         if(ecn_input_value >= 0 && ecn_input_value <= 3)
             tos += ecn_input_value;
-        else
+        else if(ecn_input_value != -1) // If a value of ECN is provided and is not in acceptable range do error
             ex_error("ECN supplied value is not in range [0-3]");
             
         tos_input_value = tos;
@@ -969,6 +1006,7 @@ int main(int argc, char *argv[])
     saved_sim_probes = sim_probes;
     
     if(mtudisc) {
+        mtudisc_phase = 1;
         dontfrag = 1;
         sim_probes = 1;
         data_len = compute_data_len(MAX_PACKET_LEN);
@@ -1073,6 +1111,8 @@ int main(int argc, char *argv[])
         data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
     }
 
+    mtudisc_phase = 0;
+    
     do_it();
 
     pthread_join(printer_thr, NULL);
@@ -1458,9 +1498,18 @@ int equal_port(const sockaddr_any* a, const sockaddr_any* b)
 // This is useful in those environment where for some reason the source IP of the offendig probe is not translated properly back.
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_source_addr) 
 {
-    for(int n = 0; n < num_probes; n++)
-        if(((!check_source_addr && equal_port(src, &probes[n].src)) || equal_sockaddr(src, &probes[n].src)) && (!dest || equal_sockaddr(dest, &probes[n].dest)))
-            return &probes[n];
+    for(int n = 0; n < num_probes; n++) {
+        if(!equal_sockaddr(dest, &probes[n].dest))
+            continue;
+
+        if(check_source_addr) {
+            if(equal_sockaddr(src, &probes[n].src))
+                return (probes[n].seq == 0) ? NULL : &probes[n];
+        } else {
+            if(equal_port(src, &probes[n].src))
+                return (probes[n].seq == 0) ? NULL : &probes[n];
+        }
+    }
     
     return NULL;
 }
@@ -2306,6 +2355,10 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
         cust_msg.msg_controllen = sizeof(cust_control);
         
         uint16_t overhead = 0; // from where the payload of the returned messages is supposed to start
+        
+        if(allowed_icmp(bufp) == 0)
+            return;
+        
         pb = ops->handle_raw_icmp_packet(bufp, &overhead, &msg, &cust_msg);
         if(!pb)
             return;
@@ -2353,6 +2406,11 @@ void recv_reply(int sk, int err, check_reply_t check_reply)
             }
         }
     }
+
+    // Do not proceed for expired probes.
+    // We could end up here even if the probe is expired when we are using the additional raw_icmp_socket because no del_poll is called on that socket when the probe expired, so a packet that comes after the timeout is still received and processed
+    if(pb && pb->done)
+        return;
 
     /*  Parse CMSG stuff   */
 

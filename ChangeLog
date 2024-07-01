@@ -1,3 +1,13 @@
+2024-07-01  Luca Sani  <lsani@catchpoint.com> - 0.1.16
+            
+            
+    *  Icmp Bugfixes
+    
+       Minor fixes mostly related to ICMP, filtered inbound ICMP packets 
+       (e.g. do not accept echo requests), do not proceed in case of expired probes, 
+       speedup of QUIC mtudisc (do not honor RETRY packets) and allow DSCP to be specified 
+       without ECN
+
 2024-03-22  Alessandro Improta  <aimprota@catchpoint.com> - 0.1.14
             Luca Sani  <lsani@catchpoint.com> - 0.1.14
             
@@ -10,11 +20,8 @@
 2024-03-19  Luca Sani  <lsani@catchpoint.com> - 0.1.13
     *  Minor fixes
     
-       Fixed issue while running path MTU on TCP InSession.
-       
-       Introduced check on boundaries for the integer options of the tool.
-       
-       Added missing info on TCP InSession output in the manual.
+       Fixed issue while running path MTU on TCP InSession, introduced check on boundaries 
+       for the integer options of the tool and added missing info on TCP InSession output in the manual.
 
 2024-03-15  Luca Sani  <lsani@catchpoint.com> - 0.1.12
     *  Fix Simultaneous probe reset after MTU discovery
