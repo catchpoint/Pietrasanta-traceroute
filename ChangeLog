@@ -3,7 +3,7 @@
             
     *  Icmp Bugfixes (partial)
     
-       Minor rfixes mostly related to ICMP.
+       Minor fixes mostly related to ICMP.
 
 	   Filter inbound ICMP packets (e.g. do not accept echo requests)
 
