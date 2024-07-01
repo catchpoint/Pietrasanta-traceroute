@@ -964,7 +964,7 @@ int main(int argc, char *argv[])
             
         if(ecn_input_value >= 0 && ecn_input_value <= 3)
             tos += ecn_input_value;
-        else
+        else if(ecn_input_value != -1) // If a value of ECN is provided and is not in acceptable range do error
             ex_error("ECN supplied value is not in range [0-3]");
             
         tos_input_value = tos;
