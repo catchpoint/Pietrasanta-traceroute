@@ -104,13 +104,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     double connect_starttime = get_time();
     
-    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
     
     sk = socket(af, SOCK_STREAM, 0);
     tune_socket(sk);    /*  common stuff  */
     
-    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         if(errno != EINPROGRESS) // note that we don't need to wait the connect to be successful since the loop below will wait for the syn+ack.
             error("connect");
 
