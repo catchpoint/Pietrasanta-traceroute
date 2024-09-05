@@ -303,13 +303,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     ptr = tmp_buf;
 
     if(af == AF_INET) {
-        len = sizeof(src.sin.sin_addr);
+        len = sizeof(struct in_addr);
         memcpy(ptr, &src.sin.sin_addr, len);
         ptr += len;
         memcpy(ptr, &dest_addr.sin.sin_addr, len);
         ptr += len;
     } else {
-        len = sizeof(src.sin6.sin6_addr);
+        len = sizeof(struct in6_addr);
         memcpy(ptr, &src.sin6.sin6_addr, len);
         ptr += len;
         memcpy(ptr, &dest_addr.sin6.sin6_addr, len);
