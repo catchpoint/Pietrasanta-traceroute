@@ -163,7 +163,7 @@ static void udp_send_probe(probe* pb, int ttl)
         error("connect");
 
     #ifndef __APPLE__
-    use_recverr(icmp_sk);
+    use_recverr(sk);
     #endif
 
     pb->send_time = get_time();

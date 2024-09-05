@@ -284,7 +284,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     uint8_t* ptr;
 
     #ifndef __APPLE__
-    use_recverr(icmp_sk);
+    use_recverr(raw_sk);
     #endif
     add_poll(raw_sk, POLLIN | POLLERR);
 

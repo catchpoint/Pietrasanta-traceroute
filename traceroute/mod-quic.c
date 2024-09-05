@@ -640,7 +640,7 @@ static void quic_send_probe(probe* pb, int ttl)
         error("connect");
 
     #ifndef __APPLE__
-    use_recverr(icmp_sk);
+    use_recverr(sk);
     #endif
 
     uint8_t dcid[8]; // We arbitrarily use an 8 byte dcid
