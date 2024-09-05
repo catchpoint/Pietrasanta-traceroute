@@ -159,7 +159,7 @@ static void udp_send_probe(probe* pb, int ttl)
 
     set_ttl(sk, ttl);
 
-    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
 
     use_recverr(sk);

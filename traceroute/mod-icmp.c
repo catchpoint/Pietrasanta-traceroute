@@ -93,10 +93,12 @@ static int icmp_init(const sockaddr_any* dest, unsigned int port_seq, size_t *pa
     tune_socket(icmp_sk);
 
     /*  Don't want to catch packets from another hosts   */
-    if(raw_can_connect() && connect(icmp_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(raw_can_connect() && connect(icmp_sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
 
+    #ifndef __APPLE__
     use_recverr(icmp_sk);
+    #endif
 
      if(dgram) {
         socklen_t len = sizeof(source_addr);

@@ -2544,7 +2544,7 @@ void bind_socket(int sk)
         addr = &src_addr;
     }
 
-    if(bind(sk, &addr->sa, sizeof(struct sockaddr)) < 0)
+    if(bind(sk, &addr->sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("bind");
 }
 

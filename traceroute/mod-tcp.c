@@ -105,14 +105,14 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
         error("findsaddr");
     src_addr = src;
     tune_socket(raw_sk);
-    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
        error ("connect");
   #else
     tune_socket(raw_sk);        /*  including bind, if any   */
-    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
        error ("connect");
     
-    len = sizeof(struct sockaddr);
+    len = (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
     if(getsockname(raw_sk, &src.sa, &len) < 0)
         error ("getsockname");
   #endif
@@ -183,13 +183,13 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     ptr = tmp_buf;
 
     if(af == AF_INET) {
-        len = sizeof(struct in_addr);
+        len = sizeof(src.sin.sin_addr);
         memcpy (ptr, &src.sin.sin_addr, len);
         ptr += len;
         memcpy (ptr, &dest_addr.sin.sin_addr, len);
         ptr += len;
     } else {
-        len = sizeof(struct in6_addr);
+        len = sizeof(src.sin6.sin6_addr);
         memcpy (ptr, &src.sin6.sin6_addr, len);
         ptr += len;
         memcpy (ptr, &dest_addr.sin6.sin6_addr, len);
