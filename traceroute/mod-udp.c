@@ -162,7 +162,9 @@ static void udp_send_probe(probe* pb, int ttl)
     if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
 
-    use_recverr(sk);
+    #ifndef __APPLE__
+    use_recverr(icmp_sk);
+    #endif
 
     pb->send_time = get_time();
 

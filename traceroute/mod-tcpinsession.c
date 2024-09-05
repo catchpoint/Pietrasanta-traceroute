@@ -283,7 +283,9 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     socklen_t len;
     uint8_t* ptr;
 
-    use_recverr(raw_sk);
+    #ifndef __APPLE__
+    use_recverr(icmp_sk);
+    #endif
     add_poll(raw_sk, POLLIN | POLLERR);
 
     /*  Now create the sample packet.  */
