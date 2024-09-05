@@ -12,6 +12,7 @@ ADD default.rules traceroute/
 ADD VERSION traceroute/
 RUN mkdir /openssl
 COPY placeholder_openssl openssl* /openssl
+COPY CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo
 ADD compile.sh /
 RUN chmod +x ./compile.sh
 RUN ./compile.sh ${disable_openssl}
