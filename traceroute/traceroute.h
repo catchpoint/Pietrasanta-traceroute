@@ -39,6 +39,7 @@ extern int mtudisc;
 extern unsigned int tos;
 extern int ecn_input_value;
 extern int disable_extra_ping;
+extern int mtudisc_phase;
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -183,6 +184,7 @@ const tr_module *tr_get_module(const char *name);
 
 void extract_ip_info(int family, char* bufp, int* proto, sockaddr_any* src, sockaddr_any* dst, void** offending_probe, int* probe_tos);
 uint16_t prepare_ancillary_data(int family, char* bufp, uint16_t inner_proto_hlen, struct msghdr* ret, sockaddr_any* offender);
+int allowed_icmp(char* buf);
 
 #define TR_MODULE(MOD)    \
 static void __init_ ## MOD (void) __attribute__ ((constructor));    \

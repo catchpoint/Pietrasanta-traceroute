@@ -10,11 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
 #include "traceroute.h"
 
 struct icmp_ext_header {
-#if __BYTE_ORDER == __BIG_ENDIAN
+#if (!defined(__APPLE__) && __BYTE_ORDER__ == __BIG_ENDIAN) || defined(__BIG_ENDIAN__)
     unsigned int version:4;
     unsigned int reserved:4;
 #else

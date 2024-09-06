@@ -636,10 +636,12 @@ static void quic_send_probe(probe* pb, int ttl)
 
     set_ttl(sk, ttl);
 
-    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
 
+    #ifndef __APPLE__
     use_recverr(sk);
+    #endif
 
     uint8_t dcid[8]; // We arbitrarily use an 8 byte dcid
     memset(dcid, 0, sizeof(dcid));
@@ -762,6 +764,9 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
     // If a Retry packet was received, we need to take the token and send another Initial packet with that token included
     // Retry packet format: https://www.rfc-editor.org/rfc/rfc9000.html#name-retry-packet
     if(packet_type == QUIC_RETRY_PACKET) {
+        if(mtudisc_phase) // In case of mtudisc we are just interested into the fact that the destination was reached
+            return pb;
+
         // the "len" argument is the length of the QUIC retry packet
         // thus we can infer the Token length (which is not specified by other means)
         // keep in mind that Retry packets do not have header protection (nor any payload to encrypt) https://www.rfc-editor.org/rfc/rfc9001#section-5.4-4
@@ -1128,6 +1133,9 @@ void quic_close()
 {
     free(initial_payload);
     free(encrypted_packet);
+
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
 }
 
 static tr_module quic_ops = {
