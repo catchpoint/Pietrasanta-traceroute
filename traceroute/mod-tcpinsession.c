@@ -104,13 +104,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     double connect_starttime = get_time();
     
-    if(connect(raw_sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(raw_sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         error("connect");
     
     sk = socket(af, SOCK_STREAM, 0);
     tune_socket(sk);    /*  common stuff  */
     
-    if(connect(sk, &dest_addr.sa, sizeof(struct sockaddr)) < 0)
+    if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
         if(errno != EINPROGRESS) // note that we don't need to wait the connect to be successful since the loop below will wait for the syn+ack.
             error("connect");
 
@@ -283,7 +283,9 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     socklen_t len;
     uint8_t* ptr;
 
+    #ifndef __APPLE__
     use_recverr(raw_sk);
+    #endif
     add_poll(raw_sk, POLLIN | POLLERR);
 
     /*  Now create the sample packet.  */
@@ -303,13 +305,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     ptr = tmp_buf;
 
     if(af == AF_INET) {
-        len = sizeof(src.sin.sin_addr);
+        len = sizeof(struct in_addr);
         memcpy(ptr, &src.sin.sin_addr, len);
         ptr += len;
         memcpy(ptr, &dest_addr.sin.sin_addr, len);
         ptr += len;
     } else {
-        len = sizeof(src.sin6.sin6_addr);
+        len = sizeof(struct in6_addr);
         memcpy(ptr, &src.sin6.sin6_addr, len);
         ptr += len;
         memcpy(ptr, &dest_addr.sin6.sin6_addr, len);
