@@ -45,6 +45,7 @@ static char *data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
 static int port_seq_specified = 0;
+static int fix_dest_port = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
@@ -70,6 +71,9 @@ static int udp_default_init(const sockaddr_any* dest, unsigned int port_seq, siz
         curr_port = DEF_START_PORT;
     }
 
+    if(port_seq_specified == 0 && fix_dest_port)
+        ex_error("\n\nfix_dest_port must be used in conjunction with -p/--port\n");
+    
     dest_addr = *dest;
     dest_addr.sin.sin_port = htons(curr_port);
 
@@ -94,8 +98,8 @@ static int udp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     if(!port_seq)
         port_seq = DEF_UDP_PORT;
     else
-        port_seq_specified = 1;   
-    
+        port_seq_specified = 1; 
+
     dest_addr.sin.sin_port = htons((uint16_t)port_seq);
     
     fill_data(packet_len_p);
@@ -116,7 +120,12 @@ static void set_coverage(int sk)
     if(setsockopt(sk, IPPROTO_UDPLITE, UDPLITE_RECV_CSCOV, &val, sizeof(val)) < 0)
         error("UDPLITE_RECV_CSCOV");
 }
-    
+
+static CLIF_option udp_options[] = {
+    { 0, "fix_dest_port", 0, "Keep the destination port fixed", CLIF_set_flag, &fix_dest_port, 0, CLIF_ABBREV },
+    CLIF_END_OPTION
+};
+
 static CLIF_option udplite_options[] = {
     { 0, "coverage", "NUM", "Set udplite send coverage to %s (default is " _TEXT(MIN_COVERAGE) ")", CLIF_set_uint, &coverage, 0, CLIF_ABBREV },
     CLIF_END_OPTION
@@ -187,10 +196,12 @@ static void udp_send_probe(probe* pb, int ttl)
     memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
     
     if(curr_port) {
-        if(port_seq_specified)
-            curr_port++;
-        else
+        if(port_seq_specified) {
+            if(!fix_dest_port)
+                curr_port++;
+        } else {
             curr_port = (curr_port - DEF_START_PORT + 1) % UDP_MAX_TRACEROUTE_PORT_RANGE + DEF_START_PORT;
+        }
         
         dest_addr.sin.sin_port = htons(curr_port);    // note that this is valid for both ipv4 and ipv6
     }
@@ -276,6 +287,7 @@ static tr_module default_ops = {
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
+    .options = udp_options,
     .close = udp_close
 };
 

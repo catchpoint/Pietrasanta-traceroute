@@ -77,6 +77,12 @@ build_docker()
     
     docker create --name "traceroute_${PLATFORM}_container" traceroute:"${PLATFORM}"
  
+    if ! mkdir -p  ../../binaries/"$PLATFORM"/
+    then
+        echo "Cannot create directory to store binary"
+        exit 1
+    fi
+
     if ! docker cp "traceroute_${PLATFORM}_container":/traceroute/traceroute/traceroute ../../binaries/"$PLATFORM"/
     then
         echo "Failed to copy traceroute artifact from container traceroute_${PLATFORM}_container"
@@ -138,7 +144,7 @@ build()
 BUILD=0
 CLEAN=0
 OPENSSL3_FOLDER=""
-PLATFORM="centos7 debian11 ubuntu22 alpine3.15"
+PLATFORM="ol8 centos7 debian11 ubuntu22 alpine3.15"
 
 if ! args=$(getopt --long openssl3:,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
@@ -149,6 +155,7 @@ eval set -- "$args"
 while true; do
     case "$1" in
         --build)
+            echo "ejejjeje"
             BUILD=1; shift ;;
         --openssl3)
             OPENSSL3_FOLDER=$2; shift 2 ;;
@@ -168,6 +175,7 @@ done
 
 if [ $BUILD -eq 0 ] && [ $CLEAN -eq 0 ]
 then
+    echo "${BUILD} ${CLEAN}"
     usage
     exit 1
 fi

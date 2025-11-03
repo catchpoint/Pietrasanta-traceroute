@@ -662,7 +662,7 @@ Use udp datagram with constant destination port (default 53, dns).
 .br
 Intended to bypass firewall as well. 
 .P
-Note, that unlike in
+Note that, unlike in
 .I tcp
 method, the correspond application on the destination host
 .B always
@@ -672,12 +672,17 @@ see the final hop in the trace. (Fortunately, it seems that at least
 dns servers replies with something angry).
 .P
 This method is allowed for unprivileged users.
+.P
+Options:
+.TP
+.B fix_dest_port
+Keep the destination port fixed. This has to be used in conjunction with the -p/--port option to take effect. 
 .SS udplite \  \ \-UL
 Use udplite datagram for probes (with constant destination port,
 default 53).
 .P
 This method is allowed for unprivileged users.
-.br
+.P
 Options:
 .TP
 .B coverage\fR=\fInum
