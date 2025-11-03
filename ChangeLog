@@ -1,3 +1,9 @@
+2025-11-03  Luca Sani  <lsani@catchpoint.com> - 0.1.18
+                 
+    *  UDP fixed destination port option
+    
+       Introduced UDP option to keep the destination port specified via -p/--port fixed during the whole traceroute
+
 2024-09-05  Luca Sani  <lsani@catchpoint.com> - 0.1.17
                  
     *  Fix IPv6

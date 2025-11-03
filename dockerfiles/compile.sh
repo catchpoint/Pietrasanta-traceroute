@@ -7,7 +7,12 @@ then
     cd openssl
     make clean
     ./config
-    make
+    NPROC=$(nproc)
+    if [ ${NPROC} -gt 1 ]
+    then
+        NPROC=$((NPROC - 1))
+    fi
+    make -j ${NPROC}
     make install
     cd ..
 fi

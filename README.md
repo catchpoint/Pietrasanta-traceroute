@@ -86,7 +86,7 @@ The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
-* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine3.15` (Alpine 3.15). By default they are all enabled.
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `ol8` (Oracle Linux 8), `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine3.15` (Alpine 3.15). By default they are all enabled.
 * `--openssl3=<openssl3_folder>`: The folder containing openssl3 source code.
 
 The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
@@ -97,7 +97,7 @@ Example:
 ./build.sh - --build --clean --openssl3=/home/user/openssl3
 ```
 
-This will produce the binaries for CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, and place them into the `binaries` folder.
+This will produce the binaries for Oracle Linux 8, CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, and place them into the `binaries` folder.
 
 ## Usage
 
