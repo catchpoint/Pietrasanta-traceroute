@@ -1,7 +1,7 @@
 FROM centos:7
 ARG disable_openssl
 COPY CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo
-RUN yum install -y make systemd gcc perl-IPC-Cmd
+RUN yum install -y make systemd gcc perl-IPC-Cmd perl-Time-Piece
 RUN mkdir traceroute
 ADD libsupp traceroute/libsupp/
 ADD include traceroute/include

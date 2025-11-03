@@ -8,11 +8,11 @@ then
     make clean
     ./config
     NPROC=$(nproc)
-    if [ ${NPROC} -gt 1 ]
+    if [ "${NPROC}" -gt 1 ]
     then
         NPROC=$((NPROC - 1))
     fi
-    make -j ${NPROC}
+    make -j "${NPROC}"
     make install
     cd ..
 fi

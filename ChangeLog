@@ -2,7 +2,8 @@
                  
     *  UDP fixed destination port option
     
-       Introduced UDP option to keep the destination port specified via -p/--port fixed during the whole traceroute
+       Introduced UDP option to keep the destination port specified via -p/--port fixed during the whole traceroute.
+	   Inroduced OL8 binary support.
 
 2024-09-05  Luca Sani  <lsani@catchpoint.com> - 0.1.17
                  

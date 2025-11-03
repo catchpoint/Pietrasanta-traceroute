@@ -1,4 +1,3 @@
-set -x
 #!/bin/bash
 
 usage()
