@@ -2,8 +2,11 @@
                  
     *  UDP fixed destination port option
     
-       Introduced UDP option (-O fix_dst_port) to keep the destination port specified via 
+       Introduced UDP option (-O fix_dest_port) to keep the destination port specified via 
        -p/--port fixed during the whole traceroute.
+
+    *  OL8 binary
+
 	   Introduced OL8 binary support.
 
 2024-09-05  Luca Sani  <lsani@catchpoint.com> - 0.1.17
