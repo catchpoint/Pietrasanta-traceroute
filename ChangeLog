@@ -1,3 +1,15 @@
+2026-02-04  Luca Sani  <lsani@catchpoint.com> - 0.1.19
+                 
+    *  Handle Initial packets shorter than 1200 bytes
+    
+       Occasionally Initial packets shorter than 1200 bytes are received.
+	   Handle them instead of exiting abruptly.
+
+    *  Handle PING frame in Initial packets
+
+	   PING frames can be contained into Initial packets.
+	   We missed to handle them when parsing the Initial packet in search of ECN counters.
+
 2025-11-03  Luca Sani  <lsani@catchpoint.com> - 0.1.18
                  
     *  UDP fixed destination port option
