@@ -885,6 +885,11 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
     // Otherwise we need to inspect the packet looking for an ACK_ECN frame (type 0x03)
     if(!ecn_input_value)
         return pb;
+
+    if(len < 1200) {
+        fprintf(stderr, "\nReceived QUIC Initial packet shorter than 1200 bytes (%d bytes)\n", len);
+        return pb;
+    }
       
     // Try to decrypt the packet to find an ACK_ECN to determine if the destination supports ECN
     //
@@ -1066,6 +1071,12 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
                 size_t rp_len = get_vlint(decrypted_payload, &field_len); // reason phrase len
                 decrypted_payload += field_len;
                 decrypted_payload += rp_len;
+                
+                break;
+            }
+            case PING: // https://www.rfc-editor.org/rfc/rfc9000#name-ping-frames
+            {
+                decrypted_payload += 1;
                 
                 break;
             }
