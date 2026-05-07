@@ -352,9 +352,8 @@ static int dns_append_txt_string(char** curr, char* end, const uint8_t* txt, siz
         } else if(c >= 0x20 && c <= 0x7e) {
             if(dns_appendf(curr, end, "%c", c) < 0)
                 return -1;
-        } else {
-            if(dns_appendf(curr, end, "\\x%02x", c) < 0)
-                return -1;
+        } else if(dns_appendf(curr, end, "\\x%02x", c) < 0) {
+            return -1;
         }
     }
 
