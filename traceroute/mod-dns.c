@@ -483,7 +483,7 @@ static int dns_format_type_bitmap(const uint8_t* bitmap, size_t bitmap_len, char
         uint8_t window = bitmap[off++];
         uint8_t len = bitmap[off++];
 
-        if(!len || len > 32 || len > bitmap_len - off)
+        if(len == 0 || len > 32 || len > bitmap_len - off)
             return -1;
 
         for(uint8_t i = 0; i < len; i++) {
