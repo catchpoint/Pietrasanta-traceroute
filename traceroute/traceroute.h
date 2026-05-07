@@ -123,6 +123,7 @@ typedef struct tr_module_struct tr_module;
 
 #define DEF_START_PORT    33434    /*  start for traditional udp method   */
 #define DEF_UDP_PORT    53    /*  dns   */
+#define DEF_DNS_PORT    53    /*  dns   */
 #define DEF_TCP_PORT    80    /*  web   */
 #define DEF_DCCP_PORT    DEF_START_PORT    /*  is it a good choice?...  */
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
