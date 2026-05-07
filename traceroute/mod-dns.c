@@ -72,7 +72,7 @@ typedef enum query_t {
 
 static query_t dns_query = DNS_QUERY_A;
 static char* dns_domain = NULL;
-static uint8_t dns_qname[255];
+static uint8_t dns_qname[255] = {};
 static size_t dns_qname_len = 0;
 
 /*
@@ -390,7 +390,7 @@ static int dns_append_base64(char** curr, char* end, const uint8_t* data, size_t
 
     for(size_t i = 0; i < len; i += 3) {
         uint32_t value = (uint32_t)data[i] << 16;
-        char out[5];
+        char out[5] = {};
 
         if(i + 1 < len)
             value |= (uint32_t)data[i + 1] << 8;
@@ -478,7 +478,7 @@ static int dns_format_type_bitmap(const uint8_t* bitmap, size_t bitmap_len, char
             for(uint8_t bit = 0; bit < 8; bit++) {
                 if(bitmap[off + i] & (0x80 >> bit)) {
                     uint16_t type = (uint16_t)window * 256 + (uint16_t)i * 8 + bit;
-                    char type_buf[16];
+                    char type_buf[16] = {};
                     const char* type_name = dns_type_name(type, type_buf, sizeof(type_buf));
 
                     if(any && dns_appendf(&curr, end, " ") < 0)
@@ -550,7 +550,7 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
 
             uint16_t preference = dns_get16(msg + rdata_off);
             size_t name_off = rdata_off + sizeof(uint16_t);
-            char exchange[DNS_MAX_NAME_LEN];
+            char exchange[DNS_MAX_NAME_LEN] = {};
 
             if(dns_parse_name(msg, msg_len, &name_off, exchange, sizeof(exchange)) < 0 || name_off > rdata_off + rdlen)
                 return -1;
@@ -597,7 +597,7 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
             uint8_t algorithm = msg[rdata_off + 2];
             uint8_t digest_type = msg[rdata_off + 3];
 
-            char digest[DNS_EXT_LEN];
+            char digest[DNS_EXT_LEN] = {};
             if(dns_format_hex(msg + rdata_off + 4, rdlen - 4, digest, sizeof(digest)) < 0)
                 return -1;
 
@@ -636,13 +636,13 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
             uint16_t key_tag = dns_get16(msg + rdata_off + 16);
             size_t name_off = rdata_off + 18;
 
-            char signer[DNS_MAX_NAME_LEN];
+            char signer[DNS_MAX_NAME_LEN] = {};
             if(dns_parse_name(msg, msg_len, &name_off, signer, sizeof(signer)) < 0 || name_off > rdata_off + rdlen)
                 return -1;
 
             char* curr = out;
             char* end = out + out_len;
-            char type_buf[16];
+            char type_buf[16] = {};
             const char* type_name = dns_type_name(type_covered, type_buf, sizeof(type_buf));
 
             if(dns_appendf(&curr, end, "%s %u %u %u %u %u %u %s ", type_name, algorithm, labels, original_ttl, expiration, inception, key_tag, signer) < 0)
@@ -652,8 +652,8 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
         }
         case DNS_QUERY_NSEC:
         {
-            char next_name[DNS_MAX_NAME_LEN];
-            char types[DNS_EXT_LEN];
+            char next_name[DNS_MAX_NAME_LEN] = {};
+            char types[DNS_EXT_LEN] = {};
             size_t name_off = rdata_off;
 
             if(dns_parse_name(msg, msg_len, &name_off, next_name, sizeof(next_name)) < 0 || name_off > rdata_off + rdlen)
@@ -681,7 +681,7 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
             if(salt_len > end_off - off)
                 return -1;
 
-            char salt[DNS_EXT_LEN];
+            char salt[DNS_EXT_LEN] = {};
             if(dns_format_hex(msg + off, salt_len, salt, sizeof(salt)) < 0)
                 return -1;
             off += salt_len;
@@ -693,12 +693,12 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
             if(hash_len > end_off - off)
                 return -1;
 
-            char next_hash[DNS_EXT_LEN];
+            char next_hash[DNS_EXT_LEN] = {};
             if(dns_format_base32hex(msg + off, hash_len, next_hash, sizeof(next_hash)) < 0)
                 return -1;
             off += hash_len;
 
-            char types[DNS_EXT_LEN];
+            char types[DNS_EXT_LEN] = {};
             if(dns_format_type_bitmap(msg + off, end_off - off, types, sizeof(types)) < 0)
                 return -1;
 
@@ -721,7 +721,7 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
             if(salt_len > end_off - off || salt_len != end_off - off)
                 return -1;
 
-            char salt[DNS_EXT_LEN];
+            char salt[DNS_EXT_LEN] = {};
             if(dns_format_hex(msg + off, salt_len, salt, sizeof(salt)) < 0)
                 return -1;
 
@@ -757,7 +757,7 @@ static char* dns_parse_answers(const uint8_t* buf, size_t len)
     // Type: NS (2) (authoritative Name Server)
     // Class: IN (0x0001)
     for(uint16_t i = 0; i < qdcount; i++) {
-        char qname[DNS_MAX_NAME_LEN];
+        char qname[DNS_MAX_NAME_LEN] = {};
 
         if(dns_parse_name(msg, len, &off, qname, sizeof(qname)) < 0) // Parse the name
             return NULL;
@@ -768,7 +768,7 @@ static char* dns_parse_answers(const uint8_t* buf, size_t len)
         off += 4;
     }
 
-    char ext[DNS_EXT_LEN];
+    char ext[DNS_EXT_LEN] = {};
     char* curr = ext;
     char* end = ext + sizeof(ext);
     uint16_t ancount = dns_get16(msg + 6); // number of answers
