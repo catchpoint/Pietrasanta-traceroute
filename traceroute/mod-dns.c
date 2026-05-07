@@ -532,7 +532,7 @@ static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, s
     {
         case DNS_QUERY_A:
         {
-            if(rdlen != 4 || !inet_ntop(AF_INET, msg + rdata_off, out, out_len))
+            if(rdlen != 4 || inet_ntop(AF_INET, msg + rdata_off, out, out_len) == 0)
                 return -1;
 
             return 0;
