@@ -365,10 +365,9 @@ static int dns_append_txt_string(char** curr, char* end, const uint8_t* txt, siz
  */
 static int dns_append_hex(char** curr, char* end, const uint8_t* data, size_t len)
 {
-    for(size_t i = 0; i < len; i++) {
+    for(size_t i = 0; i < len; i++)
         if(dns_appendf(curr, end, "%02x", data[i]) < 0)
             return -1;
-    }
 
     return 0;
 }
