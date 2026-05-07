@@ -10,8 +10,6 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -30,7 +28,6 @@
 #include <string.h>
 #else
 #include <netinet/udp.h>
-#include <netinet/tcp.h>
 #endif
 
 #include "traceroute.h"
@@ -53,7 +50,6 @@ extern int tr_via_additional_raw_icmp_socket;
 #define DNS_OPT_RECORD_LEN 11
 #define DNS_OPT_UDP_PAYLOAD 4096
 #define DNS_EDNS_DO 0x8000
-#define DNS_TCP_LEN_SIZE 2
 
 typedef enum query_t {
     DNS_QUERY_A = 1,
@@ -74,18 +70,10 @@ typedef enum query_t {
     DNS_QUERY_CDNSKEY = 60,
 } query_t;
 
-typedef enum dns_transport_t {
-    DNS_TRANSPORT_UDP = 1,
-    DNS_TRANSPORT_TCP = 2
-} dns_transport_t;
-
-static dns_transport_t dns_transport = DNS_TRANSPORT_UDP;
 static query_t dns_query = DNS_QUERY_A;
 static char* dns_domain = NULL;
 static uint8_t dns_qname[255];
 static size_t dns_qname_len = 0;
-static uint8_t* tcp_data = NULL;
-static size_t tcp_data_len = 0;
 
 /*
  * Read a 16-bit integer from DNS network byte order.
@@ -877,7 +865,7 @@ static int set_dns_domain(CLIF_option* optn, char* arg)
 }
 
 /*
- * Build the DNS query packet for the selected transport.
+ * Build the DNS query packet.
  */
 static void fill_data(query_t query)
 {
@@ -892,15 +880,13 @@ static void fill_data(query_t query)
     if(use_dnssec)
         max_len += DNS_OPT_RECORD_LEN;
 
-    size_t frame_offset = (dns_transport == DNS_TRANSPORT_TCP) ? DNS_TCP_LEN_SIZE : 0;
-    uint8_t* packet = malloc(max_len + frame_offset);
+    uint8_t* packet = malloc(max_len);
     if(!packet)
         error("malloc");
 
-    memset(packet, 0, max_len + frame_offset);
+    memset(packet, 0, max_len);
 
-    uint8_t* msg = packet + frame_offset;
-    uint8_t* p = msg;
+    uint8_t* p = packet;
     uint16_t id = (uint16_t)random_seq();
     *p++ = (uint8_t)(id >> 8);
     *p++ = (uint8_t)id;                       /* ID */
@@ -937,27 +923,12 @@ static void fill_data(query_t query)
     free(data);
     data = NULL;
 
-    free(tcp_data);
-    tcp_data = NULL;
-    tcp_data_len = 0;
-
-    *length_p = (size_t)(p - msg);
-
-    if(dns_transport == DNS_TRANSPORT_TCP) {
-        if(*length_p > 0xffff)
-            ex_error("DNS message too long for DNS over TCP");
-
-        tcp_data_len = *length_p + DNS_TCP_LEN_SIZE;
-        tcp_data = packet;
-        tcp_data[0] = (uint8_t)(*length_p >> 8);
-        tcp_data[1] = (uint8_t)*length_p;
-    } else {
-        data = packet;
-    }
+    *length_p = (size_t)(p - packet);
+    data = packet;
 }
 
 /*
- * Initialize DNS probe state for the selected transport.
+ * Initialize DNS UDP probe state.
  */
 static int dns_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
@@ -970,21 +941,7 @@ static int dns_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     length_p = packet_len_p;
     fill_data(dns_query);
 
-    if(dns_transport == DNS_TRANSPORT_TCP) {
-#ifdef __APPLE__
-        ex_error("DNS over TCP is not supported");
-#else
-        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-        if(raw_icmp_sk < 0)
-            error_or_perm("raw icmp socket");
-
-        bind_socket(raw_icmp_sk);
-        use_timestamp(raw_icmp_sk);
-        use_recv_ttl(raw_icmp_sk);
-        fcntl(raw_icmp_sk, F_SETFL, O_NONBLOCK);
-        add_poll(raw_icmp_sk, POLLIN);
-#endif
-    } else if(use_additional_raw_icmp_socket) {
+    if(use_additional_raw_icmp_socket) {
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
@@ -1034,38 +991,9 @@ static int set_dns_query(CLIF_option* optn, char* arg)
     return 0;
 }
 
-/*
- * Enable DNS over TCP from the --tcp option.
- */
-static int set_dns_tcp(CLIF_option* optn, char* arg)
-{
-    dns_transport = DNS_TRANSPORT_TCP;
-    return 0;
-}
-
-/*
- * Parse and store the requested DNS transport.
- */
-static int set_dns_transport(CLIF_option* optn, char* arg)
-{
-    if(!arg || !*arg)
-        ex_error("DNS transport is required");
-
-    if(strcasecmp(arg, "udp") == 0)
-        dns_transport = DNS_TRANSPORT_UDP;
-    else if(strcasecmp(arg, "tcp") == 0)
-        dns_transport = DNS_TRANSPORT_TCP;
-    else
-        ex_error("Unsupported DNS transport: %s", arg);
-
-    return 0;
-}
-
 static CLIF_option dns_options[] = {
     { 0, "domain", "domain", "The domain to include into the query", set_dns_domain, &dns_domain, 0, 0 },
     { 0, "type", "type", "The type of the query (a, aaaa, ns, txt, ds, dnskey, rrsig, nsec, nsec3, nsec3param, cds, cdnskey)", CLIF_call_func, &set_dns_query, 0, 0 },
-    { 0, "tcp", 0, "Use DNS over TCP", set_dns_tcp, 0, 0, 0 },
-    { 0, "transport", "transport", "The DNS transport to use (udp, tcp)", CLIF_call_func, &set_dns_transport, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -1113,58 +1041,6 @@ static void dns_udp_send_probe(probe* pb, int ttl)
 }
 
 /*
- * Start a nonblocking TCP connect for one DNS probe.
- */
-static void dns_tcp_send_probe(probe* pb, int ttl)
-{
-#ifdef __APPLE__
-    ex_error("DNS over TCP is not supported on Apple");
-#else
-    int af = dest_addr.sa.sa_family;
-
-    int sk = socket(af, SOCK_STREAM, 0);
-    if(sk < 0)
-        error("socket");
-
-    tune_socket(sk);
-    set_ttl(sk, ttl);
-
-    pb->send_time = get_time();
-
-    if(connect(sk, &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0) {
-        if(errno != EINPROGRESS) {
-            close(sk);
-            error("connect");
-        }
-    }
-
-    socklen_t len = sizeof(pb->src);
-    if(getsockname(sk, &pb->src.sa, &len) < 0)
-        error("getsockname");
-
-    pb->sk = sk;
-    pb->seq = pb->src.sin.sin_port;
-    pb->seq_num = 0;
-    pb->mss = 0;
-
-    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
-
-    add_poll(sk, POLLOUT | POLLIN | POLLERR | POLLHUP);
-#endif
-}
-
-/*
- * Dispatch a DNS probe through the selected transport.
- */
-static void dns_send_probe(probe* pb, int ttl)
-{
-    if(dns_transport == DNS_TRANSPORT_TCP)
-        dns_tcp_send_probe(pb, ttl);
-    else
-        dns_udp_send_probe(pb, ttl);
-}
-
-/*
  * Match and parse a UDP DNS reply for a probe.
  */
 static probe* dns_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
@@ -1190,241 +1066,10 @@ static probe* dns_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
 }
 
 /*
- * Mark a TCP DNS probe as having reached the destination.
- */
-static void dns_tcp_mark_final(probe* pb, char* ext)
-{
-    memcpy(&pb->res, &dest_addr, sizeof(pb->res));
-    pb->final = 1;
-    pb->recv_time = get_time();
-
-    if(ext) {
-        free(pb->ext);
-        pb->ext = ext;
-    }
-
-    probe_done(pb, &pb->done);
-}
-
-/*
- * Write the TCP-framed DNS query on an established stream.
- *
- * Partial progress is stored in pb->mss so later POLLOUT events can resume.
- */
-static int dns_tcp_send_query(probe* pb)
-{
-    while((size_t)pb->mss < tcp_data_len) {
-        ssize_t n = send(pb->sk, tcp_data + pb->mss, tcp_data_len - (size_t)pb->mss, 0);
-
-        if(n < 0) {
-            if(errno == EAGAIN || errno == EWOULDBLOCK)
-                return 0;
-
-            return -1;
-        }
-
-        if(n == 0)
-            return 0;
-
-        pb->mss += n;
-    }
-
-    pb->seq_num = 1;
-    del_poll(pb->sk);
-    add_poll(pb->sk, POLLIN | POLLERR | POLLHUP);
-
-    return 1;
-}
-
-/*
- * Read and parse one DNS-over-TCP response frame.
- */
-static int dns_tcp_read_response(probe* pb)
-{
-    uint8_t len_buf[DNS_TCP_LEN_SIZE];
-    ssize_t n = recv(pb->sk, len_buf, sizeof(len_buf), MSG_PEEK);
-    if(n < 0) {
-        if(errno == EAGAIN || errno == EWOULDBLOCK)
-            return 0;
-
-        return -1;
-    }
-
-    if(n == 0)
-        return -1;
-
-    if((size_t)n < sizeof(len_buf))
-        return 0;
-
-    uint16_t dns_len = dns_get16(len_buf);
-    if(dns_len < DNS_HEADER_LEN)
-        return -1;
-
-    size_t frame_len = DNS_TCP_LEN_SIZE + dns_len;
-    uint8_t* frame = malloc(frame_len);
-    if(!frame)
-        error("malloc");
-
-    n = recv(pb->sk, frame, frame_len, MSG_PEEK);
-    if(n < 0) {
-        free(frame);
-        if(errno == EAGAIN || errno == EWOULDBLOCK)
-            return 0;
-
-        return -1;
-    }
-
-    if((size_t)n < frame_len) { // Not a valid DNS response but anyway we hit the destination and we got a response
-        dns_tcp_mark_final(pb, NULL);
-        free(frame);
-        return 0;
-    }
-
-    n = recv(pb->sk, frame, frame_len, 0);
-    if(n < 0) {
-        free(frame);
-        if(errno == EAGAIN || errno == EWOULDBLOCK)
-            return 0;
-
-        return -1;
-    }
-
-    if((size_t)n != frame_len) { // Not a valid DNS response but anyway we hit the destination and we got a response
-        dns_tcp_mark_final(pb, NULL);
-        free(frame);
-        return -1;
-    }
-
-    char* ext = dns_parse_answers(frame + DNS_TCP_LEN_SIZE, dns_len);
-    free(frame);
-    dns_tcp_mark_final(pb, ext);
-
-    return 1;
-}
-
-/*
- * Handle readiness events from a DNS TCP stream socket.
- *
- * Before the query is sent, socket readiness is used to finish the nonblocking
- * connect. After the query is sent, readiness is used to read the response.
- */
-static void dns_tcp_recv_stream_probe(int sk, int revents)
-{
-    probe* pb = probe_by_sk(sk);
-    if(!pb) {
-        del_poll(sk);
-        return;
-    }
-
-    if(!pb->seq_num) {
-        if(revents & (POLLOUT | POLLERR | POLLHUP)) {
-            int connect_res = connect(sk, &dest_addr.sa, (dest_addr.sa.sa_family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6));
-
-            if(connect_res < 0) {
-                if(errno == EINPROGRESS || errno == EALREADY)
-                    return;
-
-                if(errno == ECONNREFUSED) {
-                    dns_tcp_mark_final(pb, NULL); // Destination sent a RST or anyway refused the connection... stop here
-                    return;
-                }
-                 
-                if(errno != EISCONN)
-                    return;
-            }
-
-            if(dns_tcp_send_query(pb) < 0) {
-                dns_tcp_mark_final(pb, NULL);
-                return;
-            }
-        }
-    }
-
-    if(pb->seq_num && (revents & POLLIN)) {
-        if(dns_tcp_read_response(pb) < 0)
-            dns_tcp_mark_final(pb, NULL);
-    } else if(pb->seq_num && (revents & (POLLERR | POLLHUP))) {
-        dns_tcp_mark_final(pb, NULL);
-    }
-}
-
-/*
- * Match an ICMP error packet to the TCP probe that triggered it.
- */
-static probe* dns_tcp_check_icmp_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len)
-{
-    sockaddr_any offending_probe_dest;
-    sockaddr_any offending_probe_src;
-    struct tcphdr* offending_probe = NULL;
-    int proto = 0;
-    int returned_tos = 0;
-
-    if(len < 8)
-        return NULL;
-
-    extract_ip_info(dest_addr.sa.sa_family, buf, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos);
-    if(proto != IPPROTO_TCP)
-        return NULL;
-
-    offending_probe_dest.sin.sin_port = offending_probe->dest;
-    offending_probe_src.sin.sin_port = offending_probe->source;
-
-    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-    if(!pb)
-        return NULL;
-
-    int type = 0;
-    int code = 0;
-    int info = 0;
-
-    if(dest_addr.sa.sa_family == AF_INET) {
-        struct iphdr* outer_ip = (struct iphdr*)buf;
-
-        if(len < sizeof(struct iphdr))
-            return NULL;
-
-        int outer_hlen = outer_ip->ihl << 2;
-        if(len < (size_t)outer_hlen + sizeof(struct icmphdr))
-            return NULL;
-
-        struct icmphdr* icmp = (struct icmphdr*)(buf + outer_hlen);
-        type = icmp->type;
-        code = icmp->code;
-        info = icmp->un.gateway;
-    } else if(dest_addr.sa.sa_family == AF_INET6) {
-        struct icmp6_hdr* icmp6 = (struct icmp6_hdr*)buf;
-
-        if(len < sizeof(struct icmp6_hdr))
-            return NULL;
-
-        type = icmp6->icmp6_type;
-        code = icmp6->icmp6_code;
-        info = icmp6->icmp6_mtu;
-    }
-
-    pb->returned_tos = returned_tos;
-    pb->icmp_done = 1;
-    parse_icmp_res(pb, type, code, info);
-
-    return pb;
-}
-
-/*
- * Receive DNS probe events from stream, datagram, or raw ICMP sockets.
+ * Receive DNS UDP probe events.
  */
 static void dns_recv_probe(int sk, int revents) 
 {
-    if(dns_transport == DNS_TRANSPORT_TCP) {
-        if(sk == raw_icmp_sk) {
-            if(revents & POLLIN)
-                recv_reply(sk, 0, dns_tcp_check_icmp_reply);
-        } else {
-            dns_tcp_recv_stream_probe(sk, revents);
-        }
-
-        return;
-    }
-
     if((revents & (POLLIN | POLLERR)))
         recv_reply(sk, !!(revents & POLLERR), dns_check_reply);
 }
@@ -1434,7 +1079,7 @@ static void dns_recv_probe(int sk, int revents)
  */
 static int dns_is_raw_icmp_sk(int sk)
 {
-    if(dns_transport == DNS_TRANSPORT_UDP && sk == raw_icmp_sk)
+    if(sk == raw_icmp_sk)
         return 1;
 
     return 0;
@@ -1485,9 +1130,6 @@ static void dns_close()
 {
     free(data);
     data = NULL;
-    free(tcp_data);
-    tcp_data = NULL;
-    tcp_data_len = 0;
 
     if(raw_icmp_sk >= 0)
         close(raw_icmp_sk);
@@ -1498,7 +1140,7 @@ static void dns_close()
 static tr_module dns_ops = {
     .name = "dns",
     .init = dns_init,
-    .send_probe = dns_send_probe,
+    .send_probe = dns_udp_send_probe,
     .recv_probe = dns_recv_probe,
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = dns_handle_raw_icmp_packet,
