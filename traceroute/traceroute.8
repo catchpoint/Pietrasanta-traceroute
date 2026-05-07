@@ -373,6 +373,8 @@ have names
 and
 .I tcp
 respectively.
+The DNS method has name
+.IR dns .
 .br
 Method-specific options can be passed by
 .BR \-O\  .
@@ -677,6 +679,75 @@ Options:
 .TP
 .B fix_dest_port
 Keep the destination port fixed. This has to be used in conjunction with the -p/--port option to take effect. 
+.SS dns
+Send real DNS queries as traceroute probes.
+.br
+The destination
+.B host
+is the DNS server to query, and the DNS name being queried is provided with
+the
+.B domain
+module option. The default destination port is 53.
+.P
+This method is intended for tracing paths where DNS traffic is expected to be
+allowed. Unlike the
+.I udp
+method, the probe payload is a valid DNS message. By default probes are sent
+over UDP. DNS over TCP can be selected with the
+.B tcp
+option, or explicitly with
+.BR transport=tcp .
+For TCP, traceroute first opens the TCP connection and sends the DNS query
+only if the connection succeeds. A refused TCP connection still indicates that
+the destination host was reached.
+.P
+When a DNS answer is received, answer records are printed within
+.BR < >
+after the probe RTT. The format for each answer is:
+.P
+.RS
+.B name,type,class,ttl,rdata
+.RE
+.P
+Multiple answers are separated by semicolons.
+.P
+If the destination host does not reply with a valid DNS response (e.g. because
+is not an actual nameserver) traceroute will anyway conclude but no parsed response will be printed.
+.P
+Options:
+.TP
+.B domain\fR=\fIname
+Set the DNS name to include in the query. This option is required.
+.TP
+.B type\fR=\fItype
+Set the DNS query type. Supported values are
+.BR a ,
+.BR aaaa ,
+.BR ns ,
+.BR txt ,
+.BR ds ,
+.BR dnskey ,
+.BR rrsig ,
+.BR nsec ,
+.BR nsec3 ,
+.BR nsec3param ,
+.BR cds ,
+and
+.BR cdnskey .
+The default is
+.BR a .
+.TP
+.B tcp
+Use DNS over TCP. This is equivalent to
+.BR transport=tcp .
+.TP
+.B transport\fR=\fItransport
+Set the DNS transport. Supported values are
+.B udp
+and
+.BR tcp .
+The default is
+.BR udp .
 .SS udplite \  \ \-UL
 Use udplite datagram for probes (with constant destination port,
 default 53).
