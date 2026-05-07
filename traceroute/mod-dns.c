@@ -464,6 +464,8 @@ static int dns_format_base32hex(const unsigned char* data, size_t len, char* out
 
 /*
  * Decode the type bitmap used by DNSSEC NSEC and NSEC3 records.
+ *
+ * See https://www.rfc-editor.org/rfc/rfc4034.html#section-4.1
  */
 static int dns_format_type_bitmap(const unsigned char* bitmap, size_t bitmap_len, char* out, size_t out_len)
 {
@@ -873,9 +875,9 @@ static int set_dns_domain(CLIF_option* optn, char* arg)
 }
 
 /*
- * Build the DNS query packet and the TCP-framed variant.
+ * Build the DNS query packet for the selected transport.
  */
-static void fill_data(query_t query) // TODO_DNS packet_len argument with dns does not hold
+static void fill_data(query_t query)
 {
     if(!length_p)
         ex_error("DNS packet length pointer is not initialized");
@@ -888,13 +890,15 @@ static void fill_data(query_t query) // TODO_DNS packet_len argument with dns do
     if(use_dnssec)
         max_len += DNS_OPT_RECORD_LEN;
 
-    unsigned char* packet = malloc(max_len);
+    size_t frame_offset = (dns_transport == DNS_TRANSPORT_TCP) ? DNS_TCP_LEN_SIZE : 0;
+    unsigned char* packet = malloc(max_len + frame_offset);
     if(!packet)
         error("malloc");
 
-    memset(packet, 0, max_len);
+    memset(packet, 0, max_len + frame_offset);
 
-    unsigned char* p = packet;
+    unsigned char* msg = packet + frame_offset;
+    unsigned char* p = msg;
     uint16_t id = (uint16_t)random_seq();
     *p++ = (unsigned char)(id >> 8);
     *p++ = (unsigned char)id;                 /* ID */
@@ -929,24 +933,25 @@ static void fill_data(query_t query) // TODO_DNS packet_len argument with dns do
     }
 
     free(data);
-    data = (char*)packet;
-    *length_p = (size_t)(p - packet);
+    data = NULL;
 
     free(tcp_data);
     tcp_data = NULL;
     tcp_data_len = 0;
 
-    if(*length_p > 0xffff)
-        ex_error("DNS message too long for DNS over TCP");
+    *length_p = (size_t)(p - msg);
 
-    tcp_data_len = *length_p + DNS_TCP_LEN_SIZE;
-    tcp_data = malloc(tcp_data_len);
-    if(!tcp_data)
-        error("malloc");
+    if(dns_transport == DNS_TRANSPORT_TCP) {
+        if(*length_p > 0xffff)
+            ex_error("DNS message too long for DNS over TCP");
 
-    tcp_data[0] = (unsigned char)(*length_p >> 8);
-    tcp_data[1] = (unsigned char)*length_p;
-    memcpy(tcp_data + DNS_TCP_LEN_SIZE, data, *length_p);
+        tcp_data_len = *length_p + DNS_TCP_LEN_SIZE;
+        tcp_data = (char*)packet;
+        tcp_data[0] = (unsigned char)(*length_p >> 8);
+        tcp_data[1] = (unsigned char)*length_p;
+    } else {
+        data = (char*)packet;
+    }
 }
 
 /*
