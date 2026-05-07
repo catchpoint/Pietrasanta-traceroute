@@ -1324,14 +1324,13 @@ static void dns_tcp_recv_stream_probe(int sk, int revents)
                 if(errno == EINPROGRESS || errno == EALREADY)
                     return;
 
-                if(errno == ECONNREFUSED || errno == EISCONN) {
-                    if(errno == ECONNREFUSED) {
-                        dns_tcp_mark_final(pb, NULL); // Destination sent a RST or anyway refused the connection... stop here
-                        return;
-                    }
-                } else {
+                if(errno == ECONNREFUSED) {
+                    dns_tcp_mark_final(pb, NULL); // Destination sent a RST or anyway refused the connection... stop here
                     return;
                 }
+                 
+                if(errno != EISCONN)
+                    return;
             }
 
             if(dns_tcp_send_query(pb) < 0) {
