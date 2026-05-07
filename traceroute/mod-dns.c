@@ -507,7 +507,7 @@ static int dns_format_type_bitmap(const uint8_t* bitmap, size_t bitmap_len, char
         off += len;
     }
 
-    if(!any)
+    if(any == 0)
         return dns_appendf(&curr, end, "-");
 
     return 0;
