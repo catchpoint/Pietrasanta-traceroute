@@ -1,8 +1,5 @@
 /*
-    Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
-
-    Copyright(c)  2006, 2007        Dmitry Butskoy
-                    <buc@citadel.stu.neva.ru>
+    Copyright(c)  2026   Alessandro Improta, Luca Sani, LogicMonitor
     License:  GPL v2 or any later
 
     See COPYING for the status of this software.
