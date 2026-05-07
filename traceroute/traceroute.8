@@ -692,14 +692,7 @@ module option. The default destination port is 53.
 This method is intended for tracing paths where DNS traffic is expected to be
 allowed. Unlike the
 .I udp
-method, the probe payload is a valid DNS message. By default probes are sent
-over UDP. DNS over TCP can be selected with the
-.B tcp
-option, or explicitly with
-.BR transport=tcp .
-For TCP, traceroute first opens the TCP connection and sends the DNS query
-only if the connection succeeds. A refused TCP connection still indicates that
-the destination host was reached.
+method, the probe payload is a valid DNS message. Probes are sent over UDP.
 .P
 When a DNS answer is received, answer records are printed within
 .BR < >
@@ -736,18 +729,6 @@ and
 .BR cdnskey .
 The default is
 .BR a .
-.TP
-.B tcp
-Use DNS over TCP. This is equivalent to
-.BR transport=tcp .
-.TP
-.B transport\fR=\fItransport
-Set the DNS transport. Supported values are
-.B udp
-and
-.BR tcp .
-The default is
-.BR udp .
 .SS udplite \  \ \-UL
 Use udplite datagram for probes (with constant destination port,
 default 53).

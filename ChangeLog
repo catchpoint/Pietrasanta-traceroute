@@ -2,7 +2,7 @@
   
    * New DNS module
      
-	Traceroute DNS support over UDP and TCP. 
+	Traceroute DNS support over UDP. 
 	Probes carry a DNS query which can be specified via module options.
 
 2026-02-04  Luca Sani  <lsani@catchpoint.com> - 0.1.19
