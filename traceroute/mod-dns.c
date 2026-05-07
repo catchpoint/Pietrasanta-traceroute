@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <poll.h>
 #include <arpa/inet.h>
@@ -40,7 +41,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int protocol = IPPROTO_UDP;
 
-static char *data = NULL;
+static uint8_t* data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
 extern int use_additional_raw_icmp_socket;
@@ -84,15 +85,15 @@ typedef enum dns_transport_t {
 static dns_transport_t dns_transport = DNS_TRANSPORT_UDP;
 static query_t dns_query = DNS_QUERY_A;
 static char* dns_domain = NULL;
-static unsigned char dns_qname[255];
+static uint8_t dns_qname[255];
 static size_t dns_qname_len = 0;
-static char* tcp_data = NULL;
+static uint8_t* tcp_data = NULL;
 static size_t tcp_data_len = 0;
 
 /*
  * Read a 16-bit integer from DNS network byte order.
  */
-static uint16_t dns_get16(const unsigned char* p)
+static uint16_t dns_get16(const uint8_t* p)
 {
     return ((uint16_t)p[0] << 8) | p[1];
 }
@@ -100,13 +101,15 @@ static uint16_t dns_get16(const unsigned char* p)
 /*
  * Read a 32-bit integer from DNS network byte order.
  */
-static uint32_t dns_get32(const unsigned char* p)
+static uint32_t dns_get32(const uint8_t* p)
 {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
 }
 
 /*
  * Return whether a query type needs the EDNS DNSSEC OK bit.
+ *
+ * See https://www.rfc-editor.org/rfc/rfc3225.html
  */
 static int dns_query_wants_dnssec(query_t query)
 {
@@ -165,7 +168,7 @@ static int dns_appendf(char** curr, char* end, const char* fmt, ...)
  * The input offset starts at the encoded name and is updated to the byte after
  * the encoded name in its original location.
  */
-static int dns_parse_name(const unsigned char* msg, size_t msg_len, size_t* off_p, char* out, size_t out_len)
+static int dns_parse_name(const uint8_t* msg, size_t msg_len, size_t* off_p, char* out, size_t out_len)
 {
     size_t off = *off_p; // where the name starts within the message
     size_t end_off = 0; // Where the last name ends
@@ -338,13 +341,13 @@ static const char* dns_class_name(uint16_t class, char* buf, size_t len)
 /*
  * Append one DNS TXT character string with quoting and escaping.
  */
-static int dns_append_txt_string(char** curr, char* end, const unsigned char* txt, size_t len)
+static int dns_append_txt_string(char** curr, char* end, const uint8_t* txt, size_t len)
 {
     if(dns_appendf(curr, end, "\"") < 0)
         return -1;
 
     for(size_t i = 0; i < len; i++) {
-        unsigned char c = txt[i];
+        uint8_t c = txt[i];
 
         if(c == '"' || c == '\\') {
             if(dns_appendf(curr, end, "\\%c", c) < 0)
@@ -364,7 +367,7 @@ static int dns_append_txt_string(char** curr, char* end, const unsigned char* tx
 /*
  * Append bytes as lowercase hexadecimal text.
  */
-static int dns_append_hex(char** curr, char* end, const unsigned char* data, size_t len)
+static int dns_append_hex(char** curr, char* end, const uint8_t* data, size_t len)
 {
     for(size_t i = 0; i < len; i++) {
         if(dns_appendf(curr, end, "%02x", data[i]) < 0)
@@ -379,7 +382,7 @@ static int dns_append_hex(char** curr, char* end, const unsigned char* data, siz
  *
  * Empty data is represented as "-".
  */
-static int dns_format_hex(const unsigned char* data, size_t len, char* out, size_t out_len)
+static int dns_format_hex(const uint8_t* data, size_t len, char* out, size_t out_len)
 {
     if(!out_len)
         return -1;
@@ -398,7 +401,7 @@ static int dns_format_hex(const unsigned char* data, size_t len, char* out, size
  * Append bytes as base64 text.
  * This is mostly useful to encode DNSSEC-related keys as human readable strings.
  */
-static int dns_append_base64(char** curr, char* end, const unsigned char* data, size_t len)
+static int dns_append_base64(char** curr, char* end, const uint8_t* data, size_t len)
 {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -429,7 +432,7 @@ static int dns_append_base64(char** curr, char* end, const unsigned char* data, 
  *
  * Empty data is represented as "-".
  */
-static int dns_format_base32hex(const unsigned char* data, size_t len, char* out, size_t out_len)
+static int dns_format_base32hex(const uint8_t* data, size_t len, char* out, size_t out_len)
 {
     static const char table[] = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
@@ -467,7 +470,7 @@ static int dns_format_base32hex(const unsigned char* data, size_t len, char* out
  *
  * See https://www.rfc-editor.org/rfc/rfc4034.html#section-4.1
  */
-static int dns_format_type_bitmap(const unsigned char* bitmap, size_t bitmap_len, char* out, size_t out_len)
+static int dns_format_type_bitmap(const uint8_t* bitmap, size_t bitmap_len, char* out, size_t out_len)
 {
     if(!out_len)
         return -1;
@@ -518,10 +521,14 @@ static int dns_format_type_bitmap(const unsigned char* bitmap, size_t bitmap_len
 /*
  * Format the RDATA payload of one DNS answer.
  *
- * The message pointer is the complete DNS response so compressed names inside
- * RDATA can be resolved correctly.
+ * The message pointer is the complete DNS response so compressed names inside RDATA can be resolved correctly.
+ *
+ * RDATA is a variable length string of octets that describes the resource.
+ * The format of this information varies according to the TYPE and CLASS of the resource record.
+ *
+ * See https://www.rfc-editor.org/rfc/rfc1035.html#section-3.2.1
  */
-static int dns_format_rdata(const unsigned char* msg, size_t msg_len, uint16_t type, size_t rdata_off, size_t rdlen, char* out, size_t out_len)
+static int dns_format_rdata(const uint8_t* msg, size_t msg_len, uint16_t type, size_t rdata_off, size_t rdlen, char* out, size_t out_len)
 {
     if(!out_len)
         return -1;
@@ -751,9 +758,9 @@ static int dns_format_rdata(const unsigned char* msg, size_t msg_len, uint16_t t
  * The caller owns the returned string. A NULL return means that no printable
  * answer data was found or the response could not be parsed.
  */
-static char* dns_parse_answers(char* buf, size_t len)
+static char* dns_parse_answers(const uint8_t* buf, size_t len)
 {
-    const uint8_t* msg = (const uint8_t*)buf;
+    const uint8_t* msg = buf;
  
     if(len < DNS_HEADER_LEN || !(msg[2] & 0x80)) // msg is too short or is not a dns response
         return NULL;
@@ -830,7 +837,7 @@ static int set_dns_domain(CLIF_option* optn, char* arg)
         ex_error("\nDNS domain is required");
 
     const char* label = arg;
-    unsigned char* p = dns_qname;
+    uint8_t* p = dns_qname;
     size_t qname_len = 0;
 
     while(*label) {
@@ -850,7 +857,7 @@ static int set_dns_domain(CLIF_option* optn, char* arg)
         if(qname_len + 1 + label_len + 1 > sizeof(dns_qname))
             ex_error("DNS domain too long `%s'", arg);
 
-        *p++ = (unsigned char)label_len;
+        *p++ = (uint8_t)label_len;
         memcpy(p, label, label_len);
         p += label_len;
         qname_len += 1 + label_len;
@@ -891,17 +898,17 @@ static void fill_data(query_t query)
         max_len += DNS_OPT_RECORD_LEN;
 
     size_t frame_offset = (dns_transport == DNS_TRANSPORT_TCP) ? DNS_TCP_LEN_SIZE : 0;
-    unsigned char* packet = malloc(max_len + frame_offset);
+    uint8_t* packet = malloc(max_len + frame_offset);
     if(!packet)
         error("malloc");
 
     memset(packet, 0, max_len + frame_offset);
 
-    unsigned char* msg = packet + frame_offset;
-    unsigned char* p = msg;
+    uint8_t* msg = packet + frame_offset;
+    uint8_t* p = msg;
     uint16_t id = (uint16_t)random_seq();
-    *p++ = (unsigned char)(id >> 8);
-    *p++ = (unsigned char)id;                 /* ID */
+    *p++ = (uint8_t)(id >> 8);
+    *p++ = (uint8_t)id;                       /* ID */
     *p++ = 0x01;
     *p++ = 0x00;                              /* standard query, recursion desired */
     *p++ = 0x00;
@@ -913,8 +920,8 @@ static void fill_data(query_t query)
 
     memcpy(p, dns_qname, dns_qname_len);
     p += dns_qname_len;
-    *p++ = (unsigned char)(((uint16_t)query) >> 8);
-    *p++ = (unsigned char)query;
+    *p++ = (uint8_t)(((uint16_t)query) >> 8);
+    *p++ = (uint8_t)query;
     *p++ = 0x00;
     *p++ = DNS_QCLASS_IN;
 
@@ -922,12 +929,12 @@ static void fill_data(query_t query)
         *p++ = 0x00;                          /* root name */
         *p++ = 0x00;
         *p++ = DNS_TYPE_OPT;                  /* OPT */
-        *p++ = (unsigned char)(DNS_OPT_UDP_PAYLOAD >> 8);
-        *p++ = (unsigned char)DNS_OPT_UDP_PAYLOAD;
+        *p++ = (uint8_t)(DNS_OPT_UDP_PAYLOAD >> 8);
+        *p++ = (uint8_t)DNS_OPT_UDP_PAYLOAD;
         *p++ = 0x00;                          /* extended RCODE */
         *p++ = 0x00;                          /* EDNS version */
-        *p++ = (unsigned char)(DNS_EDNS_DO >> 8);
-        *p++ = (unsigned char)DNS_EDNS_DO;    /* DNSSEC OK */
+        *p++ = (uint8_t)(DNS_EDNS_DO >> 8);
+        *p++ = (uint8_t)DNS_EDNS_DO;          /* DNSSEC OK */
         *p++ = 0x00;
         *p++ = 0x00;                          /* RDLEN */
     }
@@ -946,11 +953,11 @@ static void fill_data(query_t query)
             ex_error("DNS message too long for DNS over TCP");
 
         tcp_data_len = *length_p + DNS_TCP_LEN_SIZE;
-        tcp_data = (char*)packet;
-        tcp_data[0] = (unsigned char)(*length_p >> 8);
-        tcp_data[1] = (unsigned char)*length_p;
+        tcp_data = packet;
+        tcp_data[0] = (uint8_t)(*length_p >> 8);
+        tcp_data[1] = (uint8_t)*length_p;
     } else {
-        data = (char*)packet;
+        data = packet;
     }
 }
 
@@ -970,7 +977,7 @@ static int dns_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
 
     if(dns_transport == DNS_TRANSPORT_TCP) {
 #ifdef __APPLE__
-        ex_error("DNS over TCP is not supported on Apple");
+        ex_error("DNS over TCP is not supported");
 #else
         raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         if(raw_icmp_sk < 0)
@@ -1175,7 +1182,7 @@ static probe* dns_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         return NULL;
 
     if(!err) {
-        char* ext = dns_parse_answers(buf, len);
+        char* ext = dns_parse_answers((const uint8_t*)buf, len);
 
         pb->final = 1;
         if(ext) {
@@ -1239,7 +1246,7 @@ static int dns_tcp_send_query(probe* pb)
  */
 static int dns_tcp_read_response(probe* pb)
 {
-    unsigned char len_buf[DNS_TCP_LEN_SIZE];
+    uint8_t len_buf[DNS_TCP_LEN_SIZE];
     ssize_t n = recv(pb->sk, len_buf, sizeof(len_buf), MSG_PEEK);
     if(n < 0) {
         if(errno == EAGAIN || errno == EWOULDBLOCK)
@@ -1259,7 +1266,7 @@ static int dns_tcp_read_response(probe* pb)
         return -1;
 
     size_t frame_len = DNS_TCP_LEN_SIZE + dns_len;
-    unsigned char* frame = malloc(frame_len);
+    uint8_t* frame = malloc(frame_len);
     if(!frame)
         error("malloc");
 
@@ -1293,7 +1300,7 @@ static int dns_tcp_read_response(probe* pb)
         return -1;
     }
 
-    char* ext = dns_parse_answers((char*)frame + DNS_TCP_LEN_SIZE, dns_len);
+    char* ext = dns_parse_answers(frame + DNS_TCP_LEN_SIZE, dns_len);
     free(frame);
     dns_tcp_mark_final(pb, ext);
 
