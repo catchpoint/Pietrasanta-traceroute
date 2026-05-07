@@ -787,10 +787,10 @@ static char* dns_parse_answers(const uint8_t* buf, size_t len)
 
     *curr = '\0';
     for(uint16_t i = 0; i < ancount; i++) {
-        char name[DNS_MAX_NAME_LEN];
-        char rdata[DNS_EXT_LEN];
-        char type_buf[16];
-        char class_buf[8];
+        char name[DNS_MAX_NAME_LEN] = {};
+        char rdata[DNS_EXT_LEN] = {};
+        char type_buf[16] = {};
+        char class_buf[8] = {};
         
         if(dns_parse_name(msg, len, &off, name, sizeof(name)) < 0 || off + 10 > len)
             return curr == ext ? NULL : strdup(ext);
