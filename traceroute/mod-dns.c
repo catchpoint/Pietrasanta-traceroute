@@ -1081,7 +1081,6 @@ static int dns_is_raw_icmp_sk(int sk)
 {
     if(sk == raw_icmp_sk)
         return 1;
-
     return 0;
 }
 
