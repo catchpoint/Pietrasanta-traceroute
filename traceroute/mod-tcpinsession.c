@@ -145,7 +145,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     double recv_time = 0;
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
     
-    // TODO: do it with a select...
     for(int i = 0; i < n_flows; i++) {
         int found = 0;
         uint8_t ack_buf[1024];
