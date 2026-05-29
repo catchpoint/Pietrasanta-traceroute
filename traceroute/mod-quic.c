@@ -623,7 +623,7 @@ static int quic_init(const sockaddr_any* dest, unsigned int port, size_t* packet
     return 0;
 }
 
-static void quic_send_probe(probe* pb, int ttl) 
+static void quic_send_probe(probe* pb, int ttl, int probe_idx) 
 {
     int sk;
     int af = dest_addr.sa.sa_family;
@@ -887,7 +887,7 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         return pb;
 
     if(len < 1200) {
-        fprintf(stderr, "\nReceived QUIC Initial packet shorter than 1200 bytes (%d bytes)\n", len);
+        fprintf(stderr, "\nReceived QUIC Initial packet shorter than 1200 bytes (%lu bytes)\n", len);
         return pb;
     }
       

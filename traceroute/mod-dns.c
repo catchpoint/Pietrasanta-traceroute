@@ -1000,7 +1000,7 @@ static CLIF_option dns_options[] = {
 /*
  * Send one UDP DNS probe and register its socket for replies.
  */
-static void dns_udp_send_probe(probe* pb, int ttl)
+static void dns_udp_send_probe(probe* pb, int ttl, int probe_idx)
 {
     int af = dest_addr.sa.sa_family;
 

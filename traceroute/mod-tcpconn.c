@@ -59,7 +59,7 @@ static int tcp_init(const sockaddr_any *dest, unsigned int port_seq, size_t *pac
     return 0;
 }
 
-static void tcp_send_probe(probe *pb, int ttl) 
+static void tcp_send_probe(probe *pb, int ttl, int probe_idx) 
 {
     int af = dest_addr.sa.sa_family;
     sockaddr_any addr;

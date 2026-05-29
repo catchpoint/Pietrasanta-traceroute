@@ -78,7 +78,6 @@
 
 #define MAX_HOPS 255
 #define MAX_HOP_FAILURES MAX_HOPS
-#define MAX_PROBES 10
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
 #define MAX_MTU_RETRIES 3
@@ -113,7 +112,6 @@ unsigned int first_hop = 1;
 
 static unsigned int max_hops = DEF_HOPS;
 static unsigned int sim_probes = DEF_SIM_PROBES;
-unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
 int tcpinsession_print_allowed = 0;
@@ -393,7 +391,6 @@ static void* printer(void* args)
     #endif
         
         probe* pb = &probes[idx];
-
         if(pb->exit_please > 0) {
             if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
                 unsigned int n = idx-1;
@@ -1091,7 +1088,7 @@ int main(int argc, char *argv[])
         int i = 0;
         while(!probes[0].final) {
             i++;
-            ops->send_probe(&probes[0], 255);
+            ops->send_probe(&probes[0], 255, i);
             
             do_poll(wait_secs, poll_callback);
             
@@ -1629,7 +1626,7 @@ static void do_it(void)
                 pb->mss = 0;
                 pb->mtu = 0;
 
-                ops->send_probe(pb, ttl);
+                ops->send_probe(pb, ttl, n);
 
                 if(!pb->send_time) {
                     if(next_time)

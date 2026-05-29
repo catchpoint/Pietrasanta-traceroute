@@ -772,7 +772,8 @@ Opens a TCP connection with the destination and sends TCP probes within the open
 The default destination port is 80.
 .P
 This method prevents false packet loss introduced by firewall and router configurations related to
-security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
+security. By default all probes belong to the same flow, identified by the TCP
+five-tuple, akin to a regular TCP session, to bypass load-balanced routers.
 .P
 This method uses the connect() syscall to open the session with the destination,
 thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
@@ -797,6 +798,17 @@ Show the value of maxseg tcp header option found in the syn/ack received from th
 .TP
 .B info
 Print tcp flags found in the syn/ack received from the destination during the initial TCP handshake.
+.br
+.TP
+.B ecmp
+Create multiple TCP flows instead of using the single default flow. One flow is
+created per
+.I nqueries
+value, so the first probe of each hop belongs to flow 1, the second probe of
+each hop belongs to flow 2, and so on. This can be particularly useful in
+conjunction with the
+.B \-e/\-\-extensions
+option to discover multiple labeled paths within a single measurement run.
 .br
 
 .SS quic

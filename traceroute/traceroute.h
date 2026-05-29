@@ -20,6 +20,8 @@
 #include <sys/time.h>
 #include <clif.h>
 
+#define MAX_PROBES 10
+
 #define ECN_NOT_ECT 0x00
 #define ECN_ECT_0 0x02
 #define ECN_ECT_1 0x01
@@ -104,7 +106,7 @@ struct tr_module_struct {
     struct tr_module_struct *next;
     const char *name;
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
-    void (*send_probe)(probe *pb, int ttl);
+    void (*send_probe)(probe *pb, int ttl, int probe_idx);
     void (*recv_probe)(int fd, int revents);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
