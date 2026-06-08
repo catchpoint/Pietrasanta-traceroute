@@ -11,6 +11,7 @@
     See COPYING for the status of this software.
 */
 #ifdef __APPLE__
+// TcpInsession is not supported on macOS
 #else
 #include <stdio.h>
 #include <stdlib.h>
