@@ -402,12 +402,6 @@ static void tcpinsession_send_probe(probe* pb, int ttl, int probe_idx)
         error("counter pointer uninitialized");
     
     (*counter_pointer)++;
-    
-    /*
-    *((uint32_t*)ptr) = ts_value[i];
-            *((uint32_t*)ptr) = ts_echo_reply[i];
-            
-    */
     uint8_t* ts_ptr = ((uint8_t*)th)+ts_value_offset; // TS value
     uint8_t* te_ptr = ts_ptr + sizeof(uint32_t); // TS echo reply
     if(ts_value_offset > 0) {
