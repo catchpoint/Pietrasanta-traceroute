@@ -83,7 +83,6 @@
 #define MAX_MTU_RETRIES 3
 #define DEF_HOPS 30
 #define DEF_SIM_PROBES 16    /*  including several hops   */
-#define DEF_NUM_PROBES 3
 #define DEF_WAIT_SECS 5.0
 #define DEF_HERE_FACTOR 3
 #define DEF_NEAR_FACTOR 10
@@ -168,6 +167,7 @@ int use_additional_raw_icmp_socket = 0;
 int tr_via_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
+unsigned int probes_per_hop = DEF_NUM_PROBES;
 int mtudisc = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
@@ -896,6 +896,8 @@ int main(int argc, char *argv[])
 
     check_progname(argv[0]);
 
+    probes_per_hop = DEF_NUM_PROBES;
+
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
 
@@ -978,9 +980,28 @@ int main(int argc, char *argv[])
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
+    if(ops->options && opts_idx > 1) {
+        opts[0] = strdup(module);        /*  aka argv[0] ...  */
+        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
+            exit(2);
+    }
+    
     if(src_port) {
-        src_addr.sin.sin_port = htons((uint16_t) src_port);
-        src_addr.sa.sa_family = af;
+        int ignore = 0;
+        if(strcmp(module, "tcpinsession") == 0) {
+            for(int i = 1; i <= sizeof(opts)/sizeof(opts[0]); i++) {
+                if(strcmp(opts[i], "ecmp") == 0) {
+                    ignore = 1;
+                    printf("Warning: source port cannot be used in tcpinsession module when ECMP option is enabled. Ignoring source port.\n");
+                    break;
+                }
+            }
+        }
+
+        if(!ignore) {
+            src_addr.sin.sin_port = htons((uint16_t) src_port);
+            src_addr.sa.sa_family = af;
+        } 
     }
 
     if(src_port || ops->one_per_time) {
@@ -1037,12 +1058,6 @@ int main(int argc, char *argv[])
     sem_init(&probe_semaphore, 0, 0);
 #endif
 
-    if(ops->options && opts_idx > 1) {
-        opts[0] = strdup(module);        /*  aka argv[0] ...  */
-        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
-            exit(2);
-    }
-    
     print_header();
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)

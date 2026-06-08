@@ -123,6 +123,7 @@ typedef struct tr_module_struct tr_module;
 #define __TEXT(X)       #X
 #define _TEXT(X)        __TEXT(X)
 
+#define DEF_NUM_PROBES 3
 #define DEF_START_PORT    33434    /*  start for traditional udp method   */
 #define DEF_UDP_PORT    53    /*  dns   */
 #define DEF_DNS_PORT    53    /*  dns   */
