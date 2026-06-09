@@ -36,6 +36,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
 
+// Note that MAX_PROBES means "max probes per hop"
 static int raw_icmp_sk[MAX_PROBES] = {-1};
 static int last_ttl = 0;
 
@@ -139,19 +140,20 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     double recv_time = 0;
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
 
+    uint8_t ack_buf[MAX_PROBES][1024];
+        
     for(int i = 0; i < n_flows; i++) {
         int found = 0;
-        uint8_t ack_buf[1024];
         do {
-            if((received = recvfrom(raw_sk[i], ack_buf, sizeof(ack_buf), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
+            if((received = recvfrom(raw_sk[i], ack_buf[i], sizeof(ack_buf[i]), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
                 recv_time = get_time();
                 response_tcp_hdr[i] = NULL;
                 uint8_t* opt_ptr = NULL;
                 uint16_t option_len = 0;
 
                 if(af == AF_INET) {
-                    struct iphdr* response_iphdr = (struct iphdr*)ack_buf;
-                    response_tcp_hdr[i] = (struct tcphdr*) (ack_buf + (response_iphdr->ihl << 2));
+                    struct iphdr* response_iphdr = (struct iphdr*)ack_buf[i];
+                    response_tcp_hdr[i] = (struct tcphdr*) (ack_buf[i] + (response_iphdr->ihl << 2));
                     if(response_tcp_hdr[i]->dest == src[i].sin.sin_port) {
                         uint16_t response_flags = get_th_flags(response_tcp_hdr[i]);
                         if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
@@ -164,7 +166,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                         }
                     }
                 } else if(af == AF_INET6) {
-                    response_tcp_hdr[i] = (struct tcphdr*)ack_buf;
+                    response_tcp_hdr[i] = (struct tcphdr*)ack_buf[i];
                     if(response_tcp_hdr[i]->dest == src[i].sin6.sin6_port) {
                         uint16_t response_flags = get_th_flags(response_tcp_hdr[i]);
                         if((response_flags & SYN) && (response_flags & ACK)) { // paranoid
