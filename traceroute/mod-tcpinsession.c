@@ -80,7 +80,7 @@ static CLIF_option tcp_options[] = {
 };
 
 static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p) 
-{ 
+{
     n_flows = (ecmp) ? probes_per_hop : 1;
 
     for(int i = 0; i < n_flows; i++)
@@ -130,7 +130,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(getsockopt(raw_sk[i], af == AF_INET ? SOL_IP : SOL_IPV6, af == AF_INET ? IP_MTU : IPV6_MTU, &mtu[i], &lenmtu) < 0 || mtu[i] < 576)
             mtu[i] = 576;
     }
-    
+
     int received = 0;
     sockaddr_any response_src_addr;
     memset(&response_src_addr, 0, sizeof(response_src_addr));
@@ -138,7 +138,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     double recv_time = 0;
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
-    
+
     for(int i = 0; i < n_flows; i++) {
         int found = 0;
         uint8_t ack_buf[1024];
@@ -148,7 +148,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 response_tcp_hdr[i] = NULL;
                 uint8_t* opt_ptr = NULL;
                 uint16_t option_len = 0;
-                
+
                 if(af == AF_INET) {
                     struct iphdr* response_iphdr = (struct iphdr*)ack_buf;
                     response_tcp_hdr[i] = (struct tcphdr*) (ack_buf + (response_iphdr->ihl << 2));
@@ -181,7 +181,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 if(found) {
                     initial_seq_num[i] = ntohl(response_tcp_hdr[i]->ack_seq)+1;
                     seq_num[i] = initial_seq_num[i];
-                    ack_num[i] = ntohl(response_tcp_hdr[i]->seq)+1;    
+                    ack_num[i] = ntohl(response_tcp_hdr[i]->seq)+1;
                     SACK_permitted = 0;
                     for(uint16_t o = 0; o < option_len; o++) {
                         uint8_t opt_kind = *opt_ptr;
@@ -209,10 +209,10 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                             uint32_t timestamp_value = ntohl(*((uint32_t*)opt_ptr));
                             opt_ptr += sizeof(uint32_t);
                             uint32_t timestamp_echo_reply = ntohl(*((uint32_t*)opt_ptr));
-                            
-                            ts_value[i] = htonl(timestamp_echo_reply+30);
-                            ts_echo_reply[i] = htonl(timestamp_value);
-                            
+
+                            ts_value[i] = timestamp_echo_reply+30;
+                            ts_echo_reply[i] = timestamp_value;
+
                             options |= OPT_TSTAMP;
                             
                             break;
@@ -407,8 +407,8 @@ static void tcpinsession_send_probe(probe* pb, int ttl, int probe_idx)
     uint8_t* te_ptr = ts_ptr + sizeof(uint32_t); // TS echo reply
     if(ts_value_offset > 0) {
         uint32_t ts_val = ts_value[flow]++;
-        *((uint32_t*)ts_ptr) = ts_val;
-        *((uint32_t*)te_ptr) = ts_echo_reply[flow];
+        *((uint32_t*)ts_ptr) = htonl(ts_val);
+        *((uint32_t*)te_ptr) = htonl(ts_echo_reply[flow]);
     }
 
     *lenp = htons(*length_p); 
@@ -544,7 +544,7 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     
     if(!err && (tcp->syn || !tcp->ack)) // Here we cannot receive probes with the SYN flag set and moreover they need to have the ACK flag set, since they are replies to our data probes
         return NULL;
-    
+
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
         uint16_t dport = tcp->dest; 
         uint32_t seq_num_returned = ntohl(tcp->seq);
@@ -582,7 +582,7 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     
     if(!found)
         return NULL;
-    
+
     probe* pb = find_probe_from_sack(tcp);
     
     if(!pb)

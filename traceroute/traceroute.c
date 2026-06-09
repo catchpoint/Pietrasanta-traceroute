@@ -985,26 +985,26 @@ int main(int argc, char *argv[])
         if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
             exit(2);
     }
-    
+
+    int ignore_src_port = 0;
     if(src_port) {
-        int ignore = 0;
         if(strcmp(module, "tcpinsession") == 0) {
-            for(int i = 1; i <= opts_idx; i++) {
+            for(int i = 1; i < opts_idx; i++) {
                 if(opts[i] != NULL && strcmp(opts[i], "ecmp") == 0) {
-                    ignore = 1;
+                    ignore_src_port = 1;
                     printf("Warning: source port cannot be used in tcpinsession module when ECMP option is enabled. Ignoring source port.\n");
                     break;
                 }
             }
         }
 
-        if(!ignore) {
+        if(!ignore_src_port) {
             src_addr.sin.sin_port = htons((uint16_t) src_port);
             src_addr.sa.sa_family = af;
-        } 
+        }
     }
 
-    if(src_port || ops->one_per_time) {
+    if((!ignore_src_port && src_port) || ops->one_per_time) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }
