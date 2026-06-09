@@ -105,6 +105,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         raw_sk[i] = socket(af, SOCK_RAW, IPPROTO_TCP);
         if(raw_sk[i] < 0)
             error_or_perm("socket");
+        tune_socket(raw_sk[i]);
     }
     
     double connect_starttime = get_time();
@@ -406,9 +407,8 @@ static void tcpinsession_send_probe(probe* pb, int ttl, int probe_idx)
     uint8_t* te_ptr = ts_ptr + sizeof(uint32_t); // TS echo reply
     if(ts_value_offset > 0) {
         uint32_t ts_val = ts_value[flow]++;
-        *((uint32_t*)ts_ptr) = htonl(ts_val);
-        uint32_t te_val = ts_echo_reply[flow]++;
-        *((uint32_t*)te_ptr) = htonl(te_val);
+        *((uint32_t*)ts_ptr) = ts_val;
+        *((uint32_t*)te_ptr) = ts_echo_reply[flow];
     }
 
     *lenp = htons(*length_p); 
@@ -647,11 +647,13 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     if(!pb)
         return NULL;
     
-    if((loose_match || equal_sockaddr(&src[0], &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) { // TODO do per all probes in case of ecmp
-        pb->returned_tos = returned_tos;
-        probe_done(pb, &pb->icmp_done);
-        if(loose_match || tr_via_additional_raw_icmp_socket)
-            *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
+    for(int i = 0; i < n_flows; i++) {
+        if((loose_match || equal_sockaddr(&src[i], &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+            pb->returned_tos = returned_tos;
+            probe_done(pb, &pb->icmp_done);
+            if(loose_match || tr_via_additional_raw_icmp_socket)
+                *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct tcphdr), ret, response_get->msg_name);
+        }
     }
     
     return pb;
@@ -664,10 +666,10 @@ static void tcpinsession_close()
     for(int i = start; i < last_probe; i++)
         print_probe(&probes[i]);
     
-    close(sk[0]); // TODO close all
-    if(use_additional_raw_icmp_socket) {
-        for(int i = 0; i < n_flows; i++)
-            close(raw_icmp_sk[i]);
+    for(int i = 0; i < n_flows; i++) {
+        close(sk[i]);
+        if(use_additional_raw_icmp_socket)
+                close(raw_icmp_sk[i]);
     }
 }
 

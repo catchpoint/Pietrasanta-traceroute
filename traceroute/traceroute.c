@@ -989,8 +989,8 @@ int main(int argc, char *argv[])
     if(src_port) {
         int ignore = 0;
         if(strcmp(module, "tcpinsession") == 0) {
-            for(int i = 1; i <= sizeof(opts)/sizeof(opts[0]); i++) {
-                if(strcmp(opts[i], "ecmp") == 0) {
+            for(int i = 1; i <= opts_idx; i++) {
+                if(opts[i] != NULL && strcmp(opts[i], "ecmp") == 0) {
                     ignore = 1;
                     printf("Warning: source port cannot be used in tcpinsession module when ECMP option is enabled. Ignoring source port.\n");
                     break;
