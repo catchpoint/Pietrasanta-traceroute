@@ -152,7 +152,7 @@ static int udplite_init(const sockaddr_any* dest, unsigned int port_seq, size_t*
     return 0;
 }
 
-static void udp_send_probe(probe* pb, int ttl)
+static void udp_send_probe(probe* pb, int ttl, int probe_idx)
 {
     int sk;
     int af = dest_addr.sa.sa_family;

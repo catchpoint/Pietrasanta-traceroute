@@ -20,6 +20,8 @@
 #include <sys/time.h>
 #include <clif.h>
 
+#define MAX_PROBES 10
+
 #define ECN_NOT_ECT 0x00
 #define ECN_ECT_0 0x02
 #define ECN_ECT_1 0x01
@@ -104,7 +106,7 @@ struct tr_module_struct {
     struct tr_module_struct *next;
     const char *name;
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
-    void (*send_probe)(probe *pb, int ttl);
+    void (*send_probe)(probe *pb, int ttl, int probe_idx);
     void (*recv_probe)(int fd, int revents);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
@@ -121,6 +123,7 @@ typedef struct tr_module_struct tr_module;
 #define __TEXT(X)       #X
 #define _TEXT(X)        __TEXT(X)
 
+#define DEF_NUM_PROBES 3
 #define DEF_START_PORT    33434    /*  start for traditional udp method   */
 #define DEF_UDP_PORT    53    /*  dns   */
 #define DEF_DNS_PORT    53    /*  dns   */

@@ -86,7 +86,7 @@ static int raw_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     return 0;
 }
 
-static void raw_send_probe(probe* pb, int ttl) 
+static void raw_send_probe(probe* pb, int ttl, int probe_idx) 
 {
     if(ttl != last_ttl) {
         set_ttl(raw_sk, ttl);

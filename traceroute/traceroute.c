@@ -78,13 +78,11 @@
 
 #define MAX_HOPS 255
 #define MAX_HOP_FAILURES MAX_HOPS
-#define MAX_PROBES 10
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
 #define MAX_MTU_RETRIES 3
 #define DEF_HOPS 30
 #define DEF_SIM_PROBES 16    /*  including several hops   */
-#define DEF_NUM_PROBES 3
 #define DEF_WAIT_SECS 5.0
 #define DEF_HERE_FACTOR 3
 #define DEF_NEAR_FACTOR 10
@@ -113,7 +111,6 @@ unsigned int first_hop = 1;
 
 static unsigned int max_hops = DEF_HOPS;
 static unsigned int sim_probes = DEF_SIM_PROBES;
-unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
 int tcpinsession_print_allowed = 0;
@@ -170,6 +167,7 @@ int use_additional_raw_icmp_socket = 0;
 int tr_via_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
+unsigned int probes_per_hop = DEF_NUM_PROBES;
 int mtudisc = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
@@ -393,7 +391,6 @@ static void* printer(void* args)
     #endif
         
         probe* pb = &probes[idx];
-
         if(pb->exit_please > 0) {
             if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
                 unsigned int n = idx-1;
@@ -899,6 +896,8 @@ int main(int argc, char *argv[])
 
     check_progname(argv[0]);
 
+    probes_per_hop = DEF_NUM_PROBES;
+
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
 
@@ -981,12 +980,31 @@ int main(int argc, char *argv[])
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
-    if(src_port) {
-        src_addr.sin.sin_port = htons((uint16_t) src_port);
-        src_addr.sa.sa_family = af;
+    if(ops->options && opts_idx > 1) {
+        opts[0] = strdup(module);        /*  aka argv[0] ...  */
+        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
+            exit(2);
     }
 
-    if(src_port || ops->one_per_time) {
+    int ignore_src_port = 0;
+    if(src_port) {
+        if(strcmp(module, "tcpinsession") == 0) {
+            for(int i = 1; i < opts_idx; i++) {
+                if(opts[i] != NULL && strcmp(opts[i], "ecmp") == 0) {
+                    ignore_src_port = 1;
+                    printf("Warning: source port cannot be used in tcpinsession module when ECMP option is enabled. Ignoring source port.\n");
+                    break;
+                }
+            }
+        }
+
+        if(!ignore_src_port) {
+            src_addr.sin.sin_port = htons((uint16_t) src_port);
+            src_addr.sa.sa_family = af;
+        }
+    }
+
+    if((!ignore_src_port && src_port) || ops->one_per_time) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }
@@ -1040,12 +1058,6 @@ int main(int argc, char *argv[])
     sem_init(&probe_semaphore, 0, 0);
 #endif
 
-    if(ops->options && opts_idx > 1) {
-        opts[0] = strdup(module);        /*  aka argv[0] ...  */
-        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
-            exit(2);
-    }
-    
     print_header();
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
@@ -1091,7 +1103,7 @@ int main(int argc, char *argv[])
         int i = 0;
         while(!probes[0].final) {
             i++;
-            ops->send_probe(&probes[0], 255);
+            ops->send_probe(&probes[0], 255, i);
             
             do_poll(wait_secs, poll_callback);
             
@@ -1629,7 +1641,7 @@ static void do_it(void)
                 pb->mss = 0;
                 pb->mtu = 0;
 
-                ops->send_probe(pb, ttl);
+                ops->send_probe(pb, ttl, n);
 
                 if(!pb->send_time) {
                     if(next_time)
