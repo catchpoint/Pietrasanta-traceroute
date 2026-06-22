@@ -48,6 +48,12 @@ traceroute \- print the route packets trace to network host
 .BR "" [ "--ping=num" "]
 .br
 .ti +8
+.BR "" [ "--packet-loss-threshold=num" "]
+.br
+.ti +8
+.BR "" [ "--packet-loss-window-size=num" "]
+.br
+.ti +8
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -69,7 +75,7 @@ The only required parameter is the name or IP address of the
 destination
 .BR host \ .
 The optional
-.B packet_len\fR`gth
+.B packet_length
 is the total size of the probing packet (default 60 bytes
 for IPv4 and 80 for IPv6). The specified size can be ignored
 in some situations or increased up to a minimal value.
@@ -528,7 +534,27 @@ mechanism regardles whether the method-specific conditions are met or not.
 
 .TP
 .BI \--ping\fR=\fInum
-Fix the TTL to the given num. It is a shorten for -f -m
+Fix the TTL to the given num. It is a shorten for -f -m.
+
+.TP
+.BI \--packet-loss-threshold\fR=\fInum
+Valid ony when running in ping mode.
+This is the maximum packet loss percentage after which the measurement stops when running in ping mode. 
+For example if this value is 70, it means that the measurement will stop when the the 70% of probes over the total of
+.B nqueries
+expires.
+The value of
+.B packet-loss-window-size
+affects when this value is reached. 
+.TP
+.BI \--packet-loss-window-size\fR=\fInum
+Valid ony when running in ping mode.
+This is the window size used to compute the
+.B packet-loss-threshold
+. Each time a probe gets a reply or expires, the tool looks back num probes, computes the
+percentage of packet loss and stops if the
+.B packet-loss-threshold
+is reached. By default ist value is 20 probes.
 
 .br
 
