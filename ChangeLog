@@ -1,6 +1,6 @@
 2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.23
   
-   * Introduced timeout to ensure recmsg does not get stuck
+   * Introduced timeout to ensure recvmsg does not get stuck
 
 2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.22
   
