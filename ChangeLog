@@ -2,8 +2,8 @@
   
    * Ping mode and high frequency probes
      
-	Introduced ping mode, an helper option to fix the TTL to one value, and
-	the possibility to send probes at a given frequency. In ping mode addes also
+	Introduced ping mode, an helper option to fix the TTL to one value throughout all the
+	measurement. Introduced the possibility to send probes at a fixed frequency. In ping mode added also
 	the possibility to stop the measurement when a certain packet loss threshold is reached.
 
 2026-05-07  Luca Sani  <lsani@catchpoint.com> - 0.1.21
