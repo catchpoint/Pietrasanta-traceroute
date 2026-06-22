@@ -389,8 +389,9 @@ static void* printer(void* args)
     int end = num_probes;
     
     int replace_idx = 0;
+    int exit_please = 0;
     
-    for(int idx = start; idx < end; idx++) {
+    for(int idx = start; idx < end && !exit_please; idx++) {
     #ifdef __APPLE__
         dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
     #else
@@ -399,24 +400,30 @@ static void* printer(void* args)
         
         probe* pb = &probes[idx];
         if(pb->exit_please > 0) {
-            if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
-                unsigned int n = idx-1;
-                while(n % probes_per_hop != probes_per_hop-1) {
-                    printf(" *"); // Add forced timeouts when overall timeout has been reached
-                    pb = &probes[n];
-                    probe_done(pb, NULL);
-                    check_expired(pb);
-                    n++;
+            if(ploss_violation_detected == 0) { // Only for partial results
+                if(pb->exit_please > 0) {
+                    if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
+                        unsigned int n = idx-1;
+                        while(n % probes_per_hop != probes_per_hop-1) {
+                            printf(" *"); // Add forced timeouts when overall timeout has been reached
+                            pb = &probes[n];
+                            
+                            probe_done(pb, NULL);
+                            check_expired(pb);
+                            
+                            n++;
+                        }
+                    }
+                    return NULL;
                 }
             }
-            return NULL;
-        }
-        
-        print_probe(pb);
-
-        if(pb->done && pb->final) {
-            end = (idx / probes_per_hop + 1) * probes_per_hop;
-            last_hop_reached = end/probes_per_hop;
+            exit_please = 1;
+        } else {
+            print_probe(pb);
+            if(pb->done && pb->final) {
+                end = (idx / probes_per_hop + 1) * probes_per_hop;
+                last_hop_reached = end/probes_per_hop;
+            }
         }
     }
 
@@ -970,6 +977,9 @@ int main(int argc, char *argv[])
                 ex_error("bad ploss_threshold %d specified", ploss_threshold_perc);
             ploss_threshold = ploss_window_size*ploss_threshold_perc;
             ploss_threshold /= 100;
+
+            printf("%d\n", ploss_threshold);
+            exit(1);
         }
     }
     
@@ -1170,10 +1180,6 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         
         do_it();
-        
-        int start = (first_hop - 1) * probes_per_hop;
-        for(int i = start; i < num_probes; i++)
-            print_probe(&probes[i]);
     }
     
     // Make extra-sure to not leave any FD open

@@ -539,13 +539,26 @@ Fix the TTL to the given num. It is a shorten for -f -m.
 .TP
 .BI \--packet-loss-threshold\fR=\fInum
 Valid ony when running in ping mode.
-This is the maximum packet loss percentage after which the measurement stops when running in ping mode. 
+This is the maximum number of prrobes that can expire consecutively after which the measurement stops when running in ping mode. 
 For example if this value is 70, it means that the measurement will stop when the the 70% of probes over the total of
 .B nqueries
-expires.
+expires
+.U consecutively
 The value of
 .B packet-loss-window-size
-affects when this value is reached. 
+can affect its value. For example if the number of probes sent is 20, the
+.B packet-loss-window-size is 20,
+and
+.B packet-loss-threshold is 50
+then the maximum number of probes that can expire sent before teh measurement is stop is 10.
+On th eother hand, if the
+.B packet-loss-window-size
+is less than
+.B nqueries
+e.g. 10,
+then the maximum number of probes that can expire consecutively is 5.
+In general the formula for the maximum number of probes that can expire consecutively before the measurement is stop
+is (packet-loss-threshold*packet-loss-window-size/100).
 .TP
 .BI \--packet-loss-window-size\fR=\fInum
 Valid ony when running in ping mode.
