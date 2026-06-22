@@ -41,6 +41,19 @@ traceroute \- print the route packets trace to network host
 .ti +8
 .BR "" [ "--loose-match ]
 .br
+.ti +8
+.BR "" [ "--disable-extra-ping" ]
+.br
+.ti +8
+.BR "" [ "--ping=num" "]
+.br
+.ti +8
+.BR "" [ "--packet-loss-threshold=num" "]
+.br
+.ti +8
+.BR "" [ "--packet-loss-window-size=num" "]
+.br
+.ti +8
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -62,7 +75,7 @@ The only required parameter is the name or IP address of the
 destination
 .BR host \ .
 The optional
-.B packet_len\fR`gth
+.B packet_length
 is the total size of the probing packet (default 60 bytes
 for IPv4 and 80 for IPv6). The specified size can be ignored
 in some situations or increased up to a minimal value.
@@ -326,7 +339,7 @@ address of one of the interfaces.
 By default, the address of the outgoing interface is used.
 .TP
 .BI \-z " sendwait" ", --sendwait=" sendwait
-Minimal time interval between probes (default 0).
+Time interval between probes (default 0).
 If the value is more than 10, then it specifies a number in milliseconds,
 else it is a number of seconds (float point values allowed too).
 Useful when some routers use rate-limit for ICMP messages.
@@ -518,6 +531,43 @@ The extra pings are reported after the last hop and are preceeded by a "+" symbo
 The number of the last hop is repeated, highlighting that these are extra pings for 
 the hop that reached the destination. This option is to disable the extra ping
 mechanism regardles whether the method-specific conditions are met or not.
+
+.TP
+.BI \--ping\fR=\fInum
+Fix the TTL to the given num. It is a shorten for -f -m.
+
+.TP
+.BI \--packet-loss-threshold\fR=\fInum
+Valid ony when running in ping mode.
+This is the maximum number of prrobes that can expire consecutively after which the measurement stops when running in ping mode. 
+For example if this value is 70, it means that the measurement will stop when the the 70% of probes over the total of
+.B nqueries
+expires
+.U consecutively
+The value of
+.B packet-loss-window-size
+can affect its value. For example if the number of probes sent is 20, the
+.B packet-loss-window-size is 20,
+and
+.B packet-loss-threshold is 50
+then the maximum number of probes that can expire sent before teh measurement is stop is 10.
+On th eother hand, if the
+.B packet-loss-window-size
+is less than
+.B nqueries
+e.g. 10,
+then the maximum number of probes that can expire consecutively is 5.
+In general the formula for the maximum number of probes that can expire consecutively before the measurement is stop
+is (packet-loss-threshold*packet-loss-window-size/100).
+.TP
+.BI \--packet-loss-window-size\fR=\fInum
+Valid ony when running in ping mode.
+This is the window size used to compute the
+.B packet-loss-threshold
+. Each time a probe gets a reply or expires, the tool looks back num probes, computes the
+percentage of packet loss and stops if the
+.B packet-loss-threshold
+is reached. By default its value is 20 probes.
 
 .br
 

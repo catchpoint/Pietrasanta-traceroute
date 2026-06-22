@@ -20,7 +20,7 @@
 #include <sys/time.h>
 #include <clif.h>
 
-#define MAX_PROBES 10
+#define MAX_PROBES 1000
 
 #define ECN_NOT_ECT 0x00
 #define ECN_ECT_0 0x02
@@ -68,6 +68,8 @@ struct probe_struct
     int mtu;
     int returned_tos;
     int exit_please;
+    struct timeval starttime;
+    struct timeval endtime;
     sockaddr_any src;
     sockaddr_any dest;
     uint32_t seq_num;
