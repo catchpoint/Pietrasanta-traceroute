@@ -41,6 +41,13 @@ traceroute \- print the route packets trace to network host
 .ti +8
 .BR "" [ "--loose-match ]
 .br
+.ti +8
+.BR "" [ "--disable-extra-ping" ]
+.br
+.ti +8
+.BR "" [ "--ping=num" "]
+.br
+.ti +8
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -326,7 +333,7 @@ address of one of the interfaces.
 By default, the address of the outgoing interface is used.
 .TP
 .BI \-z " sendwait" ", --sendwait=" sendwait
-Minimal time interval between probes (default 0).
+Time interval between probes (default 0).
 If the value is more than 10, then it specifies a number in milliseconds,
 else it is a number of seconds (float point values allowed too).
 Useful when some routers use rate-limit for ICMP messages.
@@ -518,6 +525,10 @@ The extra pings are reported after the last hop and are preceeded by a "+" symbo
 The number of the last hop is repeated, highlighting that these are extra pings for 
 the hop that reached the destination. This option is to disable the extra ping
 mechanism regardles whether the method-specific conditions are met or not.
+
+.TP
+.BI \--ping\fR=\fInum
+Fix the TTL to the given num. It is a shorten for -f -m
 
 .br
 

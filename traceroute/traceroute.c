@@ -1767,7 +1767,6 @@ static void do_it(void)
                 decimals /= 1000;
                 decimals /= 1000;
                 missing_time -= decimals;
-                
                 missing_time = (missing_time < 0) ? 0 : missing_time;
                 
                 poll_time = (missing_time > poll_time) ? poll_time : missing_time;
