@@ -1594,11 +1594,11 @@ static void do_it(void)
                     if(n < end) {
                         for(int p = start; p < end; ++p) {
                             probes[p].exit_please = 1;
-                        #ifdef __APPLE__
-                            dispatch_semaphore_signal(probe_semaphore);
-                        #else
-                            sem_post(&probe_semaphore);
-                        #endif
+                            #ifdef __APPLE__
+                                dispatch_semaphore_signal(probe_semaphore);
+                            #else
+                                sem_post(&probe_semaphore);
+                            #endif
                         }
                     }
                     timedout = 1;
