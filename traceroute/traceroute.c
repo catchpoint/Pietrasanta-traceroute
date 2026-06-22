@@ -99,6 +99,7 @@
 #ifndef DEF_AF
 #define DEF_AF AF_INET
 #endif
+#define DEF_PACKET_LOSS_WINDOW_SIZE 20
 
 #define ttl2hops(X) (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
 
@@ -169,6 +170,12 @@ int ecn_input_value = -1;
 int loose_match = 0;
 unsigned int probes_per_hop = DEF_NUM_PROBES;
 int mtudisc = 0;
+int ping_mode = 0;
+int ploss_violation_detected = 0;
+int ploss_threshold_perc = -1;
+int ploss_window_size = DEF_PACKET_LOSS_WINDOW_SIZE;
+int ploss_threshold = -1;
+int ploss_total = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
 int mtudisc_phase = 0;
@@ -803,6 +810,7 @@ static CLIF_option option_list[] = {
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
     { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
+    { "x", "ping", "ping", "Run in Ping mode with the indicated TTL", CLIF_set_uint, &ping_mode, 0, 0 },
     { "z", "sendwait", "sendwait", "Minimal time interval between probes (default " _TEXT(DEF_SEND_SECS) "). If the value is more than 10, then it specifies a number in milliseconds, else it is a number of seconds (float point values allowed too)", CLIF_set_double, &send_secs, 0, 0 },
     { "e", "extensions", 0, "Show ICMP extensions(if present), including MPLS", CLIF_set_flag, &extension, 0, CLIF_ABBREV },
     { "A", "as-path-lookups", 0, "Perform AS path lookups in routing registries and print results directly after the corresponding addresses", CLIF_set_flag, &as_lookups, 0, 0 },
@@ -823,6 +831,8 @@ static CLIF_option option_list[] = {
     { 0, "ecn", "num", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp. Allowed values are between 0 and 3", CLIF_set_uint16, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
+    { 0, "packet-loss-threshold", "packet-loss-threshold", "Set the packet loss threshold before throwing an error (valid only in ping mode)", CLIF_set_uint, &ploss_threshold_perc, 0, 0 },
+    { 0, "packet-loss-window-size", "packet-loss-window-size", "Set the packet loss window size (valid only in ping mode)", CLIF_set_uint, &ploss_window_size, 0, 0 },
     { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
     { 0, "dns", 0, "Use DNS-like packets", set_module, "dns", 0, CLIF_EXTRA },
     CLIF_VERSION_OPTION(version_string),
@@ -952,6 +962,17 @@ int main(int argc, char *argv[])
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
 
+    if(ping_mode > 0) {
+        if(ploss_window_size < 0)
+            ex_error("bad ploss_window_size %d specified", ploss_window_size);
+        if(ploss_threshold_perc != -1) {
+            if(ploss_threshold_perc < 0 || ploss_threshold_perc > 100)
+                ex_error("bad ploss_threshold %d specified", ploss_threshold_perc);
+            ploss_threshold = ploss_window_size*ploss_threshold_perc;
+            ploss_threshold /= 100;
+        }
+    }
+    
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");
     } else if(dscp_input_value != -1 || ecn_input_value != -1) {
@@ -977,6 +998,12 @@ int main(int argc, char *argv[])
     if(loose_match)
         use_additional_raw_icmp_socket = 1;
     
+    if(ping_mode > 0) {
+        max_hops = ping_mode;
+        first_hop = ping_mode;
+        sim_probes = 1;
+    }
+
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
@@ -1529,11 +1556,19 @@ probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_so
 
 static void do_it(void) 
 {
+    int seconds = (int)send_secs;
+    int microseconds = (send_secs-seconds)*1000000;
+    
+    struct timeval probe_spacing = {seconds, microseconds};
+    
     int start = (first_hop - 1) * probes_per_hop;
     int end = num_probes;
-    double last_send = 0;
+    
+    int start_window = -1;
     
     gettimeofday(&starttime, NULL);
+    
+    struct timeval next_probe_send_time = starttime;
 
     while(start < end) {
         int n = 0;
@@ -1541,21 +1576,30 @@ static void do_it(void)
         double next_time = 0;
         double now_time = get_time();
         
+        struct timeval currtime;
+        gettimeofday(&currtime, NULL);
+
         int exit_please = 0;
+        int probe_just_sent = 0;
 
         for(n = start; n < end && exit_please == 0; n++) {
+            if(strcmp(module, "tcpinsession") == 0 || strcmp(module, "tcp") == 0)
+                last_probe = (n / probes_per_hop + 1) * probes_per_hop;
+
             if(overall_timeout > 0) {
                 struct timeval currtime;
                 gettimeofday(&currtime, NULL);
                 
                 if(currtime.tv_sec-starttime.tv_sec >= overall_timeout) {
                     if(n < end) {
-                        probes[n].exit_please = 1;
+                        for(int p = start; p < end; ++p) {
+                            probes[p].exit_please = 1;
                         #ifdef __APPLE__
                             dispatch_semaphore_signal(probe_semaphore);
                         #else
                             sem_post(&probe_semaphore);
                         #endif
+                        }
                     }
                     timedout = 1;
                     break;
@@ -1574,7 +1618,7 @@ static void do_it(void)
                 }
             }
             
-            if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+            if(!ping_mode && mtudisc && sim_probes == 1 && pb->err_str[0]) {
                 destination_reached = 0; // Any unreachability means we didn't get to destination!
                 int mtu_value = atoi(pb->err_str+2);
                 if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
@@ -1596,6 +1640,31 @@ static void do_it(void)
                     else
                         consecutive_probe_failures = 0;
                     
+                    if(ploss_threshold >= 0 && ploss_violation_detected == 0) { // Don't do anything once you already identified a packet loss threshold violation
+                        if(start_window == -1) {
+                            start_window = n;
+                        } else if(n - start_window >= ploss_window_size) {
+                            probe* ppb = &probes[start_window];
+                            if(!ppb->res.sa.sa_family) {
+                                ploss_total--;
+                            }
+                            start_window++;
+                        }
+                        
+                        if(!pb->res.sa.sa_family) {
+                            ploss_total++;
+                            if(ploss_total >= ploss_threshold) {
+                                ploss_violation_detected = 1;
+
+                                if(n+1 < end) {
+                                    probes[n+1].exit_please = 1;
+                                    sem_post(&probe_semaphore);
+                                }
+
+                                exit_please = 1;
+                            }
+                        }
+                    }
                 #ifdef __APPLE__
                     dispatch_semaphore_signal(probe_semaphore);
                 #else
@@ -1628,16 +1697,12 @@ static void do_it(void)
                 continue;
             }
 
-            if(!pb->send_time) {
-                double next;
+            if(!pb->send_time && timercmp(&currtime, &next_probe_send_time, >=))  {
+                int ttl;
+                
+                ttl = n / probes_per_hop + 1;
 
-                if(send_secs &&(next = last_send + send_secs) > now_time) {
-                    next_time = next;
-                    break;
-                }
-
-                int ttl = n / probes_per_hop + 1;
-
+                gettimeofday(&pb->starttime, NULL);
                 pb->mss = 0;
                 pb->mtu = 0;
 
@@ -1646,29 +1711,46 @@ static void do_it(void)
                 if(!pb->send_time) {
                     if(next_time)
                         break;    /*  have chances later   */
-                    else 
+                    else
                         error("send probe");
                 }
 
-                last_send = pb->send_time;
+                probe_just_sent = 1;
+                timeradd(&currtime, &probe_spacing, &next_probe_send_time);
             }
 
             if(!next_time)
                 next_time = pb->send_time + get_timeout(pb);
 
             num++;
-            if(num >= sim_probes)
+            
+            if(ping_mode && send_secs > 0) { // if we are high frequency
+                if(probe_just_sent > 0)
+                    break;
+            } else if(num >= sim_probes) {
                 break;
+            }
         }
 
         if(timedout > 0 || exit_please > 0)
             break;
 
         if(next_time) {
-            double timeout = next_time - get_time();
-            if(timeout < 0)
-                timeout = 0;
-
+            double poll_time = 0;
+            
+            if(timercmp(&currtime, &next_probe_send_time, <)) {
+                struct timeval diff;
+                timersub(&next_probe_send_time, &currtime, &diff);
+                
+                poll_time = diff.tv_usec;
+                poll_time /= 1000000;
+            } else {
+                poll_time = next_time - get_time();
+            }
+            
+            if(poll_time < 0)
+                poll_time = 0;
+                
             if(overall_timeout > 0) {
                 struct timeval currtime;
                 gettimeofday(&currtime, NULL);
@@ -1685,12 +1767,13 @@ static void do_it(void)
                 decimals /= 1000;
                 decimals /= 1000;
                 missing_time -= decimals;
-
+                
                 missing_time = (missing_time < 0) ? 0 : missing_time;
-                do_poll((missing_time > timeout) ? timeout : missing_time, poll_callback);                
-            } else {
-                do_poll(timeout, poll_callback);
+                
+                poll_time = (missing_time > poll_time) ? poll_time : missing_time;
             }
+            
+            do_poll(poll_time, poll_callback);
         }
     }
 }
