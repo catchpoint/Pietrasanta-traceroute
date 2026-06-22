@@ -66,13 +66,17 @@ static int cleanup_polls(void)
 }
 
 
-void do_poll(double timeout, void(*callback)(int fd, int revents)) 
+void do_poll(double timeout, void (*callback)(int fd, int revents))
 {
+    int msecs = ceil(timeout * 1000);
+    
     int nfds = cleanup_polls();
-    if(!nfds)
+
+    if(nfds == 0)
         return;
 
-    int n = poll(pfd, nfds, ceil(timeout * 1000));
+    int n = poll(pfd, nfds, msecs);
+    
     if(n < 0) {
         if(errno == EINTR)
             return;
@@ -81,6 +85,15 @@ void do_poll(double timeout, void(*callback)(int fd, int revents))
 
     for(int i = 0; n && i < num_polls; i++) {
         if(pfd[i].revents) {
+            struct timeval t;
+            t.tv_sec =(int)timeout;
+            timeout -= (int)timeout;
+            timeout *= 1000; // msec
+            timeout *= 1000; // usec
+            t.tv_usec = (int)timeout;
+
+            setsockopt(pfd[i].fd, SOL_SOCKET, SO_RCVTIMEO, (char*)&t, sizeof(t));
+            
             callback(pfd[i].fd, pfd[i].revents);
             n--;
         }
