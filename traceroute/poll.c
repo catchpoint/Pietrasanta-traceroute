@@ -86,7 +86,7 @@ void do_poll(double timeout, void (*callback)(int fd, int revents))
     for(int i = 0; n && i < num_polls; i++) {
         if(pfd[i].revents) {
             struct timeval t;
-            t.tv_sec =(int)timeout;
+            t.tv_sec = (int)timeout;
             timeout -= (int)timeout;
             timeout *= 1000; // msec
             timeout *= 1000; // usec
