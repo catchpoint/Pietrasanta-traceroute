@@ -1,4 +1,8 @@
-2026-05-07  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.22
+2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.23
+  
+   * Introduced timeout to ensure recvmsg does not get stuck
+
+2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.22
   
    * Ping mode and high frequency probes
      
