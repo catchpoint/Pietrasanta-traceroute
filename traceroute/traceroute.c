@@ -80,7 +80,7 @@
 #define MAX_HOP_FAILURES MAX_HOPS
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
-#define MAX_MTU_RETRIES 3
+#define MAX_MTU_RESENDS 3
 #define DEF_HOPS 30
 #define DEF_SIM_PROBES 16    /*  including several hops   */
 #define DEF_WAIT_SECS 5.0
@@ -94,6 +94,7 @@
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
 #ifdef HAVE_OPENSSL3
 #define DEF_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#define MIN_DATA_LEN_QUIC DEF_DATA_LEN_QUIC
 #endif
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
@@ -1056,6 +1057,8 @@ int main(int argc, char *argv[])
     header_len = (af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr)) + rtbuf_len + ops->header_len;
 
     data_len = compute_data_len(packet_len);
+    if(strcmp(module, "quic") == 0 && data_len < MIN_DATA_LEN_QUIC) 
+        ex_error("QUIC packets must have at least %d bytes payload\n", MIN_DATA_LEN_QUIC); 
 
     saved_max_hops = max_hops;
     saved_first_hop = first_hop;
@@ -1134,31 +1137,58 @@ int main(int argc, char *argv[])
     if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
         ex_error("printer thread creation failed");
 
+    // The idea of the loop below is to send probes of variable sizes, starting from 65k and decrementing each time an ICMP "Packet too big" is received (or the interface gives error).
+    // The probe size is "implicitly" changed by the receive function, which adjusts the size probe on the basis of the ICMP error received.
+    // In case a probe does not receive a response (i.e. it expires), it is resent for a max amount of MAX_MTU_RESENDS consecutively
+    // As soon as a response is received it can happen one of the following:
+    // - The response is an ICMP Packet too big (i.e. err_str is not NULL): a narrowing happened and thus we continue with the next probe with decremented size, Note: if a narrowing does not happen, we break. This because we do not want to loop indefinitely in case some buggy hop always reply with a Packet too big or estimate a wrong MTU across different paths.
+    // - The response is something else: the loop is ended, because it means we received a response from either the destination or an hop that pretends to be the destination. The reason is that the probes are sent with TTL 255, thus if a non-"ICMP packet too big" response is received it means that the probe made its travel and since no narrowing information is present, it does not make sense to continue probing. Note that if the response did not come from the destination, we don't declare the found MTU as reliable.
     if(mtudisc) {
-        data_len = compute_data_len(MAX_PACKET_LEN);
-        
+        mtudisc_phase = 1;
+        data_len = compute_data_len(MAX_PACKET_LEN);        
         int i = 0;
-        while(!probes[0].final) {
+        while(i <= MAX_MTU_RESENDS) {
             i++;
+
             ops->send_probe(&probes[0], 255, i);
             
             do_poll(wait_secs, poll_callback);
             
-            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
-                overall_mtu = atoi(probes[0].err_str+2);
+            if(probes[0].sk > 0) {
+                del_poll(probes[0].sk);
+                close(probes[0].sk);
+                probes[0].sk = -1;
+            }
+            
+            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) { // We received a response which is a "Packet too big". Record the overall_mtu and continue with a probe with narrowed size.
+                int new_mtu = atoi(probes[0].err_str+2);
+                if(overall_mtu != -1 && new_mtu >= overall_mtu) // If the narrowing didn't happen, break
+                    break;
+                overall_mtu = new_mtu; // Record the narrowing as the new discovered MTU so far
                 memset(&probes[0], 0x0, sizeof(probe));
-            } else if(!probes[0].done && i <= MAX_MTU_RETRIES) {
+                i = 0;
+                continue; // Please also note that a narrowing cannot happen "forever", because at some point we must reach zero (by definition)
+            } else if(probes[0].done) {
+                break; // We received a response which is not a "Packet too big". End.
+            } else { // we did not receive anything back for that probe, retry
                 probe_done(&probes[0], NULL);
-                break;
             }
         }
-        
-        if(probes[0].final)
-            reliable_overall_mtu = 1;
 
+        if(probes[0].final)
+            reliable_overall_mtu = 1; // if the response did not came from the destination, don't declare the found MTU as reliable.
+        
+        if(probes[0].ext != NULL) {
+            free(probes[0].ext);
+            probes[0].ext = NULL;
+        }
+        
         memset(&probes[0], 0x0, sizeof(probe));
         
-        data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
+        if(!ping_mode)
+            data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
+        else
+            data_len = compute_data_len(packet_len); // If we are in ping mode reset the size either to the default one or the one provided in input
     }
 
     mtudisc_phase = 0;
