@@ -1,3 +1,9 @@
+2026-06-25  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.24
+  
+   * Improved MTU discovery loop
+   * Check on provided packet size when QUIC is selected
+   * Fix ping HF
+
 2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.23
   
    * Introduced timeout to ensure recvmsg does not get stuck
