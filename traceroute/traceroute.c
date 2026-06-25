@@ -978,9 +978,6 @@ int main(int argc, char *argv[])
                 ex_error("bad ploss_threshold %d specified", ploss_threshold_perc);
             ploss_threshold = ploss_window_size*ploss_threshold_perc;
             ploss_threshold /= 100;
-
-            printf("%d\n", ploss_threshold);
-            exit(1);
         }
     }
     
