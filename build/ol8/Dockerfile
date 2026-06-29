@@ -1,6 +1,6 @@
-FROM alpine:3.15
+FROM oraclelinux:8.10
 ARG disable_openssl
-RUN apk add coreutils gcc make bash openrc musl-dev linux-headers perl-ipc-system-simple
+RUN dnf install -y make gcc
 RUN mkdir traceroute
 ADD libsupp traceroute/libsupp/
 ADD include traceroute/include
@@ -10,8 +10,8 @@ ADD Make.rules traceroute/
 ADD Make.defines traceroute/
 ADD default.rules traceroute/
 ADD VERSION traceroute/
-RUN mkdir /openssl
-COPY placeholder_openssl openssl* /openssl
+RUN mkdir /precompiled_openssl
+COPY placeholder_openssl precompiled_openssl/* /precompiled_openssl
 ADD compile.sh /
 RUN chmod +x ./compile.sh
 RUN ./compile.sh ${disable_openssl}

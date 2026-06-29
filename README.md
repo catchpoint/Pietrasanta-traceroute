@@ -77,7 +77,7 @@ A way to use the provided binaries is the following:
 
 The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
 For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
-To obtain binaries with QUIC enabled, a folder containing `openssl3` source code is requested in input to the build script.
+To obtain binaries with QUIC enabled it is , a folder containing `openssl3` source code is requested and
 Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
 If no folder is provided, traceroute binaries with QUIC disabled will be produced (like passing `DISABLE_OPENSSL=1` to `make`).
 The script places the binaries into the [binaries] folder for the given platform(s).
@@ -86,18 +86,38 @@ The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
-* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `ol8` (Oracle Linux 8), `centos7` (CentOS 7), `debian 11` (Debian 11), `ubuntu22` (Ubuntu 22) and `alpine3.15` (Alpine 3.15). By default they are all enabled.
-* `--openssl3=<openssl3_folder>`: The folder containing openssl3 source code.
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `ol8` (Oracle Linux 8), `ol9` (Oarcle Linux 9), `debian12` (Debian 12) and `ubuntu24` (Ubuntu 24). By default they are all enabled.
+* `--disable-openssl3`: Whether to disable openssl3, in this case QUIC module will not be available.
 
 The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
 
 Example:
 
 ```
-./build.sh - --build --clean --openssl3=/home/user/openssl3
+./build.sh - --build --clean
 ```
 
-This will produce the binaries for Oracle Linux 8, CentOS 7, Debian 11, Ubuntu 22, Alpine 3.15, and place them into the `binaries` folder.
+This will produce the binaries for Oracle Linux 8, Oracle Linux 9, Debian 12, Ubuntu 24 and place them into the `binaries` folder.
+
+For convenience an helper script called `build_openssl.sh` is provided into the `build` folder to compile openssl3 libraries for the presupported platforms. 
+This script takes in input a source folder of openssl3 and builds openssl for all the presupported
+platforms of traceroute, putting them into the `build/<os>/precompiled_openssl` folder.
+Optionally a `--platform` parameter can be passed to compile openssl3 for a subset of the presupported platforms.
+
+When it is not invoked with  `--disable-openssl3`, the `build.sh` script will look for the presence of those libraries to build traceroute for a platform.
+
+So the full sequence of builindg traceroute for all the presupported platforms is:
+
+* `./build_openssl.sh -- --openssl3=<openssl3 source folder>`
+* `./build.sh - --build --clean`
+
+To build for one specific platform:
+
+* `./build_openssl.sh -- --openssl3=<openssl3 source folder> --platform=ubuntu24`
+* `./build.sh - --build --clean --platform=ubuntu24`
+
+Note that the building of openssl3 is required only the first time while subsequent changes to traceroute source code
+can be compiled invoking only the `build.sh` script.
 
 ## Usage
 
