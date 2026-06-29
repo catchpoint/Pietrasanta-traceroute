@@ -1,0 +1,7 @@
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y make init gcc libipc-run-perl
+RUN mkdir /openssl
+COPY openssl* /openssl
+ADD compile_openssl.sh /
+RUN chmod +x ./compile_openssl.sh
+RUN ./compile_openssl.sh

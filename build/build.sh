@@ -1,19 +1,19 @@
 #!/bin/bash
-
+set -x
 usage()
 {
-    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms> [--openssl3=<openssl3_folder>]"
-    echo -e "\n--openssl3: openssl3_folder is the absolute path to a folder containing OpenSSL3 code. If not provided traceroute will be comopiled without OpenSSL3 support (thus QUIC will not be available)."
+    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms> [--disable-openssl3]"
+    echo -e "\n--disable-openssl3: Do not use openssl3 when building the traceroute binaries. This will disable QUIC support."
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
     echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
-    echo -e "\talpine3.15: Alpine 3.15"
-    echo -e "\tcentos7: CentOS 7.9"
-    echo -e "\tdebian11: Debian 11"
-    echo -e "\tubuntu22: Ubuntu 22.04"
-    echo -e "\tBy default all are enabled (\"centos7 debian11 ubuntu22 alpine3.15\")"
+    echo -e "\tol8: Oracle Linux 8"
+    echo -e "\tol9: Oracle Linux 9"
+    echo -e "\tdebian12: Debian 12"
+    echo -e "\tubuntu24: Ubuntu 24.04"
+    echo -e "\tBy default all are enabled"
     echo -e "\n"
-    echo -e "Example: $0 - --build --clean --openssl3=/home/user/openssl3"
+    echo -e "Example: $0 - --build --clean"
     echo -e "\n"
 }
 
@@ -44,15 +44,6 @@ prepare_docker_context()
     cp ../../VERSION ./
     cp ../compile.sh ./
     touch placeholder_openssl # This will be useful when trying to COPY openssl folder from the Dockerfile
-    
-    OPENSSL3_FOLDER=$1
-    if [ ! -z "${OPENSSL3_FOLDER}" ]
-    then
-        if [ -e "${OPENSSL3_FOLDER}" ]
-        then
-            cp -r ${OPENSSL3_FOLDER} ./openssl
-        fi
-    fi
 }
 
 clean_docker()
@@ -95,17 +86,13 @@ build_docker()
 build()
 {
     PLATFORM=$1
-    OPENSSL3_FOLDER=$2
-    
-    DISABLE_OPENSSL=0
+    DISABLE_OPENSSL=$2
 
-    if [ "$OPENSSL3_FOLDER" = "" ]
+    if [ "$DISABLE_OPENSSL" = "0" ]
     then
-        DISABLE_OPENSSL=1
-    else
-        if [ ! -e "$OPENSSL3_FOLDER" ]
+        if [ ! -e "${PLATFORM}/precompiled_openssl" ]
         then
-            echo "openssl3 folder ${OPENSSL3_FOLDER} does not exist."
+            echo "precompiled_openssl folder does not exist for ${PLATFORM} but openssl is not disabled."
             exit 1
         fi
     fi
@@ -143,10 +130,10 @@ build()
 
 BUILD=0
 CLEAN=0
-OPENSSL3_FOLDER=""
+DISABLE_OPENSSL="0"
 PLATFORM="ol8 centos7 debian11 ubuntu22 alpine3.15"
 
-if ! args=$(getopt --long openssl3:,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
+if ! args=$(getopt --long disable-openssl3,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
 fi
 
@@ -157,8 +144,8 @@ while true; do
         --build)
             echo "ejejjeje"
             BUILD=1; shift ;;
-        --openssl3)
-            OPENSSL3_FOLDER=$2; shift 2 ;;
+        --disable-openssl3)
+            DISABLE_OPENSSL=1; shift ;;
         --clean)
             CLEAN=1; shift ;;
         --help)
@@ -181,7 +168,7 @@ then
 fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
-echo "OPENSSL3_FOLDER=${OPENSSL3_FOLDER}"
+echo "DISABLE_OPENSSL=${DISABLE_OPENSSL}"
 echo "PLATFORM=${PLATFORM}"
 
 for PLATFORM in $(echo $PLATFORM)
@@ -190,7 +177,7 @@ do
     
     if [ "${BUILD}" =  1 ]
     then
-        build ${PLATFORM} ${OPENSSL3_FOLDER}
+        build ${PLATFORM} ${DISABLE_OPENSSL}
     fi
     
     if [ "$CLEAN" = "1" ]
@@ -205,7 +192,7 @@ if [ "${BUILD}" =  1 ]
 then
     if [ "$DISABLE_OPENSSL" = "1" ]
     then
-        echo "Warning: openssl3 folder not provided, QUIC will not be available"
+        echo "Warning: openssl3 disabled, QUIC will not be available"
     fi
 
     echo "Build completed"
