@@ -51,6 +51,7 @@ static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static int info = 0;
+static int print_received_mss = 0;
 
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
@@ -77,6 +78,7 @@ static CLIF_option tcp_options[] = {
     { 0, "mss", 0, "Show maxseg tcp option proposed by the destination during handshake,", CLIF_set_flag, &mss, 0, 0 },
     { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
+    { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -251,7 +253,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             res = names_by_flags(get_th_flags(response_tcp_hdr[i]));
     
         if(res && strlen(res) > 0) {
-            if(mss > 0 && mss_received[0] > 0) {
+            if((mss > 0 || print_received_mss) && mss_received[0] > 0) {
                 if(sack > 0 && SACK_permitted > 0)
                     printf(" <%s,MSS:%d,SACK>", res, mss_received[i]);
                 else
@@ -264,7 +266,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             }
         } else if(sack > 0 && SACK_permitted > 0) {
             printf(" <MSS:%d,SACK>", mss_received[i]);
-        } else if(mss > 0) {
+        } else if(mss > 0 || print_received_mss) {
             printf(" <MSS:%d>", mss_received[i]);
         }
         

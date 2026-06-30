@@ -49,6 +49,7 @@ static unsigned int mss = 0;
 static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
+static int print_received_mss = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
@@ -74,6 +75,7 @@ static CLIF_option tcp_options[] = {
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint16, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -436,6 +438,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
         
+        if(mss > 0 || print_received_mss) {
           #ifdef __APPLE__
             int length = (th->th_off * 4) - sizeof(struct tcphdr);
           #else
@@ -443,40 +446,38 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
           #endif
             const unsigned char* ptr = (const unsigned char*)(tcp + 1);
             
-        while(length > 0) {
-            int opcode = *ptr++;
-            if(opcode == 0) // End of options (EOL)
-                break;
+            while(length > 0) {
+                int opcode = *ptr++;
+                if(opcode == 0) // End of options (EOL)
+                    break;
+                    
+                if(opcode == 1) // NOP with no length
+                    continue;
                 
-            if(opcode == 1) // NOP with no length
-                continue;
-            
-            uint8_t size = *ptr++;
-            if(opcode == 2) {
-                uint16_t mss_received = ntohs(*(uint16_t*)ptr);
-                
-                if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
-                    char str[100] = {};    /*  enough...  */
-                    sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
-                    free(pb->ext);
-                    pb->ext = strdup(str);
-                } else if(mss > 0) { // Print per-probe MSS only if module tcp option "mss" has been provided 
-                    char str[10] = {};    /*  enough...  */
-                    sprintf(str, "MSS:%d", mss_received);
-                    pb->ext = strdup(str);
+                uint8_t size = *ptr++;
+                if(opcode == 2) {
+                    uint16_t mss_received = ntohs(*(uint16_t*)ptr);
+                    
+                    if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
+                        char str[100] = {};    /*  enough...  */
+                        sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
+                        free(pb->ext);
+                        pb->ext = strdup(str);
+                    } else {
+                        char str[10] = {};    /*  enough...  */
+                        sprintf(str, "MSS:%d", mss_received);
+                        pb->ext = strdup(str);
+                    }
+                    break; // Only need MSS from options
                 }
 
-                pb->mss = mss_received;
-                break; // Only need MSS from options
+                if(size < 2)
+                    break;
+
+                ptr += (size - 2);
+                length -= size;
             }
-
-            if(size < 2)
-                break;
-
-            ptr += (size - 2);
-            length -= size;
         }
-        
     }
 
     return pb;
