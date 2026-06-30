@@ -161,6 +161,7 @@ static const tr_module *ops = NULL;
 static char *opts[16] = { NULL, };    /*  assume enough   */
 static unsigned int opts_idx = 1;    /*  first one reserved...   */
 static int af = 0;
+static unsigned mss_found = 0;
 static int extra_ping_ongoing = 0;
 static int last_hop_reached = 0;
 static void print_trailer();
@@ -890,8 +891,11 @@ unsigned int compute_data_len(int packet_len)
 static void print_header(void) 
 {
     /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
-    
+     if(ping_mode > 0)
+        printf("ping to %s (%s), %u ttl, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    else
+        printf("traceroute to %s (%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+        
     if(overall_timeout > 0)
         printf("%us overall timeout", overall_timeout);
     else
@@ -1270,6 +1274,9 @@ void print_probe(probe *pb)
             printf("+%3u ", last_hop_reached);
     }
 
+    if(pb->mss > 0)
+        mss_found = pb->mss;
+        
     if(!pb->res.sa.sa_family) {
         printf(" *");
     } else {
@@ -1837,6 +1844,9 @@ static void print_trailer()
         else
             printf("\n   Path MTU: %d (Potentially overestimated)", overall_mtu);
     }
+
+    if(mss_found > 0)
+        printf("\n   MSS: %u", mss_found);
     
     print_end();
 

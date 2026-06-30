@@ -436,7 +436,6 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
         
-        if(mss > 0) {
           #ifdef __APPLE__
             int length = (th->th_off * 4) - sizeof(struct tcphdr);
           #else
@@ -444,38 +443,40 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
           #endif
             const unsigned char* ptr = (const unsigned char*)(tcp + 1);
             
-            while(length > 0) {
-                int opcode = *ptr++;
-                if(opcode == 0) // End of options (EOL)
-                    break;
-                    
-                if(opcode == 1) // NOP with no length
-                    continue;
+        while(length > 0) {
+            int opcode = *ptr++;
+            if(opcode == 0) // End of options (EOL)
+                break;
                 
-                uint8_t size = *ptr++;
-                if(opcode == 2) {
-                    uint16_t mss_received = ntohs(*(uint16_t*)ptr);
-                    
-                    if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
-                        char str[100] = {};    /*  enough...  */
-                        sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
-                        free(pb->ext);
-                        pb->ext = strdup(str);
-                    } else {
-                        char str[10] = {};    /*  enough...  */
-                        sprintf(str, "MSS:%d", mss_received);
-                        pb->ext = strdup(str);
-                    }
-                    break; // Only need MSS from options
+            if(opcode == 1) // NOP with no length
+                continue;
+            
+            uint8_t size = *ptr++;
+            if(opcode == 2) {
+                uint16_t mss_received = ntohs(*(uint16_t*)ptr);
+                
+                if(info > 0 && pb->ext && strlen(pb->ext) > 0) {
+                    char str[100] = {};    /*  enough...  */
+                    sprintf(str, "%s,MSS:%d", pb->ext, mss_received); 
+                    free(pb->ext);
+                    pb->ext = strdup(str);
+                } else if(mss > 0) { // Print per-probe MSS only if module tcp option "mss" has been provided 
+                    char str[10] = {};    /*  enough...  */
+                    sprintf(str, "MSS:%d", mss_received);
+                    pb->ext = strdup(str);
                 }
 
-                if(size < 2)
-                    break;
-
-                ptr += (size - 2);
-                length -= size;
+                pb->mss = mss_received;
+                break; // Only need MSS from options
             }
+
+            if(size < 2)
+                break;
+
+            ptr += (size - 2);
+            length -= size;
         }
+        
     }
 
     return pb;
