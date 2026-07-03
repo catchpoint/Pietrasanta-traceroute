@@ -111,8 +111,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         tune_socket(raw_sk[i]);
     }
     
-    double connect_starttime = get_time();
-    
     socklen_t src_len = sizeof(src[0]);
     socklen_t lenmtu = sizeof(mtu);
     
@@ -139,12 +137,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     memset(&response_src_addr, 0, sizeof(response_src_addr));
     socklen_t src_addr_len = sizeof(response_src_addr);
     
-    double recv_time = 0;
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
 
     uint8_t ack_buf[MAX_PROBES][1024];
 
     for(int i = 0; i < n_flows; i++) {
+        double connect_starttime = get_time();
+        double recv_time = 0;
         int found = 0;
         do {
             if((received = recvfrom(raw_sk[i], ack_buf[i], sizeof(ack_buf[i]), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
@@ -240,13 +239,11 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             else
                 ex_error("Cannot complete initial TCP handshake", i);
         }
-    } // for each flow
-    
-    double diff = (recv_time - connect_starttime) * 1000;
-    
-    printf("\nhand  %.3f ms", diff);
-    
-    for(int i = 0; i < n_flows; i++) {
+
+        // Print some info about this handshake
+        double diff = (recv_time - connect_starttime) * 1000;
+        printf("\nhand  %.3f ms", diff);
+
         char* res = NULL;
         
         if(info && response_tcp_hdr[i])
@@ -283,7 +280,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
         use_recverr(raw_sk[i]);
         add_poll(raw_sk[i], POLLIN | POLLERR);
-    }
+    } // for each flow
     
     socklen_t len;
     uint8_t* ptr;

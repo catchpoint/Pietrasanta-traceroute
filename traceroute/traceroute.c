@@ -1210,6 +1210,20 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         
         do_it();
+
+        // Print the results of the extra ping
+        int start = (first_hop - 1) * probes_per_hop;
+        int end = num_probes;
+        for(int idx = start; idx < end; idx++) {
+        #ifdef __APPLE__
+            dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
+        #else
+            sem_wait(&probe_semaphore);
+        #endif
+        
+            probe* pb = &probes[idx];
+            print_probe(pb);
+        }
     }
     
     // Make extra-sure to not leave any FD open
