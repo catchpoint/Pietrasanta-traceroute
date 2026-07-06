@@ -131,7 +131,7 @@ build()
 BUILD=0
 CLEAN=0
 DISABLE_OPENSSL="0"
-PLATFORM="ol8 centos7 debian11 ubuntu22 alpine3.15"
+PLATFORM="debian12 ol8 ol9 ubuntu24"
 
 if ! args=$(getopt --long disable-openssl3,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
