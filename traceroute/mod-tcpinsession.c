@@ -249,24 +249,31 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(info && response_tcp_hdr[i])
             res = names_by_flags(get_th_flags(response_tcp_hdr[i]));
     
-        if(res && strlen(res) > 0) {
-            if((mss > 0 || print_received_mss) && mss_received[0] > 0) {
-                if(sack > 0 && SACK_permitted > 0)
-                    printf(" <%s,MSS:%d,SACK>", res, mss_received[i]);
-                else
-                    printf(" <%s,MSS:%d>", res, mss_received[i]);
-            } else {
-                if(sack > 0 && SACK_permitted > 0)
-                    printf(" <%s,SACK>", res);
-                else
-                    printf(" <%s>", res);
-            }
-        } else if(sack > 0 && SACK_permitted > 0) {
-            printf(" <MSS:%d,SACK>", mss_received[i]);
-        } else if(mss > 0 || print_received_mss) {
-            printf(" <MSS:%d>", mss_received[i]);
-        }
+        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0)) {
+            printf(" <");
         
+            int print_comma = 0;
+            if(res && strlen(res) > 0) {
+                printf("%s", res);
+                print_comma = 1;
+            }
+            
+            if((mss > 0 || print_received_mss) && mss_received[i] > 0) {
+                if(print_comma == 1)
+                    printf(",");
+                printf("MSS:%d", mss_received[i]);
+                print_comma = 1;
+            }
+
+            if(sack > 0 && SACK_permitted > 0) {
+                if(print_comma == 1)
+                    printf(",");
+                printf("SACK");
+            }
+
+            printf(">");
+        }
+
         fflush(stdout);
         
         if(res != NULL)
