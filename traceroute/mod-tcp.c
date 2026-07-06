@@ -49,6 +49,7 @@ static unsigned int mss = 0;
 static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
+static int print_received_mss = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
@@ -74,6 +75,7 @@ static CLIF_option tcp_options[] = {
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint16, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -436,7 +438,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
         
-        if(mss > 0) {
+        if(mss > 0 || print_received_mss) {
           #ifdef __APPLE__
             int length = (th->th_off * 4) - sizeof(struct tcphdr);
           #else

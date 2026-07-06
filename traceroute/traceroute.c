@@ -890,8 +890,11 @@ unsigned int compute_data_len(int packet_len)
 static void print_header(void) 
 {
     /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
-    
+     if(ping_mode > 0)
+        printf("ping to %s (%s), %u ttl, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    else
+        printf("traceroute to %s (%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+        
     if(overall_timeout > 0)
         printf("%us overall timeout", overall_timeout);
     else
@@ -1207,6 +1210,20 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         
         do_it();
+
+        // Print the results of the extra ping
+        int start = (first_hop - 1) * probes_per_hop;
+        int end = num_probes;
+        for(int idx = start; idx < end; idx++) {
+        #ifdef __APPLE__
+            dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
+        #else
+            sem_wait(&probe_semaphore);
+        #endif
+        
+            probe* pb = &probes[idx];
+            print_probe(pb);
+        }
     }
     
     // Make extra-sure to not leave any FD open

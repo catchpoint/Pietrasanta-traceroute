@@ -51,6 +51,7 @@ static uint32_t ts_value_offset = 0;
 static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static int info = 0;
+static int print_received_mss = 0;
 
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
@@ -77,6 +78,7 @@ static CLIF_option tcp_options[] = {
     { 0, "mss", 0, "Show maxseg tcp option proposed by the destination during handshake,", CLIF_set_flag, &mss, 0, 0 },
     { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
+    { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -109,8 +111,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         tune_socket(raw_sk[i]);
     }
     
-    double connect_starttime = get_time();
-    
     socklen_t src_len = sizeof(src[0]);
     socklen_t lenmtu = sizeof(mtu);
     
@@ -137,12 +137,13 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     memset(&response_src_addr, 0, sizeof(response_src_addr));
     socklen_t src_addr_len = sizeof(response_src_addr);
     
-    double recv_time = 0;
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
 
     uint8_t ack_buf[MAX_PROBES][1024];
 
     for(int i = 0; i < n_flows; i++) {
+        double connect_starttime = get_time();
+        double recv_time = 0;
         int found = 0;
         do {
             if((received = recvfrom(raw_sk[i], ack_buf[i], sizeof(ack_buf[i]), 0, &response_src_addr.sa, &src_addr_len)) >= 0) {
@@ -238,36 +239,41 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             else
                 ex_error("Cannot complete initial TCP handshake", i);
         }
-    } // for each flow
-    
-    double diff = (recv_time - connect_starttime) * 1000;
-    
-    printf("\nhand  %.3f ms", diff);
-    
-    for(int i = 0; i < n_flows; i++) {
+
+        // Print some info about this handshake
+        double diff = (recv_time - connect_starttime) * 1000;
+        printf("\nhand  %.3f ms", diff);
+
         char* res = NULL;
         
         if(info && response_tcp_hdr[i])
             res = names_by_flags(get_th_flags(response_tcp_hdr[i]));
     
-        if(res && strlen(res) > 0) {
-            if(mss > 0 && mss_received[0] > 0) {
-                if(sack > 0 && SACK_permitted > 0)
-                    printf(" <%s,MSS:%d,SACK>", res, mss_received[i]);
-                else
-                    printf(" <%s,MSS:%d>", res, mss_received[i]);
-            } else {
-                if(sack > 0 && SACK_permitted > 0)
-                    printf(" <%s,SACK>", res);
-                else
-                    printf(" <%s>", res);
-            }
-        } else if(sack > 0 && SACK_permitted > 0) {
-            printf(" <MSS:%d,SACK>", mss_received[i]);
-        } else if(mss > 0) {
-            printf(" <MSS:%d>", mss_received[i]);
-        }
+        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0)) {
+            printf(" <");
         
+            int print_comma = 0;
+            if(res && strlen(res) > 0) {
+                printf("%s", res);
+                print_comma = 1;
+            }
+            
+            if((mss > 0 || print_received_mss) && mss_received[i] > 0) {
+                if(print_comma == 1)
+                    printf(",");
+                printf("MSS:%d", mss_received[i]);
+                print_comma = 1;
+            }
+
+            if(sack > 0 && SACK_permitted > 0) {
+                if(print_comma == 1)
+                    printf(",");
+                printf("SACK");
+            }
+
+            printf(">");
+        }
+
         fflush(stdout);
         
         if(res != NULL)
@@ -281,7 +287,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
         use_recverr(raw_sk[i]);
         add_poll(raw_sk[i], POLLIN | POLLERR);
-    }
+    } // for each flow
     
     socklen_t len;
     uint8_t* ptr;

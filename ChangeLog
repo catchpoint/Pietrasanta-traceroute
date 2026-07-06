@@ -1,3 +1,7 @@
+2026-07-06  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.26
+  
+   * Small fixes to adjust output
+
 2026-06-29  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.25
   
    * Refactored build system for precompiled binaries

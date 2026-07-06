@@ -106,7 +106,7 @@ clean_folder()
 ## main
 
 OPENSSL3_FOLDER=""
-PLATFORMS="ol8 ol9 centos7 debian12 ubuntu24"
+PLATFORMS="ol8 ol9 debian12 ubuntu24"
 
 if ! args=$(getopt --long openssl3:,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
