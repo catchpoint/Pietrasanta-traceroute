@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"; echo ${SCRIPTPATH}
 SOURCE_DIR="${SCRIPTPATH}/.."
