@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"; echo ${SCRIPTPATH}
+SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 SOURCE_DIR="${SCRIPTPATH}/.."
 
 if [ ! -e SOURCE_DIR/binaries/ol8/traceroute ]
