@@ -4,10 +4,13 @@ set -x
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"; echo ${SCRIPTPATH}
 SOURCE_DIR="${SCRIPTPATH}/.."
 
-#if ! ./build.sh - --build --clean --platform=${PLATFROM}
-#then
-#    echo "Failed to build for ${PLATFORM}"
-#fi
+if [ ! -e SOURCE_DIR/binaries/ol8/traceroute ]
+then
+    if ! ./build.sh - --build --clean --platform=ol8
+    then
+        echo "Failed to build for ${PLATFORM}"
+    fi
+fi
 
 CONF="amd64.yaml"
 ACTUAL_CONF="conf.yaml"
