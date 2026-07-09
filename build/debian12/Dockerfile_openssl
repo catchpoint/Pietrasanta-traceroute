@@ -1,7 +1,0 @@
-FROM debian:12
-RUN apt-get update && apt-get install -y make systemd gcc libipc-run-perl
-RUN mkdir /openssl
-COPY openssl* /openssl
-ADD compile_openssl.sh /
-RUN chmod +x ./compile_openssl.sh
-RUN ./compile_openssl.sh

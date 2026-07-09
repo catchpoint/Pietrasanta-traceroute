@@ -38,25 +38,8 @@ make install
 ### OpenSSL 3 dependency
 
 Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
-traceroute. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
+traceroute from source. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
 QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
-
-At compile time openssl3 header files are searched by default in `/usr/local/include` 
-but the path can be changed via the `LIBSSL3_CFLAGS` argument. 
-At linking time and runtime openssl3 libraries are searched in
-`/usr/local/lib64` but the path can be changed via the `LIBSSL3_LDFLAGS` argument.
-
-A way to obtain openssl3 libraries is to compile them  from source.
-As an example these are the steps to get shared objects in `/usr/local/lib64` and
-header files in `/usr/local/include`:
-
-```
-git clone -b openssl-3.2 https://github.com/openssl/openssl.git
-cd openssl
-./Configure
-make
-make install
-```
 
 ## Binaries
 
@@ -64,30 +47,26 @@ This tool should build and run on any Linux system running a kernel version 2.6 
 
 Since version 0.1.14 this tool should also work on MacOS, with the known limitations that TCP and TCP InSession mode are not yet available and Path MTU discovery is not supported for any mode.
 
-Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system.
+Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system linked
+against system openssl3 runtime libraries.
 
 A way to use the provided binaries is the following:
 
 * Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/traceroute`
 * Provide executable permission (e.g. `chmod +x <binary>`)
 * Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (e.g. like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`.
-* Ensure that openssl3 libraries are available in the system. For example for ubuntu 22.04 they should be installed by default. See `OpenSSL 3 dependency` section for more information about that.
+* Ensure that openssl3 runtime libraries are available in the system
 
 ### Building with docker
 
 The binaries provided in the `binaries` folder are obtained compiling the tool on OS-dedicated dockerfiles.
 For convenience these dockerfiles are included into the `dockerfiles` folder and a build (bash) script called `build.sh` is provided.
-To obtain binaries with QUIC enabled it is , a folder containing `openssl3` source code is requested and
-Typically this will be a branch of the official OpenSSL github repositorty containing an openssl 3.2+ version.
-If no folder is provided, traceroute binaries with QUIC disabled will be produced (like passing `DISABLE_OPENSSL=1` to `make`).
-The script places the binaries into the [binaries] folder for the given platform(s).
 
 The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
 * `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `ol8` (Oracle Linux 8), `ol9` (Oarcle Linux 9), `debian12` (Debian 12) and `ubuntu24` (Ubuntu 24). By default they are all enabled.
-* `--disable-openssl3`: Whether to disable openssl3, in this case QUIC module will not be available.
 
 The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
 
@@ -99,25 +78,10 @@ Example:
 
 This will produce the binaries for Oracle Linux 8, Oracle Linux 9, Debian 12, Ubuntu 24 and place them into the `binaries` folder.
 
-For convenience an helper script called `build_openssl.sh` is provided into the `build` folder to compile openssl3 libraries for the presupported platforms. 
-This script takes in input a source folder of openssl3 and builds openssl for all the presupported
-platforms of traceroute, putting them into the `build/<os>/precompiled_openssl` folder.
-Optionally a `--platform` parameter can be passed to compile openssl3 for a subset of the presupported platforms.
+Optionally a `--platform` parameter can be passed to compile for a subset of the presupported platforms.
 
-When it is not invoked with  `--disable-openssl3`, the `build.sh` script will look for the presence of those libraries to build traceroute for a platform.
-
-So the full sequence of builindg traceroute for all the presupported platforms is:
-
-* `./build_openssl.sh -- --openssl3=<openssl3 source folder>`
-* `./build.sh - --build --clean`
-
-To build for one specific platform:
-
-* `./build_openssl.sh -- --openssl3=<openssl3 source folder> --platform=ubuntu24`
-* `./build.sh - --build --clean --platform=ubuntu24`
-
-Note that the building of openssl3 is required only the first time while subsequent changes to traceroute source code
-can be compiled invoking only the `build.sh` script.
+A script called "package.sh" is provided into the build folder, wich produces an RPM that should work on RHEL8/RHEL9 and derivatives and
+a DEB that should work on Debian12 and derivatives (including Ubuntu).
 
 ## Usage
 
