@@ -4,11 +4,9 @@ platform: linux
 version: ${VERSION}
 section: default
 priority: optional
-maintainer: Luca Sani <luca.sani@logicmonitor.com>
 description: Pietrasanta traceroute
-vendor: Example Inc.
 homepage: https://www.catchpoint.com
-license: MIT
+license: GPL-2.0-or-later
 
 depends: []
 

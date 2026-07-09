@@ -16,9 +16,16 @@ CONF="amd64.yaml"
 ACTUAL_CONF="conf.yaml"
 
 VERSION=$(awk '{print $NF}' ${SOURCE_DIR}/VERSION)
-sed "s/\${VERSION}/${VERSION}/g" ${SOURCE_DIR}/build/${CONF} > ${SOURCE_DIR}/build/${ACTUAL_CONF}
+if ! sed "s/\${VERSION}/${VERSION}/g" ${SOURCE_DIR}/build/${CONF} > ${SOURCE_DIR}/build/${ACTUAL_CONF}
+then
+    echo "Failed to set VERSION=${VERSION} in ${ACTUAL_CONF}"
+    exit 1
+fi
 
 for PACKAGER in rpm deb
 do
-    docker run --rm   -v "${SOURCE_DIR}:/work" -w /work goreleaser/nfpm:v2.44.0 package --config /work/build/${ACTUAL_CONF} --packager ${PACKAGER} --target /work/build/
+    if ! docker run --rm   -v "${SOURCE_DIR}:/work" -w /work goreleaser/nfpm:v2.44.0 package --config /work/build/${ACTUAL_CONF} --packager ${PACKAGER} --target /work/build/
+    then
+        echo "Failed to create ${PACKAGER} package"
+    fi
 done
