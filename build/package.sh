@@ -7,7 +7,7 @@ if [ ! -e SOURCE_DIR/binaries/ol8/traceroute ]
 then
     if ! ./build.sh - --build --clean --platform=ol8
     then
-        echo "Failed to build for ${PLATFORM}"
+        echo "Failed to build for ol8"
     fi
 fi
 
@@ -28,3 +28,5 @@ do
         echo "Failed to create ${PACKAGER} package"
     fi
 done
+
+rm ${ACTUAL_CONF}
