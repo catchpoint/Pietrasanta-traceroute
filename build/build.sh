@@ -2,7 +2,7 @@
 set -x
 usage()
 {
-    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms>"
+    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms>]"
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
     echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
