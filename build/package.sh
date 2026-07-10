@@ -3,7 +3,9 @@
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 SOURCE_DIR="${SCRIPTPATH}/.."
 
-if [ ! -e SOURCE_DIR/binaries/ol8/traceroute ]
+echo ${SOURCE_DIR}
+
+if [ ! -e ${SOURCE_DIR}/binaries/ol8/traceroute ]
 then
     if ! ./build.sh - --build --clean --platform=ol8
     then
@@ -11,22 +13,17 @@ then
     fi
 fi
 
-CONF="amd64.yaml"
-ACTUAL_CONF="conf.yaml"
-
 VERSION=$(awk '{print $NF}' ${SOURCE_DIR}/VERSION)
-if ! sed "s/\${VERSION}/${VERSION}/g" ${SOURCE_DIR}/build/${CONF} > ${SOURCE_DIR}/build/${ACTUAL_CONF}
-then
-    echo "Failed to set VERSION=${VERSION} in ${ACTUAL_CONF}"
-    exit 1
-fi
 
 for PACKAGER in rpm deb
 do
-    if ! docker run --rm   -v "${SOURCE_DIR}:/work" -w /work goreleaser/nfpm:v2.44.0 package --config /work/build/${ACTUAL_CONF} --packager ${PACKAGER} --target /work/build/
+    if ! docker run --rm  \
+        -v "${SOURCE_DIR}:/work" \
+        -w /work \
+        -e VERSION=${VERSION} \
+        -e ARCH=amd64 \
+        goreleaser/nfpm:v2.44.0 package --config /work/build/package.yaml --packager ${PACKAGER} --target /work/build/
     then
         echo "Failed to create ${PACKAGER} package"
     fi
 done
-
-rm ${ACTUAL_CONF}
