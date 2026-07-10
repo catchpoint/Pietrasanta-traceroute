@@ -29,3 +29,6 @@ contents:
     dst: /usr/local/share/man/man8/pietrasanta-traceroute.8
     file_info:
       mode: 0644
+    
+scripts:
+  postinstall: build/post.sh
