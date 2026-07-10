@@ -3,8 +3,6 @@
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 SOURCE_DIR="${SCRIPTPATH}/.."
 
-echo ${SOURCE_DIR}
-
 if [ ! -e ${SOURCE_DIR}/binaries/ol8/traceroute ]
 then
     if ! ./build.sh - --build --clean --platform=ol8
