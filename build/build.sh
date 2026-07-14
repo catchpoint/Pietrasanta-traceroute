@@ -2,8 +2,7 @@
 set -x
 usage()
 {
-    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms> [--disable-openssl3]"
-    echo -e "\n--disable-openssl3: Do not use openssl3 when building the traceroute binaries. This will disable QUIC support."
+    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms>]"
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
     echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
@@ -43,7 +42,6 @@ prepare_docker_context()
     cp ../../default.rules ./
     cp ../../VERSION ./
     cp ../compile.sh ./
-    touch placeholder_openssl # This will be useful when trying to COPY openssl folder from the Dockerfile
 }
 
 clean_docker()
@@ -56,14 +54,12 @@ clean_docker()
 build_docker()
 {
     PLATFORM=$1
-    DISABLE_OPENSSL=$2
     
-    echo "Starting docker for ${PLATFORM}, DISABLE_OPENSSL=${DISABLE_OPENSSL}"
+    echo "Starting docker for ${PLATFORM}"
     
-    if ! docker build . -t traceroute:"${PLATFORM}" --build-arg disable_openssl=${DISABLE_OPENSSL}
+    if ! docker build . -t traceroute:"${PLATFORM}"
     then
         echo "Failed to build docker for platform ${PLATFORM}"
-        return 1
     fi
     
     docker create --name "traceroute_${PLATFORM}_container" traceroute:"${PLATFORM}"
@@ -86,17 +82,7 @@ build_docker()
 build()
 {
     PLATFORM=$1
-    DISABLE_OPENSSL=$2
-
-    if [ "$DISABLE_OPENSSL" = "0" ]
-    then
-        if [ ! -e "${PLATFORM}/precompiled_openssl" ]
-        then
-            echo "precompiled_openssl folder does not exist for ${PLATFORM} but openssl is not disabled."
-            exit 1
-        fi
-    fi
-
+    
     echo "Building for $PLATFORM"
     
     SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
@@ -109,9 +95,9 @@ build()
     fi
 
     clean_folder
-    prepare_docker_context ${OPENSSL3_FOLDER}
+    prepare_docker_context
     
-    if ! build_docker "$PLATFORM" $DISABLE_OPENSSL 2>&1
+    if ! build_docker "$PLATFORM" 2>&1
     then
         echo "An error occurred while building for platform $PLATFORM"
         exit 1
@@ -130,10 +116,9 @@ build()
 
 BUILD=0
 CLEAN=0
-DISABLE_OPENSSL="0"
 PLATFORM="debian12 ol8 ol9 ubuntu24"
 
-if ! args=$(getopt --long disable-openssl3,build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
+if ! args=$(getopt --long build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
     exit 2
 fi
 
@@ -144,8 +129,6 @@ while true; do
         --build)
             echo "ejejjeje"
             BUILD=1; shift ;;
-        --disable-openssl3)
-            DISABLE_OPENSSL=1; shift ;;
         --clean)
             CLEAN=1; shift ;;
         --help)
@@ -168,7 +151,6 @@ then
 fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
-echo "DISABLE_OPENSSL=${DISABLE_OPENSSL}"
 echo "PLATFORM=${PLATFORM}"
 
 for PLATFORM in $(echo $PLATFORM)
@@ -177,7 +159,7 @@ do
     
     if [ "${BUILD}" =  1 ]
     then
-        build ${PLATFORM} ${DISABLE_OPENSSL}
+        build ${PLATFORM}
     fi
     
     if [ "$CLEAN" = "1" ]
@@ -190,11 +172,6 @@ echo
 
 if [ "${BUILD}" =  1 ]
 then
-    if [ "$DISABLE_OPENSSL" = "1" ]
-    then
-        echo "Warning: openssl3 disabled, QUIC will not be available"
-    fi
-
     echo "Build completed"
     echo "Traceroute binaries have been copied into ${SCRIPTPATH}/../binaries"
 fi

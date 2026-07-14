@@ -1,7 +1,0 @@
-FROM oraclelinux:8.10
-RUN dnf install -y make systemd gcc perl-IPC-Cmd perl-Time-Piece
-RUN mkdir /openssl
-COPY openssl* /openssl
-ADD compile_openssl.sh /
-RUN chmod +x ./compile_openssl.sh
-RUN ./compile_openssl.sh

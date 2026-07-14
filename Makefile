@@ -1,117 +1,83 @@
-#
-#   Copyright (c)  2000, 2001		Dmitry Butskoy
-#					<buc@citadel.stu.neva.ru>
-#   License:  GPL v2 or any later
-#
-#   See COPYING for the status of this software.
-#
+NAME := traceroute
+PROGRAM := traceroute/traceroute
+LIBSUPP := libsupp/libsupp.a
 
-#
-#   Global Makefile.
-#   Global rules, targets etc.
-#
-#   See Make.defines for specific configs.
-#
+CROSS ?=
+CC = $(CROSS)gcc
+AR = $(CROSS)ar
+RANLIB = $(CROSS)ranlib
+PKG_CONFIG ?= pkg-config
 
+prefix ?= /usr/local
+exec_prefix ?= $(prefix)
+bindir ?= $(exec_prefix)/bin
+datadir ?= $(prefix)/share
+mandir ?= $(datadir)/man
+DESTDIR ?=
 
-srcdir = $(CURDIR)
+INSTALL ?= install
+INSTALL_PROGRAM ?= $(INSTALL) -m 0755
+INSTALL_DATA ?= $(INSTALL) -m 0644
+MKDIR_P ?= mkdir -p
 
-override TARGET := .MAIN
+CPPFLAGS += -D_GNU_SOURCE -Iinclude -Ilibsupp -Itraceroute
+CFLAGS ?= -g -Wall -std=c99 -O0
+LDFLAGS ?= -g
+LDLIBS += -lm -lpthread
 
-dummy: all
-
-include ./Make.rules
-
-
-targets = $(EXEDIRS) $(LIBDIRS) $(MODDIRS)
-
-# be happy, easy, perfomancy...
-.PHONY: $(subdirs) dummy all force
-.PHONY: depend indent clean distclean libclean release store libs mods
-
-
-allprereq := $(EXEDIRS)
-
-ifneq ($(LIBDIRS),)
-libs: $(LIBDIRS)
-ifneq ($(EXEDIRS),)
-$(EXEDIRS): libs
-else
-allprereq += libs
+ifndef DISABLE_OPENSSL
+OPENSSL_PKG := $(shell $(PKG_CONFIG) --exists openssl3 2>/dev/null && echo openssl3 || echo openssl)
+OPENSSL_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(OPENSSL_PKG) 2>/dev/null)
+OPENSSL_LDLIBS := $(shell $(PKG_CONFIG) --libs $(OPENSSL_PKG) 2>/dev/null)
+ifeq ($(strip $(OPENSSL_LDLIBS)),)
+OPENSSL_LDLIBS := -lssl -lcrypto
 endif
+CPPFLAGS += -DHAVE_OPENSSL3 $(OPENSSL_CFLAGS)
+LDLIBS += $(OPENSSL_LDLIBS)
 endif
 
-ifneq ($(MODDIRS),)
-mods: $(MODDIRS)
-ifneq ($(MODUSERS),)
-$(MODUSERS): mods
-else
-allprereq += mods
-endif
-ifneq ($(LIBDIRS),)
-$(MODDIRS): libs
-endif
-endif
+SUPP_SRCS := $(wildcard libsupp/*.c)
+SUPP_OBJS := $(SUPP_SRCS:.c=.o)
 
-all: $(allprereq)
+TR_SRCS := $(wildcard traceroute/*.c)
+TR_OBJS := $(TR_SRCS:.c=.o)
 
-depend install: $(allprereq)
+DEPS := $(SUPP_OBJS:.o=.d) $(TR_OBJS:.o=.d)
 
-$(foreach goal,$(filter install-%,$(MAKECMDGOALS)),\
-    $(eval $(goal): $(patsubst install-%,%,$(goal))))
+.PHONY: all traceroute clean distclean install uninstall libclean depend
 
+all: $(PROGRAM)
 
-what = all
-depend: what = depend
-install install-%: what = install
+traceroute: $(PROGRAM)
 
-ifneq ($(share),)
-$(share): shared = yes
-endif
-ifneq ($(noshare),)
-$(noshare): shared = 
-endif
+$(PROGRAM): $(TR_OBJS) $(LIBSUPP)
+	$(CC) $(LDFLAGS) -o $@ $(TR_OBJS) $(LIBSUPP) $(LDLIBS) $(LIBS)
 
+$(LIBSUPP): $(SUPP_OBJS)
+	$(AR) rc $@ $^
+	$(RANLIB) $@
 
-$(targets): mkfile = $(if $(wildcard $@/Makefile),,-f $(srcdir)/default.rules)
+%.o: %.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c -o $@ $<
 
-$(targets): force
-	@echo Doing $@
-	@$(MAKE) $(mkfile) -C $@ $(what) TARGET=$@
+depend: $(TR_OBJS) $(SUPP_OBJS)
 
-force:
+install: $(PROGRAM)
+	$(MKDIR_P) $(DESTDIR)$(bindir)
+	$(MKDIR_P) $(DESTDIR)$(mandir)/man8
+	$(INSTALL_PROGRAM) $(PROGRAM) $(DESTDIR)$(bindir)/$(NAME)
+	$(INSTALL_DATA) traceroute/traceroute.8 $(DESTDIR)$(mandir)/man8/$(NAME).8
 
-
-indent:
-	find . -type f -name "*.[ch]" -print -exec $(INDENT) {} \;
-
-clean:
-	rm -f $(foreach exe, $(EXEDIRS), ./$(exe)/$(exe)) nohup.out
-	rm -f `find . \( -name "*.[oa]" -o -name "*.[ls]o" \
-		-o -name core -o -name "core.[0-9]*" -o -name a.out \) -print`
-
-distclean: clean
-	rm -f `find $(foreach dir, $(subdirs), $(dir)/.) \
-		\( -name "*.[oa]" -o -name "*.[ls]o" \
-		-o -name core -o -name "core.[0-9]*" -o -name a.out \
-		-o -name .depend -o -name "_*" -o -name ".cross:*" \) \
-		-print`
-
+uninstall:
+	rm -f $(DESTDIR)$(bindir)/$(NAME)
+	rm -f $(DESTDIR)$(mandir)/man8/$(NAME).8
 
 libclean:
-	rm -f $(foreach lib, $(LIBDIRS), ./$(lib)/$(lib).a ./$(lib)/$(lib).so)
+	rm -f $(LIBSUPP)
 
+clean:
+	rm -f $(TR_OBJS) $(SUPP_OBJS) $(DEPS) $(PROGRAM) $(LIBSUPP)
 
-#  Rules to make whole-distributive operations.
-#
+distclean: clean
 
-STORE_DIR = $(HOME)/pub
-
-release release1 release2 release3:
-	@./chvers.sh $@
-	@$(MAKE) store
-
-store: distclean
-	@./store.sh $(NAME) $(STORE_DIR)
-
-
+-include $(DEPS)
