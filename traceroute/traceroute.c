@@ -912,6 +912,7 @@ static void poll_callback(int fd, int revents)
 
 int main(int argc, char *argv[]) 
 {
+    exit(1);
     setlocale(LC_ALL, "");
     setlocale(LC_NUMERIC, "C");    /*  avoid commas in msec printed  */
 

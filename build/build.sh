@@ -1,5 +1,7 @@
 #!/bin/bash
 set -x
+
+SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 usage()
 {
     echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms>]"
@@ -70,7 +72,7 @@ build_docker()
         exit 1
     fi
 
-    if ! docker cp "traceroute_${PLATFORM}_container":/traceroute/traceroute/traceroute ../../binaries/"$PLATFORM"/
+    if ! docker cp "traceroute_${PLATFORM}_container":/traceroute/traceroute/traceroute ${SCRIPTPATH}/../binaries/"$PLATFORM"/
     then
         echo "Failed to copy traceroute artifact from container traceroute_${PLATFORM}_container"
         return 1
@@ -85,9 +87,8 @@ build()
     
     echo "Building for $PLATFORM"
     
-    SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
     SAVE_DIR="${SCRIPTPATH}"
-    
+
     if ! cd "${SCRIPTPATH}/${PLATFORM}"
     then
         echo "Platform $PLATFORM not found, skipping it"
