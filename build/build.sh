@@ -64,9 +64,10 @@ build_docker()
         echo "Failed to build docker for platform ${PLATFORM}"
     fi
     
+    docker container rm -f "traceroute_${PLATFORM}_container"
     docker create --name "traceroute_${PLATFORM}_container" traceroute:"${PLATFORM}"
  
-    if ! mkdir -p  ../../binaries/"$PLATFORM"/
+    if ! mkdir -p  ${SCRIPTPATH}/../binaries/"$PLATFORM"/
     then
         echo "Cannot create directory to store binary"
         exit 1

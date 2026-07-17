@@ -2,6 +2,7 @@
   
    * Allow to reuse ports
    * Allow multiple probes in parallel in tcpinsession even if source port is specified
+   * Fix build problem
 
 2026-07-09  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.27
   
