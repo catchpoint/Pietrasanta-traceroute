@@ -1042,7 +1042,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    if((!ignore_src_port && src_port) || ops->one_per_time) {
+    // Set sim_probes to 1 if the module is not tcpinsession and either the source port is specified or the module requires one probe per time
+    // This because in tcpinsession mode the source port is not needed to match the reply with the probe sent (the seq number is used) 
+    if((strcmp(module, "tcpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }
@@ -1888,10 +1890,15 @@ void tune_socket(int sk)
         }
     }
 
+    i = 1;
+    if(setsockopt(sk, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i)) < 0)
+        error("setsockopt SO_REUSEADDR");
+
     bind_socket(sk);
 
     if(af == AF_INET) {
       #ifdef __APPLE__
+        i = 0;
         if(dontfrag && setsockopt(sk, IPPROTO_IP, IP_DONTFRAG, &i, sizeof(i)) < 0)
             error("setsockopt IP_DONTFRAG");
       #else
