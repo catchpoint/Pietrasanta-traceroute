@@ -22,7 +22,6 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
-#include <netdb.h>
 #include <errno.h>
 #include <locale.h>
 #include <sys/utsname.h>
@@ -146,10 +145,9 @@ static int backward = 0;
 #ifdef SO_MARK
 static unsigned int fwmark = 0;
 #endif
-static sockaddr_any dst_addr = {{ 0, }, };
+sockaddr_any dst_addr = {{ 0, }, };
 static char* dst_name = NULL;
 static char* device = NULL;
-sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
 static unsigned int overall_timeout = 0;
 static unsigned int timedout = 0;
@@ -164,6 +162,9 @@ static int af = 0;
 static int extra_ping_ongoing = 0;
 static int last_hop_reached = 0;
 static void print_trailer();
+
+// Dest addr can't be common because the dest port may change for some protocols in different probes
+sockaddr_any src_addr = {{ 0, }, };
 
 int use_additional_raw_icmp_socket = 0;
 int tr_via_additional_raw_icmp_socket = 0;
@@ -531,14 +532,6 @@ static void make_fd_used(int fd)
     }
 }
 
-static char addr2str_buf[INET6_ADDRSTRLEN];
-
-static const char *addr2str(const sockaddr_any *addr) 
-{
-    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-    return addr2str_buf;
-}
-
 /*    IP  options  stuff        */
 static void init_ip_options(void) 
 {
@@ -843,6 +836,7 @@ static CLIF_option option_list[] = {
     { 0, "packet-loss-window-size", "packet-loss-window-size", "Set the packet loss window size (valid only in ping mode)", CLIF_set_uint, &ploss_window_size, 0, 0 },
     { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
     { 0, "dns", 0, "Use DNS-like packets", set_module, "dns", 0, CLIF_EXTRA },
+    { 0, "udpinsession", 0, "Run in UDP InSession mode", set_module, "udpinsession", 0, 0 },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -1551,6 +1545,18 @@ probe* probe_by_seq_num(uint32_t seq_num)
 {
     for(int n = 0; n < num_probes; n++)
         if(probes[n].seq_num == seq_num)
+            return &probes[n];
+
+    return NULL;
+}
+
+probe* probe_by_checksum(uint32_t checksum) 
+{
+    if(checksum == 0) // checksum == 0 is not valid.
+        return NULL;
+
+    for(int n = 0; n < num_probes; n++)
+        if(probes[n].checksum == checksum)
             return &probes[n];
 
     return NULL;
