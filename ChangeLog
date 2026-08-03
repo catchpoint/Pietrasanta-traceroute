@@ -1,3 +1,9 @@
+2026-07-31  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.29
+  
+   * Introduce UDP In Session method.
+     This provides the Paris Traceroute methodology in UDP mode.
+	 UDP packets have a fixed five tuple so that they belong to the same flow.
+
 2026-07-09  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.28
   
    * Allow to reuse ports
