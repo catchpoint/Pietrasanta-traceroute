@@ -31,6 +31,8 @@ traceroute \- print the route packets trace to network host
 .br
 .ti +8
 .BR "" [ "--tcpinsession" "]
+.ti +8
+.BR "" [ "--udpinsession" "]
 .br
 .ti +8
 .BR "" [ "--ecn=num" "] [" "--dscp=num" "]
@@ -152,6 +154,9 @@ Use TCP SYN for probes
 .TP
 .B \-\-tcpinsession
 Use TCP InSession. See https://www.catchpoint.com/blog/traceroute-insession-catchpoints-effort-towards-a-more-reliable-network-diagnostic-tool
+.TP
+.B \-\-udpinsession
+Use UDP InSession. This is the UDP implementation of Paris Traceroute, see https://paris-traceroute.net/
 .TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)

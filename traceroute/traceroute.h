@@ -12,11 +12,13 @@
 */
 
 #include <errno.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <clif.h>
 
@@ -42,6 +44,7 @@ extern unsigned int tos;
 extern int ecn_input_value;
 extern int disable_extra_ping;
 extern int mtudisc_phase;
+static char addr2str_buf[INET6_ADDRSTRLEN];
 
 union common_sockaddr {
     struct sockaddr sa;
@@ -50,6 +53,14 @@ union common_sockaddr {
 };
 
 typedef union common_sockaddr sockaddr_any;
+
+extern sockaddr_any src_addr;
+
+static const char *addr2str(const sockaddr_any *addr) 
+{
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    return addr2str_buf;
+}
 
 struct probe_struct
 {
@@ -72,7 +83,10 @@ struct probe_struct
     struct timeval endtime;
     sockaddr_any src;
     sockaddr_any dest;
-    uint32_t seq_num;
+    union {
+        uint32_t seq_num;
+        uint32_t checksum;
+    };
     // quic stuff
 #ifdef HAVE_OPENSSL3
     uint8_t dcid[MAX_QUIC_ID_LEN];
@@ -165,6 +179,7 @@ probe* probe_by_seq(int seq);
 probe* probe_by_sk(int sk);
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst, int check_source_addr);
 probe* probe_by_seq_num(uint32_t seq_num);
+probe* probe_by_checksum(uint32_t checksum);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);
