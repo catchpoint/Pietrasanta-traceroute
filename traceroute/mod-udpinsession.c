@@ -27,17 +27,6 @@
 
 #include "traceroute.h"
 
-#ifndef IPPROTO_UDPLITE
-#define IPPROTO_UDPLITE    136
-#endif
-
-#ifndef UDPLITE_SEND_CSCOV
-#define UDPLITE_SEND_CSCOV    10
-#define UDPLITE_RECV_CSCOV    11
-#endif
-
-#define UDP_MAX_TRACEROUTE_PORT_RANGE 91
-
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static uint8_t tmp_buf[65535] = {};
