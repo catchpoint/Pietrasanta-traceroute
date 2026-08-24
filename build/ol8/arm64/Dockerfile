@@ -1,7 +1,7 @@
 # Cross-compiles an Oracle Linux 8-compatible ARM64 binary from x86_64.
 # The ARM64 GNU toolchain is installed from Oracle Linux's public developer
-# repository below. OpenSSL is built from source so this project has no Conan
-# or private build-image dependency.
+# repository below. OpenSSL is built from source for the target.
+
 FROM oraclelinux:8.10
 
 ARG OPENSSL_VERSION=3.6.2
