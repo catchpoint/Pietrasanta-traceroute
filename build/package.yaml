@@ -21,7 +21,7 @@ overrides:
       - libssl3
 
 contents:
-  - src: ./binaries/ol8/traceroute # glibc compatibility allows us to use the same binary for many linux distros...
+  - src: ./binaries/${PLATFORM_DIR}/traceroute # glibc compatibility allows us to use the same binary for many linux distros...
     dst: /usr/local/bin/pietrasanta-traceroute
     file_info:
       mode: 0755

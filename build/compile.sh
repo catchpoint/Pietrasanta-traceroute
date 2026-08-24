@@ -1,7 +1,37 @@
 #!/bin/sh
+set -eu
 
 # This script is run inside the docker container to compile the traceroute binary. It is called by the build.sh script.
 
-cd traceroute
+TARGET_ARCH=${1:-x86_64}
+
+cd /traceroute
 make clean
-make traceroute
+
+case "${TARGET_ARCH}" in
+    x86_64)
+        make traceroute
+        ;;
+    aarch64)
+        : "${CROSS_COMPILE:=aarch64-linux-gnu-}"
+        : "${SYSROOT:?SYSROOT must point to the target sysroot}"
+        : "${OPENSSL_ROOT:?OPENSSL_ROOT must point to the target OpenSSL installation}"
+
+        # Ensure pkg-config returns ARM64 OpenSSL flags rather than host flags.
+        export PKG_CONFIG_LIBDIR="${OPENSSL_ROOT}/lib/pkgconfig"
+        if ! pkg-config --exists openssl3 2>/dev/null && \
+           ! pkg-config --exists openssl 2>/dev/null; then
+            echo "Target OpenSSL pkg-config metadata was not found below ${OPENSSL_ROOT}" >&2
+            exit 1
+        fi
+
+        make traceroute \
+            CROSS="${CROSS_COMPILE}" \
+            CFLAGS="--sysroot=${SYSROOT} -g -Wall -std=c99 -O0" \
+            LDFLAGS="--sysroot=${SYSROOT} -g"
+        ;;
+    *)
+        echo "Unsupported target architecture: ${TARGET_ARCH}" >&2
+        exit 1
+        ;;
+esac

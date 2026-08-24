@@ -52,7 +52,7 @@ against system openssl3 runtime libraries.
 
 A way to use the provided binaries is the following:
 
-* Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/traceroute`
+* Download the binary from `https://raw.githubusercontent.com/catchpoint/Networking.traceroute/main/binaries/<distro>/<architecture>/traceroute`
 * Provide executable permission (e.g. `chmod +x <binary>`)
 * Optionally provide `cap_net_raw` capability to make it run without the need of being root for privileged commands (e.g. like traceroute TCP), via `sudo setcap cap_net_raw+ep <binary>`.
 * Ensure that openssl3 runtime libraries are available in the system
@@ -66,19 +66,60 @@ The build script takes these options:
 
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
-* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platforms values are: `ol8` (Oracle Linux 8), `ol9` (Oarcle Linux 9), `debian12` (Debian 12) and `ubuntu24` (Ubuntu 24). By default they are all enabled.
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified list of platforms. Accepted platform values are: `debian12-x86_64` (alias: `debian12`), `debian12-arm64` (alias: `debian12-aarch64`), `ol8-x86_64` (alias: `ol8`), `ol8-arm64` (alias: `ol8-aarch64`), `ol9-x86_64` (alias: `ol9`), `ol9-arm64` (alias: `ol9-aarch64`), `ubuntu24-x86_64` (alias: `ubuntu24`) and `ubuntu24-arm64` (alias: `ubuntu24-aarch64`). By default they are all enabled.
+
+The `ol8-arm64` target cross-compiles from the x86_64 Docker environment
+using the `aarch64-linux-gnu-` toolchain installed from Oracle Linux's public
+`ol8_developer` repository. OpenSSL is built from source for ARM64 inside the
+image because this project does not use Conan or depend on the separate
+`gnu-tools` project.
+
+The `ol9-arm64` target uses the equivalent Oracle Linux 9 public developer
+toolchain and an Oracle Linux 9 ARM64 sysroot.
+
+The `ubuntu24-arm64` target uses Ubuntu's `aarch64-linux-gnu-` cross-toolchain
+and target glibc sysroot packages.
+
+The `debian12-arm64` target uses Debian's `aarch64-linux-gnu-` cross-toolchain
+and target glibc sysroot packages.
 
 The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
 
 Example:
 
 ```
-./build.sh - --build --clean
+./build.sh --build --clean
 ```
 
 This will produce the binaries for Oracle Linux 8, Oracle Linux 9, Debian 12, Ubuntu 24 and place them into the `binaries` folder.
 
 Optionally a `--platform` parameter can be passed to compile for a subset of the presupported platforms.
+
+To build the ARM64 binary:
+
+```
+./build.sh --build --clean --platform=ol8-arm64
+```
+
+The binary is written to `binaries/ol8/arm64/traceroute`. To package it:
+
+```
+./package.sh ol8-arm64
+```
+
+The Ubuntu 24.04 ARM64 binary is written to
+`binaries/ubuntu24/arm64/traceroute` and can be packaged with:
+
+```
+./package.sh ubuntu24-arm64
+```
+
+The Debian 12 ARM64 binary is written to
+`binaries/debian12/arm64/traceroute` and can be packaged with:
+
+```
+./package.sh debian12-arm64
+```
 
 A script called "package.sh" is provided into the build folder, wich produces an RPM that should work on RHEL8/RHEL9 and derivatives and
 a DEB that should work on Debian12 and derivatives (including Ubuntu).
