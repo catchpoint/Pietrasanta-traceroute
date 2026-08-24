@@ -4,19 +4,11 @@ set -x
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 usage()
 {
-    echo -e "\nUsage: $0 [--clean] [--build] [--platform=<platforms>]"
+    echo -e "\nUsage: $0 [--clean] [--build] [--platform=<platforms>] [--arch=<architecture>]"
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
-    echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
-    echo -e "\tol8-x86_64: Oracle Linux 8 x86_64 (alias: ol8)"
-    echo -e "\tol8-arm64: Oracle Linux 8 ARM64 (alias: ol8-aarch64)"
-    echo -e "\tol9-x86_64: Oracle Linux 9 x86_64 (alias: ol9)"
-    echo -e "\tol9-arm64: Oracle Linux 9 ARM64 (alias: ol9-aarch64)"
-    echo -e "\tdebian12-x86_64: Debian 12 x86_64 (alias: debian12)"
-    echo -e "\tdebian12-arm64: Debian 12 ARM64 (alias: debian12-aarch64)"
-    echo -e "\tubuntu24-x86_64: Ubuntu 24.04 x86_64 (alias: ubuntu24)"
-    echo -e "\tubuntu24-arm64: Ubuntu 24.04 ARM64 (alias: ubuntu24-aarch64)"
-    echo -e "\tBy default all are enabled"
+    echo -e "--platform: A space-separated list containing ol8, ol9, debian12 or ubuntu24."
+    echo -e "--arch: Target architecture: x86_64 or arm64 (default: x86_64)."
     echo -e "\n"
     echo -e "Example: $0 --build --clean"
     echo -e "\n"
@@ -48,58 +40,37 @@ prepare_docker_context()
 
 platform_info()
 {
-    case "$1" in
-        ol8|ol8-x86_64)
-            PLATFORM_CONTEXT="ol8/x86_64"
-            PLATFORM_OUTPUT="ol8/x86_64"
-            PLATFORM_IMAGE="ol8-x86_64"
-            ;;
-        ol8-aarch64|ol8-arm64)
-            PLATFORM_CONTEXT="ol8/arm64"
-            PLATFORM_OUTPUT="ol8/arm64"
-            PLATFORM_IMAGE="ol8-arm64"
-            ;;
-        ol9|ol9-x86_64)
-            PLATFORM_CONTEXT="ol9/x86_64"
-            PLATFORM_OUTPUT="ol9/x86_64"
-            PLATFORM_IMAGE="ol9-x86_64"
-            ;;
-        ol9-aarch64|ol9-arm64)
-            PLATFORM_CONTEXT="ol9/arm64"
-            PLATFORM_OUTPUT="ol9/arm64"
-            PLATFORM_IMAGE="ol9-arm64"
-            ;;
-        debian12|debian12-x86_64)
-            PLATFORM_CONTEXT="debian12/x86_64"
-            PLATFORM_OUTPUT="debian12/x86_64"
-            PLATFORM_IMAGE="debian12-x86_64"
-            ;;
-        debian12-aarch64|debian12-arm64)
-            PLATFORM_CONTEXT="debian12/arm64"
-            PLATFORM_OUTPUT="debian12/arm64"
-            PLATFORM_IMAGE="debian12-arm64"
-            ;;
-        ubuntu24|ubuntu24-x86_64)
-            PLATFORM_CONTEXT="ubuntu24/x86_64"
-            PLATFORM_OUTPUT="ubuntu24/x86_64"
-            PLATFORM_IMAGE="ubuntu24-x86_64"
-            ;;
-        ubuntu24-aarch64|ubuntu24-arm64)
-            PLATFORM_CONTEXT="ubuntu24/arm64"
-            PLATFORM_OUTPUT="ubuntu24/arm64"
-            PLATFORM_IMAGE="ubuntu24-arm64"
+    PLATFORM=$1
+    ARCH=$2
+
+    case "${ARCH}" in
+        x86_64|arm64)
             ;;
         *)
-            echo "Unsupported platform: $1" >&2
+            echo "Unsupported architecture: ${ARCH}. Use x86_64 or arm64." >&2
             return 1
             ;;
     esac
+
+    case "${PLATFORM}" in
+        ol8|ol9|debian12|ubuntu24)
+            ;;
+        *)
+            echo "Unsupported platform: ${PLATFORM}. Use ol8, ol9, debian12 or ubuntu24." >&2
+            return 1
+            ;;
+    esac
+
+    PLATFORM_CONTEXT="${PLATFORM}/${ARCH}"
+    PLATFORM_OUTPUT="${PLATFORM}/${ARCH}"
+    PLATFORM_IMAGE="${PLATFORM}-${ARCH}"
 }
 
 clean_docker()
 {
     PLATFORM=$1
-    platform_info "${PLATFORM}" || return 1
+    ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
     docker container rm -f "traceroute_${PLATFORM_IMAGE}_container"
     docker image rm traceroute:"${PLATFORM_IMAGE}"
 }
@@ -107,13 +78,14 @@ clean_docker()
 build_docker()
 {
     PLATFORM=$1
-    platform_info "${PLATFORM}" || return 1
+    ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
     
-    echo "Starting docker for ${PLATFORM}"
+    echo "Starting docker for ${PLATFORM}/${ARCH}"
     
     if ! docker build . -t traceroute:"${PLATFORM_IMAGE}"
     then
-        echo "Failed to build docker for platform ${PLATFORM}"
+        echo "Failed to build docker for ${PLATFORM}/${ARCH}"
         return 1
     fi
     
@@ -139,9 +111,10 @@ build_docker()
 build()
 {
     PLATFORM=$1
-    platform_info "${PLATFORM}" || return 1
+    ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
     
-    echo "Building for $PLATFORM"
+    echo "Building for ${PLATFORM}/${ARCH}"
     
     SAVE_DIR="${SCRIPTPATH}"
 
@@ -154,9 +127,9 @@ build()
     clean_folder
     prepare_docker_context
     
-    if ! build_docker "$PLATFORM" 2>&1
+    if ! build_docker "${PLATFORM}" "${ARCH}" 2>&1
     then
-        echo "An error occurred while building for platform $PLATFORM"
+        echo "An error occurred while building for ${PLATFORM}/${ARCH}"
         exit 1
     fi
     
@@ -173,9 +146,10 @@ build()
 
 BUILD=0
 CLEAN=0
-PLATFORM="debian12-x86_64 debian12-arm64 ol8-x86_64 ol8-arm64 ol9-x86_64 ol9-arm64 ubuntu24-x86_64 ubuntu24-arm64"
+PLATFORM="debian12 ol8 ol9 ubuntu24"
+ARCH=x86_64
 
-if ! args=$(getopt -o '' --long build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
+if ! args=$(getopt -o '' --long build,clean,help,platform:,arch: -n 'invalid arguments' -- "$@"); then
     exit 2
 fi
 
@@ -192,6 +166,8 @@ while true; do
             exit 0 ;;
         --platform)
             PLATFORM=$2; shift 2 ;;
+        --arch)
+            ARCH=$2; shift 2 ;;
         --)
             shift; break ;;
         *)
@@ -208,19 +184,25 @@ fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
 echo "PLATFORM=${PLATFORM}"
+echo "ARCH=${ARCH}"
 
 for PLATFORM in $(echo $PLATFORM)
 do
     echo "Doing $PLATFORM"
+
+    if ! platform_info "${PLATFORM}" "${ARCH}"
+    then
+        exit 2
+    fi
     
     if [ "${BUILD}" =  1 ]
     then
-        build ${PLATFORM}
+        build "${PLATFORM}" "${ARCH}"
     fi
     
     if [ "$CLEAN" = "1" ]
     then
-        clean_docker ${PLATFORM}
+        clean_docker "${PLATFORM}" "${ARCH}"
     fi
 done
 
