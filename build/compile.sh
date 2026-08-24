@@ -13,6 +13,8 @@ case "${TARGET_ARCH}" in
         make traceroute
         ;;
     aarch64)
+        # here we assume that this script is run on x86_64 host and we are cross-compiling for ARM64 target
+        # so we need to compile openssl too (can't install from package manager because we are cross-compiling)
         : "${CROSS_COMPILE:=aarch64-linux-gnu-}"
         : "${SYSROOT:?SYSROOT must point to the target sysroot}"
         : "${OPENSSL_ROOT:?OPENSSL_ROOT must point to the target OpenSSL installation}"
