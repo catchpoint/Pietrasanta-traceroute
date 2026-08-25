@@ -38,6 +38,14 @@ static int fix_dest_port = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
+int ecmp = 0;
+int n_flows = 0;
+
+static CLIF_option udpinsession_options[] = {
+    { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
+    CLIF_END_OPTION
+};
+
 static void fill_data(char* data, size_t len, int probe_idx)
 {
     struct timeval tv;
@@ -144,6 +152,8 @@ uint16_t udp_checksum_ipv6(const struct in6_addr *src, const struct in6_addr *ds
 
 static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
+    n_flows = (ecmp) ? probes_per_hop : 1;
+    
     if(port_seq) {
         port_seq_specified = 1;
         curr_port = port_seq;
@@ -203,10 +213,6 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     printf("\n<src=%s:%d dst=%s:%d>\n", addr2str(&src_addr), ntohs(src_addr.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
     return 0;
 }
-
-static CLIF_option udpinsession_options[] = {
-    CLIF_END_OPTION
-};
 
 static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
 {
