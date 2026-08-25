@@ -846,7 +846,7 @@ static probe* quic_check_reply(int sk, int err, sockaddr_any* from, char* buf, s
         if(quic_version == 0x00)
             sprintf(proto_details, "Q:V");
         else
-            sprintf(proto_details, "Q:U (0x%02X)", packet_type);
+            sprintf(proto_details, "Q:U(0x%02X)", packet_type);
         
         pb->proto_details = strdup(proto_details);
         
