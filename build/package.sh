@@ -80,24 +80,14 @@ fi
 
 VERSION=$(awk '{print $NF}' ${SOURCE_DIR}/VERSION)
 
-# nfpm does not expand shell-style variables in YAML paths. Generate a
-# per-invocation configuration with the selected values before packaging.
-PACKAGE_CONFIG_HOST=$(mktemp "${SCRIPTPATH}/package.generated.XXXXXX.yaml")
-PACKAGE_CONFIG="/work/build/$(basename "${PACKAGE_CONFIG_HOST}")"
-sed \
-    -e "s|\${ARCH}|${PACKAGE_ARCH}|g" \
-    -e "s|\${VERSION}|${VERSION}|g" \
-    -e "s|\${PLATFORM_DIR}|${PLATFORM_DIR}|g" \
-    "${SCRIPTPATH}/package.yaml" > "${PACKAGE_CONFIG_HOST}"
-
-cleanup()
-{
-    rm -f "${PACKAGE_CONFIG_HOST}"
-}
-trap cleanup EXIT
-
 for PACKAGER in rpm deb
 do
+    if ! mkdir -p dist/${PLATFORM}
+    then
+        echo "Failed to create directory dist/${PLATFORM}"
+        exit 1
+    fi
+    
     if ! docker run --rm  \
         -v "${SOURCE_DIR}:/work" \
         -w /work \
@@ -105,7 +95,7 @@ do
         -e ARCH=${PACKAGE_ARCH} \
         -e PLATFORM=${PLATFORM} \
         -e PLATFORM_DIR=${PLATFORM_DIR} \
-        goreleaser/nfpm:v2.44.0 package --config "${PACKAGE_CONFIG}" --packager ${PACKAGER} --target /work/build/
+        goreleaser/nfpm:v2.44.0 package --config /work/build/package.yaml --packager ${PACKAGER} --target /work/build/dist/${PLATFORM}
     then
         echo "Failed to create ${PACKAGER} package"
     fi

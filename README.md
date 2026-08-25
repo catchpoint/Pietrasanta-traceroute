@@ -72,8 +72,7 @@ The build script takes these options:
 The `ol8` target with `--arch=arm64` cross-compiles from the x86_64 Docker environment
 using the `aarch64-linux-gnu-` toolchain installed from Oracle Linux's public
 `ol8_developer` repository. OpenSSL is built from source for ARM64 inside the
-image because this project does not use Conan or depend on the separate
-`gnu-tools` project.
+image.
 
 The `ol9` target with `--arch=arm64` uses the equivalent Oracle Linux 9 public developer
 toolchain and an Oracle Linux 9 ARM64 sysroot.

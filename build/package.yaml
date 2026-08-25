@@ -25,6 +25,7 @@ contents:
     dst: /usr/local/bin/pietrasanta-traceroute
     file_info:
       mode: 0755
+    expand: true
   - src: ./traceroute/traceroute.8
     dst: /usr/local/share/man/man8/pietrasanta-traceroute.8
     file_info:

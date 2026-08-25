@@ -50,9 +50,9 @@ RUN mkdir -p /opt/openssl-aarch64 /tmp/openssl-src \
     && make install_sw \
     && test -f /opt/openssl-aarch64/lib/libssl.so.3 \
     && test -f /opt/openssl-aarch64/lib/libcrypto.so.3 \
-    && test -f /opt/openssl-aarch64/lib/pkgconfig/openssl.pc
+    && test -f /opt/openssl-aarch64/lib/pkgconfig/openssl.pc \
+    && mkdir -p /traceroute
 
-RUN mkdir -p /traceroute
 COPY libsupp/ /traceroute/libsupp/
 COPY include/ /traceroute/include/
 COPY traceroute/ /traceroute/traceroute/
