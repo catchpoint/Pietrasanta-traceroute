@@ -1,0 +1,20 @@
+[ol9_developer]
+name=Oracle Linux 9 Developer ($basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/developer/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+
+[ol9_baseos_latest_aarch64]
+name=Oracle Linux 9 BaseOS Latest (aarch64)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/baseos/latest/aarch64/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+
+[ol9_appstream_aarch64]
+name=Oracle Linux 9 AppStream (aarch64)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/appstream/aarch64/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
