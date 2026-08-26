@@ -1,5 +1,8 @@
 /*
-    Copyright(c)  2026   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    Copyright (c)  2026             Catchpoint Systems, Inc.    
+    Copyright (c)  2026             Alessandro Improta, Luca Sani
+                    <aimprota@catchpoint.com>    
+                    <lsani@catchpoint.com>
 
     Copyright(c)  2006, 2007        Dmitry Butskoy
                     <buc@citadel.stu.neva.ru>
