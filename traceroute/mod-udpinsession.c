@@ -1,3 +1,6 @@
+// TODO if sport the src should be fixed
+// TODO raw_icmp_socket need really to be one per flow??? (see tcpinsession)    
+    
 /*
     Copyright(c)  2026   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
 
@@ -27,22 +30,24 @@
 
 #include "traceroute.h"
 
-static sockaddr_any dest_addr = {{ 0, }, };
-static unsigned int curr_port = 0;
+static sockaddr_any src[MAX_PROBES] = {};
+static sockaddr_any dest_addr[MAX_PROBES] = {};
+static int raw_sk[MAX_PROBES] = { -1 };
+static int raw_icmp_sk = -1;
+
 static uint8_t tmp_buf[65535] = {};
 static size_t *length_p;
-static int raw_icmp_sk = -1;
-static int raw_sk = -1;
-static int port_seq_specified = 0;
+
+static int af = 0;
 static int fix_dest_port = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
-
-int ecmp = 0;
-int n_flows = 0;
+static int ecmp = 0;
+static int n_flows = 0;
 
 static CLIF_option udpinsession_options[] = {
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
+    { 0, "fix_dest_port", 0, "Keep the destination port fixed. This can be used only in conjunction with ecmp", CLIF_set_flag, &fix_dest_port, 0, CLIF_ABBREV },
     CLIF_END_OPTION
 };
 
@@ -152,37 +157,63 @@ uint16_t udp_checksum_ipv6(const struct in6_addr *src, const struct in6_addr *ds
 
 static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
+    if(fix_dest_port && !ecmp)
+        ex_error("\n\nfix_dest_port can only be used with ECMP\n");
+
     n_flows = (ecmp) ? probes_per_hop : 1;
     
-    if(port_seq) {
-        port_seq_specified = 1;
-        curr_port = port_seq;
-    } else {
-        curr_port = DEF_START_PORT;
+    af = dest->sa.sa_family;
+    uint16_t dest_port = (port_seq != 0) ? port_seq : DEF_START_PORT;
+
+    for(int i = 0; i < n_flows; i++) {
+        dest_addr[i] = *dest;
+        
+        if(af == AF_INET)
+            dest_addr[i].sin.sin_port = htons(dest_port);
+        else
+            dest_addr[i].sin6.sin6_port = htons(dest_port);
+        
+        if(!fix_dest_port)
+            dest_port++;
+
+        raw_sk[i] = socket(dest_addr[i].sa.sa_family, SOCK_RAW, IPPROTO_UDP);
+        if(raw_sk[i] < 0)
+            error_or_perm("raw udp socket");
+
+        use_recverr(raw_sk[i]);
+
+        if(tos) {
+            int opt = tos;
+            if(setsockopt(raw_sk[i], SOL_IP, IP_TOS, &opt, sizeof(opt)) < 0)
+                error("setsockopt IP_TOS");
+        }
+
+        add_poll(raw_sk[i], POLLIN | POLLERR);
+        bind_socket(raw_sk[i]);
+
+        if(connect(raw_sk[i], &dest_addr[i].sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
+            error_or_perm("connect raw udp socket");
+
+        // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
+        // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
+        uint16_t save_port = 0;
+        if(src_addr.sin.sin_port != 0)
+            save_port = src_addr.sin.sin_port;
+
+        socklen_t src_len = sizeof(src_addr);
+        if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+            error("getsockname");
+        
+        if(save_port)
+            src_addr.sin.sin_port = save_port;
+
+        src[i] = src_addr;
+
+        printf("\n<src=%s:%d dst=%s:%d>", addr2str(&src[i]), ntohs(src[i].sin.sin_port), addr2str(&dest_addr[i]), ntohs(dest_addr[i].sin.sin_port));
     }
 
-    if(port_seq_specified == 0 && fix_dest_port)
-        ex_error("\n\nfix_dest_port must be used in conjunction with -p/--port\n");
-    
-    dest_addr = *dest;
-    dest_addr.sin.sin_port = htons(curr_port);
-
-    raw_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, IPPROTO_UDP);
-    if(raw_sk < 0)
-        error_or_perm("raw udp socket");
-
-    use_recverr(raw_sk);
-
-    if(tos) {
-        int i = tos;
-        if(setsockopt(raw_sk, SOL_IP, IP_TOS, &i, sizeof(i)) < 0)
-            error("setsockopt IP_TOS");
-    }
-    
-    add_poll(raw_sk, POLLIN | POLLERR);
-    
     if(use_additional_raw_icmp_socket) {
-        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        raw_icmp_sk = socket(af, SOCK_RAW, (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
         
         if(raw_icmp_sk < 0)
             error_or_perm("raw icmp socket");
@@ -191,55 +222,38 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     }
     
     length_p = packet_len_p;
-    
-    bind_socket(raw_sk);
 
-    if(connect(raw_sk, &dest_addr.sa, (dest_addr.sa.sa_family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
-        error_or_perm("connect raw udp socket");
-
-    // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
-    // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
-    uint16_t save_port = 0;
-    if(src_addr.sin.sin_port != 0)
-        save_port = src_addr.sin.sin_port;
-
-    socklen_t src_len = sizeof(src_addr);
-    if(getsockname(raw_sk, &src_addr.sa, &src_len) < 0)
-        error("getsockname");
-    
-    if(save_port)
-        src_addr.sin.sin_port = save_port;
-
-    printf("\n<src=%s:%d dst=%s:%d>\n", addr2str(&src_addr), ntohs(src_addr.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
     return 0;
 }
 
 static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
 {
-    set_ttl(raw_sk, ttl);
+    int flow = (ecmp) ? probe_idx % probes_per_hop : 0;
+    
+    set_ttl(raw_sk[flow], ttl);
     struct udphdr* uh = (struct udphdr*)&(tmp_buf[0]);
     char* data = (char*)&(tmp_buf[sizeof(struct udphdr)]);
     fill_data(data, *length_p, probe_idx);
     
     // Prepare the UDP packet. Everything is fixed except the Checksum (and thus the payload).
-    uh->source = src_addr.sin.sin_port;
-    uh->dest = dest_addr.sin.sin_port;
+    uh->source = src[flow].sin.sin_port;
+    uh->dest = dest_addr[flow].sin.sin_port;
     size_t tot_len = sizeof(struct udphdr) + *length_p;
     uh->len = htons(tot_len);
     uh->check = 0; // be sure to reset the checksum before computing the checksum, otherwise the previous value will be used
-    uh->check = (dest_addr.sa.sa_family == AF_INET) ? htons(udp_checksum_ipv4(src_addr.sin.sin_addr, dest_addr.sin.sin_addr, uh, sizeof(struct udphdr) + *length_p)) : htons(udp_checksum_ipv6(&src_addr.sin6.sin6_addr, &dest_addr.sin6.sin6_addr, uh, sizeof(struct udphdr) + *length_p));
+    uh->check = (af == AF_INET) ? htons(udp_checksum_ipv4(src[flow].sin.sin_addr, dest_addr[flow].sin.sin_addr, uh, sizeof(struct udphdr) + *length_p)) : htons(udp_checksum_ipv6(&src[flow].sin6.sin6_addr, &dest_addr[flow].sin6.sin6_addr, uh, sizeof(struct udphdr) + *length_p));
     pb->checksum = uh->check;
 
-    if(do_send(raw_sk, tmp_buf, tot_len, NULL) < 0) {
+    if(do_send(raw_sk[flow], tmp_buf, tot_len, NULL) < 0) {
         error("sendto");
-        close(raw_sk);
+        close(raw_sk[flow]);
         pb->send_time = 0;
         return;
     }
     pb->send_time = get_time();
-    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
-    pb->src = src_addr;
-    pb->seq = dest_addr.sin.sin_port;
+    memcpy(&pb->dest, &dest_addr[flow], sizeof(dest_addr[flow]));
+    pb->src = src[flow];
+    pb->seq = dest_addr[flow].sin.sin_port;
 }
 
 static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
@@ -277,7 +291,7 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     struct udphdr* offending_probe = NULL;
     int proto = 0;
     int returned_tos = 0;
-    extract_ip_info(dest_addr.sa.sa_family, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
+    extract_ip_info(af, bufp, &proto, &offending_probe_src, &offending_probe_dest, (void **)&offending_probe, &returned_tos); 
     
     if(proto != IPPROTO_UDP)
         return NULL;
@@ -300,7 +314,7 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     probe_done(pb, &pb->icmp_done);
     
     if(loose_match || tr_via_additional_raw_icmp_socket) 
-        *overhead = prepare_ancillary_data(dest_addr.sa.sa_family, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
+        *overhead = prepare_ancillary_data(af, bufp, sizeof(struct udphdr), ret, response_get->msg_name);
     
     return pb;
 }
