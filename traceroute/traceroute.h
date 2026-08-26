@@ -44,8 +44,6 @@ extern unsigned int tos;
 extern int ecn_input_value;
 extern int disable_extra_ping;
 extern int mtudisc_phase;
-static char addr2str_buf[INET6_ADDRSTRLEN];
-
 union common_sockaddr {
     struct sockaddr sa;
     struct sockaddr_in sin;
@@ -56,11 +54,7 @@ typedef union common_sockaddr sockaddr_any;
 
 extern sockaddr_any src_addr;
 
-static const char *addr2str(const sockaddr_any *addr) 
-{
-    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-    return addr2str_buf;
-}
+const char *addr2str(const sockaddr_any *addr);
 
 struct probe_struct
 {
@@ -232,4 +226,3 @@ struct rtmsg {
 const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from);
 
 #endif 
-
