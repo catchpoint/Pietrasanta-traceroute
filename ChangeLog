@@ -1,3 +1,11 @@
+2026-08-26  Alessandro Improta  <alessandro.improta@logicmonitor.com> - 0.1.32
+
+   * Fixed wrong timestamp recorded in handshake of TCP InSession with option ecmp enabled
+   * Changed output of TCP InSession handshake to be mapped to the output of regular traceroute
+   * Introduced 5-tuple per probe with option print-five-tuple. This option is available
+     for DNS, QUIC, TCP, TCP InSession, UDP, UDP InSession
+   * Introduced check for not allowed options using -O
+
 2026-08-24  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.31
   
    * Add support to compile on arm64

@@ -50,6 +50,7 @@ static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
 static int print_received_mss = 0;
+static int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
@@ -76,6 +77,7 @@ static CLIF_option tcp_options[] = {
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
     { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -383,6 +385,12 @@ static void tcp_send_probe(probe* pb, int ttl, int probe_idx)
             error ("getsockname");
         pb->seq = th->source;
     #endif
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&src), ntohs(th->source), addr2str(&dest_addr), ntohs(dest_port));
+        pb->ext = strdup(five_tuple);
+    }
     
     pb->sk = sk;
 
