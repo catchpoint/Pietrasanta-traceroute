@@ -1044,9 +1044,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Set sim_probes to 1 if the module is not tcpinsession and either the source port is specified or the module requires one probe per time
+    // Set sim_probes to 1 if the module is not tcpinsession or udpinsession and either the source port is specified or the module requires one probe per time
     // This because in tcpinsession mode the source port is not needed to match the reply with the probe sent (the seq number is used) 
-    if((strcmp(module, "tcpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
+    // In udpinsession mode the source port is not needed to match the reply with the probe sent (the checksum is used)
+    if((strcmp(module, "tcpinsession") != 0 && strcmp(module, "udpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }

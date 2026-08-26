@@ -261,7 +261,7 @@ static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
     uh->check = 0; // be sure to reset the checksum before computing the checksum, otherwise the previous value will be used
     uh->check = (af == AF_INET) ? htons(udp_checksum_ipv4(src[flow].sin.sin_addr, dest_addr[flow].sin.sin_addr, uh, sizeof(struct udphdr) + *length_p)) : htons(udp_checksum_ipv6(&src[flow].sin6.sin6_addr, &dest_addr[flow].sin6.sin6_addr, uh, sizeof(struct udphdr) + *length_p));
     pb->checksum = uh->check;
-
+    
     if(do_send(raw_sk[flow], tmp_buf, tot_len, NULL) < 0) {
         error("sendto");
         close(raw_sk[flow]);
@@ -272,6 +272,10 @@ static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
     memcpy(&pb->dest, &dest_addr[flow], sizeof(dest_addr[flow]));
     pb->src = src[flow];
     pb->seq = dest_addr[flow].sin.sin_port;
+    
+    // Record the sk since with (SOCK_RAW, IPPROTO_UDP) kernel does not take in account UDP src/dst port when delivering to sockets, so an ICMP error is delivered to all opened sockets
+    // When the probe will be recovered via the matched checksum, then we can check if the socket that matched it is the socket through which was delivered
+    pb->flow_sk = raw_sk[flow];
 }
 
 static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
@@ -285,6 +289,9 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     // Now we need to match the checksum with the original probe
     struct udphdr* uh = (struct udphdr*)buf;
     probe* pb = probe_by_checksum(uh->check);
+    if(pb != NULL && pb->flow_sk != sk) // see udpinsession_send_probe for more details on this check
+        return NULL;
+    
     return pb;
 }
 
@@ -323,10 +330,22 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
 #endif
     
-    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
-    
-    if(!pb)
+    probe *pb = probe_by_checksum(offending_probe->check);
+    if (!pb)
         return NULL;
+
+    // Since additional_raw_icmp_socket receives ICMP traffic independently of the UDP raw sockets we need to enusre this
+    // is traffic for us and not for other appplications
+    if (!equal_sockaddr(&offending_probe_dest, &pb->dest))
+        return NULL;
+
+    if (loose_match) {
+        if (!equal_port(&offending_probe_src, &pb->src))
+            return NULL;
+    } else {
+        if (!equal_sockaddr(&offending_probe_src, &pb->src))
+            return NULL;
+    }
         
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
