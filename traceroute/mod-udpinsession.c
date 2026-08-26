@@ -271,21 +271,10 @@ static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
         return;
     }
     pb->send_time = get_time();
-<<<<<<< HEAD
-    memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
-    pb->src = src_addr;
-    pb->seq = dest_addr.sin.sin_port;
 
-    if(print_five_tuple) {
-        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
-        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port), addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
-        pb->ext = strdup(five_tuple);
-    }
-=======
     memcpy(&pb->dest, &dest_addr[flow], sizeof(dest_addr[flow]));
     pb->src = src[flow];
     pb->seq = dest_addr[flow].sin.sin_port;
->>>>>>> origin/UdpInSessionEcmp
 }
 
 static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
