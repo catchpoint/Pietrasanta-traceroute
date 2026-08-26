@@ -116,8 +116,10 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     socklen_t src_len = sizeof(src[0]);
     socklen_t lenmtu = sizeof(mtu);
+    double connect_starttime[MAX_PROBES] = {};
     
     for(int i = 0; i < n_flows; i++) {
+        connect_starttime[i] = get_time();
         if(connect(raw_sk[i], &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
             error("connect");
 
@@ -148,7 +150,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     handshake_printed = 1;
 
     for(int i = 0; i < n_flows; i++) {
-        double connect_starttime = get_time();
         double recv_time = 0;
         int found = 0;
         do {
@@ -229,7 +230,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     }
                 }
             } else {
-                if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
+                if(get_time() - connect_starttime[i] > MAX_CONNECT_TIMEOUT_SEC)
                     break;
                 
                 usleep(10000);
@@ -247,7 +248,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         }
 
         // Print some info about this handshake
-        double diff = (recv_time - connect_starttime) * 1000;
+        double diff = (recv_time - connect_starttime[i]) * 1000;
 
         char* res = NULL;
         
