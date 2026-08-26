@@ -49,7 +49,6 @@ static int raw_icmp_sk = -1;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
-static int print_five_tuple = 0;
 
 static uint8_t initial_packet_header[INITIAL_PACKET_HEADER_LEN];
 // plain_payload and encrypted packets can be huge (65k) due to MTU discovery, thus we can't allocate on stack.
@@ -59,7 +58,6 @@ static uint8_t* initial_payload = NULL;
 static size_t init_packets_len = 0;
 static size_t* length_p = NULL;
 static uint32_t packet_number = 0;
-static int print_five_tuple = 0;
 
 // This is a fixed value for QUIC version 1, see https://www.rfc-editor.org/rfc/rfc9001#section-5.2-2
 static uint8_t initial_salt[] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
@@ -200,7 +198,6 @@ static int set_print_dest_rtt_mode(CLIF_option* optn, char* arg)
 
 static CLIF_option quic_options[] = {
     { 0, "print_dest_rtt_mode", "mode", "Specify how to print the destination RTT in case a Retry is performed. Possible values are first, last, all, sum (default all). `first` and `last` means respectively that only the RTT of the Retry and only the RTT of the Initial are printed. `all` means that both are printed separated by a `+` character. `sum` means that the sum of the two are printed.", set_print_dest_rtt_mode, &quic_print_dest_rtt_mode, 0, 0 },
-    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 

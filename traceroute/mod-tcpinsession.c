@@ -52,8 +52,8 @@ static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static int info = 0;
 static int print_received_mss = 0;
-static int print_five_tuple = 0;
 
+int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
@@ -251,7 +251,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(info && response_tcp_hdr[i])
             res = names_by_flags(get_th_flags(response_tcp_hdr[i]));
     
-        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0)) {
+        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0) || print_five_tuple > 0) {
             printf(" <");
         
             int print_comma = 0;
@@ -271,6 +271,19 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 if(print_comma == 1)
                     printf(",");
                 printf("SACK");
+            }
+
+            if(print_five_tuple) {
+                if(print_comma == 1)
+                    printf(",");
+
+                char src_str[INET6_ADDRSTRLEN];
+                snprintf(src_str, sizeof(src_str), "%s", addr2str(&src[i]));
+
+                char dest_str[INET6_ADDRSTRLEN];
+                snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+
+                printf("%s:%u->%s:%u", src_str, ntohs(src[i].sin.sin_port), dest_str, ntohs(dest_addr.sin.sin_port));
             }
 
             printf(">");
@@ -574,15 +587,18 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     // Scan all srcs and if no one corresponds, return NULL
 
     int found = 0;
+    int src_index = -1;
     for(int i = 0; i < n_flows; i++) {
         if(src[i].sa.sa_family == AF_INET6) {
             if(sport == src[i].sin6.sin6_port) {
                 found = 1;
+                src_index = i;
                 break;
             }
         } else if(src[i].sa.sa_family == AF_INET) {
             if(sport == src[i].sin.sin_port) {
                 found = 1;
+                src_index = i;
                 break;
             }
         } else {
@@ -603,6 +619,26 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     if(info)
         pb->ext = names_by_flags(get_th_flags(tcp));
     
+    if(print_five_tuple) {
+        char str[128] = {};    /*  enough...  */
+        if(pb->ext)
+            strncpy(str, pb->ext, sizeof(str) - 1);
+
+        if(pb->ext && strlen(pb->ext) > 0)
+            str[strlen(pb->ext)] = ',';
+
+        char src_str[INET6_ADDRSTRLEN];
+        snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&src[src_index]), ntohs(src[src_index].sin.sin_port));
+
+        char dest_str[INET6_ADDRSTRLEN];
+        snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+        
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%d", src_str, dest_str, ntohs(dest_addr.sin.sin_port));
+
+        free(pb->ext);
+        pb->ext = strdup(str);
+    }
+
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
     
     return pb;

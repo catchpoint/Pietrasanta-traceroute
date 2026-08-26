@@ -38,7 +38,6 @@ static unsigned int protocol = IPPROTO_UDP;
 static uint8_t* data = NULL;
 static size_t *length_p;
 static int raw_icmp_sk = -1;
-static int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
@@ -995,7 +994,6 @@ static int set_dns_query(CLIF_option* optn, char* arg)
 static CLIF_option dns_options[] = {
     { 0, "domain", "domain", "The domain to include into the query", set_dns_domain, &dns_domain, 0, 0 },
     { 0, "type", "type", "The type of the query (a, aaaa, ns, txt, ds, dnskey, rrsig, nsec, nsec3, nsec3param, cds, cdnskey)", CLIF_call_func, &set_dns_query, 0, 0 },
-    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 

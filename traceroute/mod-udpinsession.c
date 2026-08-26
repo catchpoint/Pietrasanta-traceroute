@@ -37,7 +37,6 @@ static int port_seq_specified = 0;
 static int fix_dest_port = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
-static int print_five_tuple = 0;
 
 static void fill_data(char* data, size_t len, int probe_idx)
 {
@@ -201,13 +200,10 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     if(save_port)
         src_addr.sin.sin_port = save_port;
 
-    if(print_five_tuple)
-        printf("\n<src=%s:%d dst=%s:%d>\n", addr2str(&src_addr), ntohs(src_addr.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
     return 0;
 }
 
 static CLIF_option udpinsession_options[] = {
-    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
