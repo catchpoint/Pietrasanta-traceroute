@@ -45,6 +45,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int curr_port = 0;
 static unsigned int protocol = IPPROTO_UDP;
+static int print_five_tuple = 0;
 static int raw_icmp_sk = -1;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
@@ -198,6 +199,7 @@ static int set_print_dest_rtt_mode(CLIF_option* optn, char* arg)
 
 static CLIF_option quic_options[] = {
     { 0, "print_dest_rtt_mode", "mode", "Specify how to print the destination RTT in case a Retry is performed. Possible values are first, last, all, sum (default all). `first` and `last` means respectively that only the RTT of the Retry and only the RTT of the Initial are printed. `all` means that both are printed separated by a `+` character. `sum` means that the sum of the two are printed.", set_print_dest_rtt_mode, &quic_print_dest_rtt_mode, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -663,6 +665,12 @@ static void quic_send_probe(probe* pb, int ttl, int probe_idx)
     socklen_t len = sizeof(pb->src);
     if(getsockname(sk, &pb->src.sa, &len) < 0)
         error("getsockname");
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
+        pb->ext = strdup(five_tuple);
+    }
 
     add_poll(sk, POLLIN | POLLERR);
 
