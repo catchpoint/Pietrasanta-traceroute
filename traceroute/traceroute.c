@@ -1293,23 +1293,24 @@ void print_probe(probe *pb)
             /*  skip expired   */
             for(p = pb - 1; np && !p->res.sa.sa_family; p--, np--);
 
-            if(!np || !equal_addr(&p->res, &pb->res) || (p->ext != pb->ext && !(p->ext && pb->ext && !strcmp(p->ext, pb->ext))) || (backward && p->recv_ttl != pb->recv_ttl))
+            if(!np || !equal_addr(&p->res, &pb->res) || (backward && p->recv_ttl != pb->recv_ttl))
                 prn = 1;
         }
 
         if(prn) {
             print_addr(&pb->res);
-            if(pb->ext) {
-                printf(" <%s>", pb->ext);
-                free(pb->ext);
-                pb->ext = NULL;
-            }
 
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
                 if(hops != ttl)
                     printf(" '-%d'", hops);
             }
+        }
+
+        if(pb->ext) {
+            printf(" <%s>", pb->ext);
+            free(pb->ext);
+            pb->ext = NULL;
         }
 
         if(pb->proto_details != NULL) {

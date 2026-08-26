@@ -70,6 +70,7 @@ uint32_t ts_value[MAX_PROBES] = {};
 uint32_t ts_echo_reply[MAX_PROBES] = {};
 static sockaddr_any src[MAX_PROBES] = {};
 int SACK_permitted = 0;
+int handshake_printed = 0;
 int sack = 0;
 int ecmp = 0;
 int n_flows = 0;
@@ -142,6 +143,9 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     struct tcphdr* response_tcp_hdr[MAX_PROBES] = {};
 
     uint8_t ack_buf[MAX_PROBES][1024];
+
+    printf("\nhand");
+    handshake_printed = 1;
 
     for(int i = 0; i < n_flows; i++) {
         double connect_starttime = get_time();
@@ -244,7 +248,6 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
         // Print some info about this handshake
         double diff = (recv_time - connect_starttime) * 1000;
-        printf("\nhand  %.3f ms", diff);
 
         char* res = NULL;
         
@@ -277,17 +280,15 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 if(print_comma == 1)
                     printf(",");
 
-                char src_str[INET6_ADDRSTRLEN];
+                char src_str[INET6_ADDRSTRLEN] = {};
                 snprintf(src_str, sizeof(src_str), "%s", addr2str(&src[i]));
-
-                char dest_str[INET6_ADDRSTRLEN];
-                snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
-
-                printf("%s:%u->%s:%u", src_str, ntohs(src[i].sin.sin_port), dest_str, ntohs(dest_addr.sin.sin_port));
+                printf("%s:%u->%s:%u", src_str, ntohs(src[i].sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
             }
 
             printf(">");
         }
+
+        printf(" %.3f ms", diff);
 
         fflush(stdout);
         
@@ -530,10 +531,7 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     if(interval == 0) {
         close(sk[0]); // TODO close all
         close(raw_sk[0]);
-        if(sack_found == 0)
-            ex_error("Missing SACK options");
-        else
-            ex_error("Unexpected overlap of SACK intervals");
+        ex_error("%s%s", (handshake_printed > 0) ? "\n" : "", (sack_found == 0) ? "Missing SACK options" : "Unexpected overlap of SACK intervals");
     }
     
     // just order them decreasing
@@ -574,8 +572,22 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         if(dport != dest_port)
             return NULL;
 
+        probe* pb = probe_by_seq_num(seq_num_returned);
+        if(pb && print_five_tuple) {
+            for(int i = 0; i < n_flows; i++) {
+                if(tcp->source == src[i].sin.sin_port) {
+                    char src_str[INET6_ADDRSTRLEN];
+                    char str[128] = {};    /*  enough...  */
+                    snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&src[i]), ntohs(src[i].sin.sin_port));
+                    snprintf(str, sizeof(str), "%s->%s:%u", src_str, addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
+                    free(pb->ext);
+                    pb->ext = strdup(str);
+                    break;
+                }
+            }
+        }
 
-        return probe_by_seq_num(seq_num_returned);
+        return pb;
     }
     
     uint16_t dport = tcp->source;
@@ -627,13 +639,9 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         if(pb->ext && strlen(pb->ext) > 0)
             str[strlen(pb->ext)] = ',';
 
-        char src_str[INET6_ADDRSTRLEN];
+        char src_str[INET6_ADDRSTRLEN] = {};
         snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&src[src_index]), ntohs(src[src_index].sin.sin_port));
-
-        char dest_str[INET6_ADDRSTRLEN];
-        snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
-        
-        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%d", src_str, dest_str, ntohs(dest_addr.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
 
         free(pb->ext);
         pb->ext = strdup(str);
@@ -695,6 +703,22 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     
     for(int i = 0; i < n_flows; i++) {
         if((loose_match || equal_sockaddr(&src[i], &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+            if(print_five_tuple) {
+                char str[128] = {};    /*  enough...  */
+                if(pb->ext)
+                    strncpy(str, pb->ext, sizeof(str) - 1);
+
+                if(pb->ext && strlen(pb->ext) > 0)
+                    str[strlen(pb->ext)] = ',';
+
+                char src_str[INET6_ADDRSTRLEN] = {};
+                snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&src[i]), ntohs(src[i].sin.sin_port));
+                snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
+
+                free(pb->ext);
+                pb->ext = strdup(str);
+            }
+
             pb->returned_tos = returned_tos;
             probe_done(pb, &pb->icmp_done);
             if(loose_match || tr_via_additional_raw_icmp_socket)
