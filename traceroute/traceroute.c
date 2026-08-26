@@ -47,6 +47,14 @@
 
 #include <pthread.h>
 
+static char addr2str_buf[INET6_ADDRSTRLEN];
+
+const char *addr2str(const sockaddr_any *addr)
+{
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    return addr2str_buf;
+}
+
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
 #ifdef ICMP6_DST_UNREACH_NOTNEIGHBOR
 #define ICMP6_DST_UNREACH_BEYONDSCOPE ICMP6_DST_UNREACH_NOTNEIGHBOR
