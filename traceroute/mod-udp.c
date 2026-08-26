@@ -9,6 +9,7 @@
 */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -191,6 +192,12 @@ static void udp_send_probe(probe* pb, int ttl, int probe_idx)
     socklen_t len = sizeof(pb->src);
     if(getsockname(sk, &pb->src.sa, &len) < 0)
         error("getsockname");
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
+        pb->ext = strdup(five_tuple);
+    }
         
     add_poll(sk, POLLIN | POLLERR);
 
@@ -304,6 +311,7 @@ static tr_module udp_ops = {
     .header_len = sizeof(struct udphdr),
     .handle_raw_icmp_packet = udp_handle_raw_icmp_packet,
     .is_raw_icmp_sk = udp_is_raw_icmp_sk,
+    .options = udp_options,
     .close = udp_close
 };
 
