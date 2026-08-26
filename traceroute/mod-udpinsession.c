@@ -28,6 +28,7 @@
 #include "traceroute.h"
 
 static sockaddr_any dest_addr = {{ 0, }, };
+static int print_five_tuple = 0;
 static unsigned int curr_port = 0;
 static uint8_t tmp_buf[65535] = {};
 static size_t *length_p;
@@ -204,6 +205,7 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 }
 
 static CLIF_option udpinsession_options[] = {
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -233,6 +235,12 @@ static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
     memcpy(&pb->dest, &dest_addr, sizeof(dest_addr));
     pb->src = src_addr;
     pb->seq = dest_addr.sin.sin_port;
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port), addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
+        pb->ext = strdup(five_tuple);
+    }
 }
 
 static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char* buf, size_t len) 
