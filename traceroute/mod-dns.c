@@ -34,6 +34,7 @@
 
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int protocol = IPPROTO_UDP;
+static int print_five_tuple = 0;
 
 static uint8_t* data = NULL;
 static size_t *length_p;
@@ -994,6 +995,7 @@ static int set_dns_query(CLIF_option* optn, char* arg)
 static CLIF_option dns_options[] = {
     { 0, "domain", "domain", "The domain to include into the query", set_dns_domain, &dns_domain, 0, 0 },
     { 0, "type", "type", "The type of the query (a, aaaa, ns, txt, ds, dnskey, rrsig, nsec, nsec3, nsec3param, cds, cdnskey)", CLIF_call_func, &set_dns_query, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -1032,6 +1034,12 @@ static void dns_udp_send_probe(probe* pb, int ttl, int probe_idx)
     socklen_t len = sizeof(pb->src);
     if(getsockname(sk, &pb->src.sa, &len) < 0)
         error("getsockname");
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port), addr2str(&dest_addr), ntohs(dest_addr.sin.sin_port));
+        pb->ext = strdup(five_tuple);
+    }
         
     add_poll(sk, POLLIN | POLLERR);
 
@@ -1057,8 +1065,18 @@ static probe* dns_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
 
         pb->final = 1;
         if(ext) {
-            free(pb->ext);
-            pb->ext = ext;
+            if(pb->ext) {
+                size_t ext_len = strlen(pb->ext) + strlen(ext) + 2;
+                char* combined = malloc(ext_len);
+                if(!combined)
+                    error("malloc");
+                snprintf(combined, ext_len, "%s,%s", pb->ext, ext);
+                free(pb->ext);
+                free(ext);
+                pb->ext = combined;
+            } else {
+                pb->ext = ext;
+            }
         }
     }
 
