@@ -1,20 +1,15 @@
 #!/bin/bash
-set -x
 
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 usage()
 {
-    echo -e "\nUsage: $0 - [--clean] [--build] [--platform=<platforms>]"
+    echo -e "\nUsage: $0 [--clean] [--build] [--platform=<platforms>] [--arch=<architecture>]"
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
-    echo -e "--platform: The platform taken in consideration when building and cleaning. Can be a space separated string containing either of the following:"
-    echo -e "\tol8: Oracle Linux 8"
-    echo -e "\tol9: Oracle Linux 9"
-    echo -e "\tdebian12: Debian 12"
-    echo -e "\tubuntu24: Ubuntu 24.04"
-    echo -e "\tBy default all are enabled"
+    echo -e "--platform: A space-separated list containing ol8, ol9, debian12 or ubuntu24."
+    echo -e "--arch: Target architecture: x86_64 or arm64 (default: x86_64)."
     echo -e "\n"
-    echo -e "Example: $0 - --build --clean"
+    echo -e "Example: $0 --build --clean"
     echo -e "\n"
 }
 
@@ -25,8 +20,6 @@ clean_folder()
     rm -rf traceroute/
     rm -f default.rules
     rm -f Makefile
-    rm -f Make.rules
-    rm -f Make.defines
     rm -f VERSION
     rm -rf ./openssl
     rm -f compile.sh
@@ -35,47 +28,123 @@ clean_folder()
 
 prepare_docker_context()
 {
-    cp -r ../../libsupp ./
-    cp -r ../../include ./
-    cp -r ../../traceroute ./
-    cp ../../Makefile ./
-    cp ../../Make.rules ./
-    cp ../../Make.defines ./
-    cp ../../default.rules ./
-    cp ../../VERSION ./
-    cp ../compile.sh ./
+    if ! cp -r "${SCRIPTPATH}/../libsupp" ./; then
+        echo "Failed to copy libsupp"
+        return 1
+    fi
+
+    if ! cp -r "${SCRIPTPATH}/../include" ./; then
+        echo "Failed to copy include"
+        return 1
+    fi
+
+    if ! cp -r "${SCRIPTPATH}/../traceroute" ./; then
+        echo "Failed to copy traceroute"
+        return 1
+    fi
+
+    if ! cp "${SCRIPTPATH}/../Makefile" ./; then
+        echo "Failed to copy Makefile"
+        return 1
+    fi
+
+    if ! cp "${SCRIPTPATH}/../default.rules" ./; then
+        echo "Failed to copy default.rules"
+        return 1
+    fi
+
+    if ! cp "${SCRIPTPATH}/../VERSION" ./; then
+        echo "Failed to copy VERSION"
+        return 1
+    fi
+
+    if ! cp "${SCRIPTPATH}/compile.sh" ./; then
+        echo "Failed to copy compile.sh"
+        return 1
+    fi
+}
+
+platform_info()
+{
+    local PLATFORM=$1
+    local ARCH=$2
+
+    case "${ARCH}" in
+        x86_64|arm64)
+            ;;
+        *)
+            echo "Unsupported architecture: ${ARCH}. Use x86_64 or arm64." >&2
+            return 1
+            ;;
+    esac
+
+    case "${PLATFORM}" in
+        ol8|ol9|debian12|ubuntu24)
+            ;;
+        *)
+            echo "Unsupported platform: ${PLATFORM}. Use ol8, ol9, debian12 or ubuntu24." >&2
+            return 1
+            ;;
+    esac
+
+    PLATFORM_CONTEXT="${PLATFORM}/${ARCH}"
+    PLATFORM_OUTPUT="${PLATFORM}/${ARCH}"
+    PLATFORM_IMAGE="${PLATFORM}-${ARCH}"
 }
 
 clean_docker()
 {
-    PLATFORM=$1
-    docker container rm -f "traceroute_${PLATFORM}_container"
-    docker image rm traceroute:"${PLATFORM}"
+    local PLATFORM=$1
+    local ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
+    
+    if docker container ls --filter "name=traceroute_${PLATFORM_IMAGE}_container"; then
+        if ! docker container rm -f "traceroute_${PLATFORM_IMAGE}_container"; then
+            echo "Failed to remove container traceroute_${PLATFORM_IMAGE}_container"
+            return 1
+        fi
+    fi
+
+    if docker image ls --filter "reference=traceroute:${PLATFORM_IMAGE}"; then
+        if ! docker image rm traceroute:"${PLATFORM_IMAGE}"; then
+            echo "Failed to remove image traceroute:${PLATFORM_IMAGE}"
+            return 1
+        fi
+    fi
 }
 
 build_docker()
 {
-    PLATFORM=$1
+    local PLATFORM=$1
+    local ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
     
-    echo "Starting docker for ${PLATFORM}"
+    echo "Starting docker for ${PLATFORM}/${ARCH}"
     
-    if ! docker build . -t traceroute:"${PLATFORM}"
-    then
-        echo "Failed to build docker for platform ${PLATFORM}"
+    if ! docker build . -t traceroute:"${PLATFORM_IMAGE}"; then
+        echo "Failed to build docker for ${PLATFORM}/${ARCH}"
+        return 1
     fi
     
-    docker container rm -f "traceroute_${PLATFORM}_container"
-    docker create --name "traceroute_${PLATFORM}_container" traceroute:"${PLATFORM}"
+    if docker container ls --filter "name=traceroute_${PLATFORM_IMAGE}_container"; then
+        if ! docker container rm -f "traceroute_${PLATFORM_IMAGE}_container"; then
+            echo "Failed to remove container traceroute_${PLATFORM_IMAGE}_container"
+            return 1
+        fi
+    fi
+    
+    if ! docker create --name "traceroute_${PLATFORM_IMAGE}_container" traceroute:"${PLATFORM_IMAGE}"; then
+        echo "Failed to create container traceroute_${PLATFORM_IMAGE}_container"
+        return 1
+    fi
  
-    if ! mkdir -p  ${SCRIPTPATH}/../binaries/"$PLATFORM"/
-    then
+    if ! mkdir -p "${SCRIPTPATH}/../binaries/${PLATFORM_OUTPUT}/"; then
         echo "Cannot create directory to store binary"
-        exit 1
+        return 1
     fi
 
-    if ! docker cp "traceroute_${PLATFORM}_container":/traceroute/traceroute/traceroute ${SCRIPTPATH}/../binaries/"$PLATFORM"/
-    then
-        echo "Failed to copy traceroute artifact from container traceroute_${PLATFORM}_container"
+    if ! docker cp "traceroute_${PLATFORM_IMAGE}_container":/traceroute/traceroute/traceroute "${SCRIPTPATH}/../binaries/${PLATFORM_OUTPUT}/"; then
+        echo "Failed to copy traceroute artifact from container traceroute_${PLATFORM_IMAGE}_container"
         return 1
     fi
     
@@ -85,32 +154,35 @@ build_docker()
 build()
 {
     PLATFORM=$1
+    ARCH=$2
+    platform_info "${PLATFORM}" "${ARCH}" || return 1
     
-    echo "Building for $PLATFORM"
+    echo "Building for ${PLATFORM}/${ARCH}"
     
     SAVE_DIR="${SCRIPTPATH}"
 
-    if ! cd "${SCRIPTPATH}/${PLATFORM}"
-    then
-        echo "Platform $PLATFORM not found, skipping it"
-        continue
+    if ! cd "${SCRIPTPATH}/${PLATFORM_CONTEXT}"; then
+        echo "Platform context ${PLATFORM_CONTEXT} not found" >&2
+        return 1
     fi
 
     clean_folder
-    prepare_docker_context
+
+    if ! prepare_docker_context; then
+        echo "Failed to prepare docker context"
+        return 1
+    fi
     
-    if ! build_docker "$PLATFORM" 2>&1
-    then
-        echo "An error occurred while building for platform $PLATFORM"
-        exit 1
+    if ! build_docker "${PLATFORM}" "${ARCH}" 2>&1; then
+        echo "An error occurred while building for ${PLATFORM}/${ARCH}"
+        return 1
     fi
     
     clean_folder
     
-    if ! cd "$SAVE_DIR"
-    then
+    if ! cd "$SAVE_DIR"; then
         echo "Cannot come back to ${SAVE_DIR}, aborting"
-        exit 1
+        return 1
     fi
 }
 
@@ -119,8 +191,9 @@ build()
 BUILD=0
 CLEAN=0
 PLATFORM="debian12 ol8 ol9 ubuntu24"
+ARCH=x86_64
 
-if ! args=$(getopt --long build,clean,help,platform: -n 'invalid arguments' -- "$@"); then
+if ! args=$(getopt -o '' --long build,clean,help,platform:,arch: -n 'invalid arguments' -- "$@"); then
     exit 2
 fi
 
@@ -129,7 +202,6 @@ eval set -- "$args"
 while true; do
     case "$1" in
         --build)
-            echo "ejejjeje"
             BUILD=1; shift ;;
         --clean)
             CLEAN=1; shift ;;
@@ -138,6 +210,8 @@ while true; do
             exit 0 ;;
         --platform)
             PLATFORM=$2; shift 2 ;;
+        --arch)
+            ARCH=$2; shift 2 ;;
         --)
             shift; break ;;
         *)
@@ -145,8 +219,7 @@ while true; do
     esac
 done
 
-if [ $BUILD -eq 0 ] && [ $CLEAN -eq 0 ]
-then
+if [ $BUILD -eq 0 ] && [ $CLEAN -eq 0 ]; then
     echo "${BUILD} ${CLEAN}"
     usage
     exit 1
@@ -154,29 +227,34 @@ fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
 echo "PLATFORM=${PLATFORM}"
+echo "ARCH=${ARCH}"
 
 for PLATFORM in $(echo $PLATFORM)
 do
     echo "Doing $PLATFORM"
-    
-    if [ "${BUILD}" =  1 ]
-    then
-        build ${PLATFORM}
+
+    if ! platform_info "${PLATFORM}" "${ARCH}"; then
+        exit 1
     fi
     
-    if [ "$CLEAN" = "1" ]
-    then
-        clean_docker ${PLATFORM}
+    if [ "${BUILD}" =  1 ]; then
+        if ! build "${PLATFORM}" "${ARCH}"; then
+            exit 1
+        fi
+    fi
+    
+    if [ "$CLEAN" = "1" ]; then
+        if ! clean_docker "${PLATFORM}" "${ARCH}"; then
+            exit 1
+        fi
     fi
 done
 
 echo 
 
-if [ "${BUILD}" =  1 ]
-then
+if [ "${BUILD}" =  1 ]; then
     echo "Build completed"
     echo "Traceroute binaries have been copied into ${SCRIPTPATH}/../binaries"
 fi
 
 exit 0
-
