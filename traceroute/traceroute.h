@@ -44,8 +44,6 @@ extern unsigned int tos;
 extern int ecn_input_value;
 extern int disable_extra_ping;
 extern int mtudisc_phase;
-static char addr2str_buf[INET6_ADDRSTRLEN];
-
 union common_sockaddr {
     struct sockaddr sa;
     struct sockaddr_in sin;
@@ -56,11 +54,7 @@ typedef union common_sockaddr sockaddr_any;
 
 extern sockaddr_any src_addr;
 
-static const char *addr2str(const sockaddr_any *addr) 
-{
-    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-    return addr2str_buf;
-}
+const char *addr2str(const sockaddr_any *addr);
 
 struct probe_struct
 {
@@ -73,6 +67,7 @@ struct probe_struct
     double recv_time;
     int recv_ttl;
     int sk;
+    int flow_sk;
     int seq;
     char *ext;
     int mss;
@@ -173,6 +168,7 @@ void recv_reply(int sk, int err, check_reply_t check_reply);
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
+int equal_port(const sockaddr_any* a, const sockaddr_any* b);
 void print_probe(probe*);
 
 probe* probe_by_seq(int seq);
@@ -232,4 +228,3 @@ struct rtmsg {
 const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from);
 
 #endif 
-

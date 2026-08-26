@@ -866,6 +866,31 @@ conjunction with the
 option to discover multiple labeled paths within a single measurement run.
 .br
 
+.SS udpinsession
+Sends UDP probes using multiple connected UDP sessions. The default destination
+port is 53.
+.P
+By default all probes belong to the same flow, identified by the UDP five-tuple.
+With the
+.B ecmp
+option, multiple flows are created to allow tracing equal-cost multipath routes.
+.P
+Options:
+.TP
+.B ecmp
+Create multiple UDP flows instead of using the single default flow. One flow is
+created per
+.I nqueries
+value, so the first probe of each hop belongs to flow 1, the second probe of
+each hop belongs to flow 2, and so on.
+.TP
+.B fix_dest_port
+Keep the destination port fixed across ECMP flows. This option can only be used
+in conjunction with
+.B ecmp
+and cannot be used when the source port is explicitly set with
+.B --sport.
+
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
 frame are used as probes. If the destination is reached and replies with a 
