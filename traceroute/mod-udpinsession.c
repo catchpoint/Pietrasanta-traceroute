@@ -1,6 +1,3 @@
-// TODO if sport the src should be fixed
-// TODO raw_icmp_socket need really to be one per flow??? (see tcpinsession)    
-    
 /*
     Copyright(c)  2026   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
 
@@ -157,8 +154,14 @@ uint16_t udp_checksum_ipv6(const struct in6_addr *src, const struct in6_addr *ds
 
 static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, size_t* packet_len_p)
 {
+    int fix_src_port = (src_addr.sin.sin_port != 0) ? 1 : 0;
+
     if(fix_dest_port && !ecmp)
         ex_error("\n\nfix_dest_port can only be used with ECMP\n");
+
+    // If we are using ecmp mode and moreover we are asked to keep the dest port fixed, we can't fix also the source port (5-tuple need to change in some way)
+    if(ecmp && fix_src_port && fix_dest_port) 
+        ex_error("\n\nfix_dest_port cannot be used with ECMP when the source port is explicitly set\n");
 
     n_flows = (ecmp) ? probes_per_hop : 1;
     
@@ -173,7 +176,8 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         else
             dest_addr[i].sin6.sin6_port = htons(dest_port);
         
-        if(!fix_dest_port)
+        // if we are not asked to keep the destination port fixed, we increment it for each flow
+        if(ecmp && !fix_dest_port)
             dest_port++;
 
         raw_sk[i] = socket(dest_addr[i].sa.sa_family, SOCK_RAW, IPPROTO_UDP);
@@ -194,22 +198,37 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         if(connect(raw_sk[i], &dest_addr[i].sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
             error_or_perm("connect raw udp socket");
 
-        // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
-        // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
-        uint16_t save_port = 0;
-        if(src_addr.sin.sin_port != 0)
-            save_port = src_addr.sin.sin_port;
-
+        // Here we need to get the source address we are going to use, in particular the src port
+        // This depends on whether we need to keep the source port fixed or not and the dest port fixed or not
         socklen_t src_len = sizeof(src_addr);
-        if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
-            error("getsockname");
-        
-        if(save_port)
-            src_addr.sin.sin_port = save_port;
-
-        src[i] = src_addr;
+        if(ecmp) {
+            if(fix_src_port) { // This means we need to keep src port fixed (fix_dest_port MUST be true), thus dest port is incremented (see above)
+                // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
+                // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
+                uint16_t save_port = src_addr.sin.sin_port;
+                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                    error("getsockname");
+                src_addr.sin.sin_port = save_port;
+                src[i] = src_addr;
+            } else if (fix_dest_port) { // we need to keep the dest fixed, thus src_port need to be incremented
+                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                    error("getsockname");
+                src[i] = src_addr;
+                if(i > 0)
+                    src[i].sin.sin_port = htons(ntohs(src[i-1].sin.sin_port) + 1);
+            } else { // The dst port varies and we don't have to keep the src fixed, so we can avid to worry
+                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                    error("getsockname");
+                src[i] = src_addr;
+            }
+        } else {
+            if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                error("getsockname");
+            src[i] = src_addr;
+        }
 
         printf("\n<src=%s:%d dst=%s:%d>", addr2str(&src[i]), ntohs(src[i].sin.sin_port), addr2str(&dest_addr[i]), ntohs(dest_addr[i].sin.sin_port));
+        }
     }
 
     if(use_additional_raw_icmp_socket) {
