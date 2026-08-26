@@ -228,7 +228,6 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         }
 
         printf("\n<src=%s:%d dst=%s:%d>", addr2str(&src[i]), ntohs(src[i].sin.sin_port), addr2str(&dest_addr[i]), ntohs(dest_addr[i].sin.sin_port));
-        }
     }
 
     if(use_additional_raw_icmp_socket) {
