@@ -232,7 +232,6 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             src[i] = src_addr;
         }
 
-        printf("\n<src=%s:%d dst=%s:%d>", addr2str(&src[i]), ntohs(src[i].sin.sin_port), addr2str(&dest_addr[i]), ntohs(dest_addr[i].sin.sin_port));
     }
 
     if(use_additional_raw_icmp_socket) {
@@ -291,6 +290,23 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     // Now we need to match the checksum with the original probe
     struct udphdr* uh = (struct udphdr*)buf;
     probe* pb = probe_by_checksum(uh->check);
+
+    if(pb && print_five_tuple && pb->ext == NULL) {
+        char str[128] = {};
+        if(pb->ext)
+            strncpy(str, pb->ext, sizeof(str) - 1);
+
+        if(pb->ext && strlen(pb->ext) > 0)
+            str[strlen(pb->ext)] = ',';
+
+        char src_str[INET6_ADDRSTRLEN] = {};
+        snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
+
+        free(pb->ext);
+        pb->ext = strdup(str);
+    }
+
     return pb;
 }
 
@@ -329,10 +345,26 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     offending_probe_src.sin.sin_len = sizeof(offending_probe_src.sin);
 #endif
     
-    probe* pb = probe_by_src_and_dest(&offending_probe_src, &offending_probe_dest, (loose_match == 0));
+    probe* pb = probe_by_checksum(offending_probe->check);
     
     if(!pb)
         return NULL;
+
+    if(print_five_tuple && pb->ext == NULL) {
+        char str[128] = {};
+        if(pb->ext)
+            strncpy(str, pb->ext, sizeof(str) - 1);
+
+        if(pb->ext && strlen(pb->ext) > 0)
+            str[strlen(pb->ext)] = ',';
+
+        char src_str[INET6_ADDRSTRLEN] = {};
+        snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
+
+        free(pb->ext);
+        pb->ext = strdup(str);
+    }
         
     pb->returned_tos = returned_tos;
     probe_done(pb, &pb->icmp_done);
