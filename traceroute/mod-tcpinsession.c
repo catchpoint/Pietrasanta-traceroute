@@ -52,6 +52,7 @@ static struct tcphdr* th = NULL;
 static uint16_t* lenp = NULL;
 static int info = 0;
 static int print_received_mss = 0;
+static int print_five_tuple = 0;
 
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
@@ -79,6 +80,7 @@ static CLIF_option tcp_options[] = {
     { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
     { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 

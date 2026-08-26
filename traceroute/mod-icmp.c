@@ -37,12 +37,14 @@ static int raw_icmp_sk = -1; // cannot use icmp_sk because it is used with recve
 static int last_ttl = 0;
 static int raw = 0;
 static int dgram = 0;
+static int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
 static CLIF_option icmp_options[] = {
     { 0, "raw", 0, "Use raw sockets way only. Default is try this way first (probably not allowed for unprivileged users), then try dgram", CLIF_set_flag, &raw, 0, CLIF_EXCL },
     { 0, "dgram", 0, "Use dgram sockets way only. May be not implemented by old kernels or restricted by sysadmins", CLIF_set_flag, &dgram, 0, CLIF_EXCL },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 

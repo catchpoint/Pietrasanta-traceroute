@@ -48,6 +48,7 @@ static int port_seq_specified = 0;
 static int fix_dest_port = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
+static int print_five_tuple = 0;
 
 static void fill_data(size_t* packet_len_p) 
 {
@@ -123,11 +124,13 @@ static void set_coverage(int sk)
 
 static CLIF_option udp_options[] = {
     { 0, "fix_dest_port", 0, "Keep the destination port fixed", CLIF_set_flag, &fix_dest_port, 0, CLIF_ABBREV },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
 static CLIF_option udplite_options[] = {
     { 0, "coverage", "NUM", "Set udplite send coverage to %s (default is " _TEXT(MIN_COVERAGE) ")", CLIF_set_uint, &coverage, 0, CLIF_ABBREV },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
