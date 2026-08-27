@@ -12,13 +12,17 @@
 */
 
 #include <errno.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <clif.h>
+
+#define MAX_PROBES 1000
 
 #define ECN_NOT_ECT 0x00
 #define ECN_ECT_0 0x02
@@ -40,7 +44,6 @@ extern unsigned int tos;
 extern int ecn_input_value;
 extern int disable_extra_ping;
 extern int mtudisc_phase;
-
 union common_sockaddr {
     struct sockaddr sa;
     struct sockaddr_in sin;
@@ -48,6 +51,10 @@ union common_sockaddr {
 };
 
 typedef union common_sockaddr sockaddr_any;
+
+extern sockaddr_any src_addr;
+
+const char *addr2str(const sockaddr_any *addr);
 
 struct probe_struct
 {
@@ -60,15 +67,22 @@ struct probe_struct
     double recv_time;
     int recv_ttl;
     int sk;
+    int flow_sk;
     int seq;
-    char *ext;
+    char* ext;
+    char* five_tuple;
     int mss;
     int mtu;
     int returned_tos;
     int exit_please;
+    struct timeval starttime;
+    struct timeval endtime;
     sockaddr_any src;
     sockaddr_any dest;
-    uint32_t seq_num;
+    union {
+        uint32_t seq_num;
+        uint32_t checksum;
+    };
     // quic stuff
 #ifdef HAVE_OPENSSL3
     uint8_t dcid[MAX_QUIC_ID_LEN];
@@ -104,7 +118,7 @@ struct tr_module_struct {
     struct tr_module_struct *next;
     const char *name;
     int (*init)(const sockaddr_any *dest, unsigned int port_seq, size_t *packet_len);
-    void (*send_probe)(probe *pb, int ttl);
+    void (*send_probe)(probe *pb, int ttl, int probe_idx);
     void (*recv_probe)(int fd, int revents);
     CLIF_option *options;    /*  per module options, if any   */
     int one_per_time;    /*  no simultaneous probes   */
@@ -121,8 +135,10 @@ typedef struct tr_module_struct tr_module;
 #define __TEXT(X)       #X
 #define _TEXT(X)        __TEXT(X)
 
+#define DEF_NUM_PROBES 3
 #define DEF_START_PORT    33434    /*  start for traditional udp method   */
 #define DEF_UDP_PORT    53    /*  dns   */
+#define DEF_DNS_PORT    53    /*  dns   */
 #define DEF_TCP_PORT    80    /*  web   */
 #define DEF_DCCP_PORT    DEF_START_PORT    /*  is it a good choice?...  */
 #define DEF_RAW_PROT    253    /*  for experimentation and testing, rfc3692  */
@@ -153,12 +169,14 @@ void recv_reply(int sk, int err, check_reply_t check_reply);
 
 int equal_addr(const sockaddr_any *a, const sockaddr_any *b);
 int equal_sockaddr(const sockaddr_any* a, const sockaddr_any* b);
+int equal_port(const sockaddr_any* a, const sockaddr_any* b);
 void print_probe(probe*);
 
 probe* probe_by_seq(int seq);
 probe* probe_by_sk(int sk);
 probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dst, int check_source_addr);
 probe* probe_by_seq_num(uint32_t seq_num);
+probe* probe_by_checksum(uint32_t checksum);
 
 void bind_socket(int sk);
 void use_timestamp(int sk);
@@ -211,4 +229,3 @@ struct rtmsg {
 const char* findsaddr(register const struct sockaddr_in *to, register struct sockaddr_in *from);
 
 #endif 
-

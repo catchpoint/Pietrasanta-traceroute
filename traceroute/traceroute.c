@@ -22,7 +22,6 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
-#include <netdb.h>
 #include <errno.h>
 #include <locale.h>
 #include <sys/utsname.h>
@@ -47,6 +46,14 @@
 #include "traceroute.h"
 
 #include <pthread.h>
+
+static char addr2str_buf[INET6_ADDRSTRLEN];
+
+const char *addr2str(const sockaddr_any *addr)
+{
+    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
+    return addr2str_buf;
+}
 
 #ifndef ICMP6_DST_UNREACH_BEYONDSCOPE
 #ifdef ICMP6_DST_UNREACH_NOTNEIGHBOR
@@ -78,13 +85,11 @@
 
 #define MAX_HOPS 255
 #define MAX_HOP_FAILURES MAX_HOPS
-#define MAX_PROBES 10
 #define MAX_GATEWAYS_4 8
 #define MAX_GATEWAYS_6 127
-#define MAX_MTU_RETRIES 3
+#define MAX_MTU_RESENDS 3
 #define DEF_HOPS 30
 #define DEF_SIM_PROBES 16    /*  including several hops   */
-#define DEF_NUM_PROBES 3
 #define DEF_WAIT_SECS 5.0
 #define DEF_HERE_FACTOR 3
 #define DEF_NEAR_FACTOR 10
@@ -96,11 +101,13 @@
 #define DEF_DATA_LEN_TCPINSESSION 33 // 20 TCP header + 12 options(NOP+NOP+TS) + 1 byte of payload(00)
 #ifdef HAVE_OPENSSL3
 #define DEF_DATA_LEN_QUIC 1200 // According to RFC9000 Client Initial QUIC packets must have at least 1200 bytes UDP payload https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1-5
+#define MIN_DATA_LEN_QUIC DEF_DATA_LEN_QUIC
 #endif
 #define MAX_PACKET_LEN 65000
 #ifndef DEF_AF
 #define DEF_AF AF_INET
 #endif
+#define DEF_PACKET_LOSS_WINDOW_SIZE 20
 
 #define ttl2hops(X) (((X) <= 64 ? 65 :((X) <= 128 ? 129 : 256)) -(X))
 
@@ -113,7 +120,6 @@ unsigned int first_hop = 1;
 
 static unsigned int max_hops = DEF_HOPS;
 static unsigned int sim_probes = DEF_SIM_PROBES;
-unsigned int probes_per_hop = DEF_NUM_PROBES;
 unsigned int num_probes = 0;
 int last_probe = -1;
 int tcpinsession_print_allowed = 0;
@@ -147,10 +153,9 @@ static int backward = 0;
 #ifdef SO_MARK
 static unsigned int fwmark = 0;
 #endif
-static sockaddr_any dst_addr = {{ 0, }, };
+sockaddr_any dst_addr = {{ 0, }, };
 static char* dst_name = NULL;
 static char* device = NULL;
-sockaddr_any src_addr = {{ 0, }, };
 static unsigned int src_port = 0;
 static unsigned int overall_timeout = 0;
 static unsigned int timedout = 0;
@@ -166,11 +171,21 @@ static int extra_ping_ongoing = 0;
 static int last_hop_reached = 0;
 static void print_trailer();
 
+// Dest addr can't be common because the dest port may change for some protocols in different probes
+sockaddr_any src_addr = {{ 0, }, };
+
 int use_additional_raw_icmp_socket = 0;
 int tr_via_additional_raw_icmp_socket = 0;
 int ecn_input_value = -1;
 int loose_match = 0;
+unsigned int probes_per_hop = DEF_NUM_PROBES;
 int mtudisc = 0;
+int ping_mode = 0;
+int ploss_violation_detected = 0;
+int ploss_threshold_perc = -1;
+int ploss_window_size = DEF_PACKET_LOSS_WINDOW_SIZE;
+int ploss_threshold = -1;
+int ploss_total = 0;
 int disable_extra_ping = 0;
 unsigned int tos = 0;
 int mtudisc_phase = 0;
@@ -384,8 +399,9 @@ static void* printer(void* args)
     int end = num_probes;
     
     int replace_idx = 0;
+    int exit_please = 0;
     
-    for(int idx = start; idx < end; idx++) {
+    for(int idx = start; idx < end && !exit_please; idx++) {
     #ifdef __APPLE__
         dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
     #else
@@ -393,26 +409,31 @@ static void* printer(void* args)
     #endif
         
         probe* pb = &probes[idx];
-
         if(pb->exit_please > 0) {
-            if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
-                unsigned int n = idx-1;
-                while(n % probes_per_hop != probes_per_hop-1) {
-                    printf(" *"); // Add forced timeouts when overall timeout has been reached
-                    pb = &probes[n];
-                    probe_done(pb, NULL);
-                    check_expired(pb);
-                    n++;
+            if(ploss_violation_detected == 0) { // Only for partial results
+                if(pb->exit_please > 0) {
+                    if(idx > 0 && ((idx-1) % probes_per_hop) != probes_per_hop-1) { // Last valid probe was not in a triplet
+                        unsigned int n = idx-1;
+                        while(n % probes_per_hop != probes_per_hop-1) {
+                            printf(" *"); // Add forced timeouts when overall timeout has been reached
+                            pb = &probes[n];
+                            
+                            probe_done(pb, NULL);
+                            check_expired(pb);
+                            
+                            n++;
+                        }
+                    }
+                    return NULL;
                 }
             }
-            return NULL;
-        }
-        
-        print_probe(pb);
-
-        if(pb->done && pb->final) {
-            end = (idx / probes_per_hop + 1) * probes_per_hop;
-            last_hop_reached = end/probes_per_hop;
+            exit_please = 1;
+        } else {
+            print_probe(pb);
+            if(pb->done && pb->final) {
+                end = (idx / probes_per_hop + 1) * probes_per_hop;
+                last_hop_reached = end/probes_per_hop;
+            }
         }
     }
 
@@ -517,14 +538,6 @@ static void make_fd_used(int fd)
         dup2(nfd, fd);
         close(nfd);
     }
-}
-
-static char addr2str_buf[INET6_ADDRSTRLEN];
-
-static const char *addr2str(const sockaddr_any *addr) 
-{
-    getnameinfo(&addr->sa, sizeof(*addr), addr2str_buf, sizeof(addr2str_buf), 0, 0, NI_NUMERICHOST);
-    return addr2str_buf;
 }
 
 /*    IP  options  stuff        */
@@ -806,6 +819,7 @@ static CLIF_option option_list[] = {
     { "r", 0, 0, "Bypass the normal routing and send directly to a host on an attached network", CLIF_set_flag, &noroute, 0, 0 },
     { "s", "source", "src_addr", "Use source %s for outgoing packets", set_source, 0, 0, 0 },
     { "T", "tcp", 0, "Use TCP SYN for tracerouting (default port is " _TEXT(DEF_TCP_PORT) ")", set_module, "tcp", 0, 0 },
+    { "x", "ping", "ping", "Run in Ping mode with the indicated TTL", CLIF_set_uint, &ping_mode, 0, 0 },
     { "z", "sendwait", "sendwait", "Minimal time interval between probes (default " _TEXT(DEF_SEND_SECS) "). If the value is more than 10, then it specifies a number in milliseconds, else it is a number of seconds (float point values allowed too)", CLIF_set_double, &send_secs, 0, 0 },
     { "e", "extensions", 0, "Show ICMP extensions(if present), including MPLS", CLIF_set_flag, &extension, 0, CLIF_ABBREV },
     { "A", "as-path-lookups", 0, "Perform AS path lookups in routing registries and print results directly after the corresponding addresses", CLIF_set_flag, &as_lookups, 0, 0 },
@@ -826,7 +840,11 @@ static CLIF_option option_list[] = {
     { 0, "ecn", "num", "Set the ECN bits into the IP header. This option excludes -t (--tos) and might be used in conjunction with --dscp. Allowed values are between 0 and 3", CLIF_set_uint16, &ecn_input_value, 0, 0 },
     { 0, "quic", 0, "Use QUIC to particular port for tracerouting, default port is " _TEXT(DEF_QUIC_PORT), set_module, "quic", 0, CLIF_EXTRA },
     { 0, "loose-match", 0, "Enable loose-match mode", CLIF_set_flag, &loose_match, 0, CLIF_EXTRA },
+    { 0, "packet-loss-threshold", "packet-loss-threshold", "Set the packet loss threshold before throwing an error (valid only in ping mode)", CLIF_set_uint, &ploss_threshold_perc, 0, 0 },
+    { 0, "packet-loss-window-size", "packet-loss-window-size", "Set the packet loss window size (valid only in ping mode)", CLIF_set_uint, &ploss_window_size, 0, 0 },
     { 0, "disable-extra-ping", 0, "Disable additional ping performed at the end (if any)", CLIF_set_flag, &disable_extra_ping, 0, CLIF_EXTRA },
+    { 0, "dns", 0, "Use DNS-like packets", set_module, "dns", 0, CLIF_EXTRA },
+    { 0, "udpinsession", 0, "Run in UDP InSession mode", set_module, "udpinsession", 0, 0 },
     CLIF_VERSION_OPTION(version_string),
     CLIF_HELP_OPTION,
     CLIF_END_OPTION
@@ -874,8 +892,11 @@ unsigned int compute_data_len(int packet_len)
 static void print_header(void) 
 {
     /*  Note, without ending new-line!  */
-    printf("traceroute to %s(%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
-    
+     if(ping_mode > 0)
+        printf("ping to %s (%s), %u ttl, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+    else
+        printf("traceroute to %s (%s), %u hops max, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
+        
     if(overall_timeout > 0)
         printf("%us overall timeout", overall_timeout);
     else
@@ -897,6 +918,8 @@ int main(int argc, char *argv[])
     setlocale(LC_NUMERIC, "C");    /*  avoid commas in msec printed  */
 
     check_progname(argv[0]);
+
+    probes_per_hop = DEF_NUM_PROBES;
 
     if(CLIF_parse(argc, argv, option_list, arg_list, CLIF_MAY_JOIN_ARG | CLIF_HELP_EMPTY) < 0)
         exit(2);
@@ -952,6 +975,17 @@ int main(int argc, char *argv[])
     if(max_consecutive_hop_failures > 0)
         sim_probes =(sim_probes > max_consecutive_hop_failures*probes_per_hop) ? max_consecutive_hop_failures*probes_per_hop : sim_probes; // This to avoid to exceed the hard limit set with -failures
 
+    if(ping_mode > 0) {
+        if(ploss_window_size < 0)
+            ex_error("bad ploss_window_size %d specified", ploss_window_size);
+        if(ploss_threshold_perc != -1) {
+            if(ploss_threshold_perc < 0 || ploss_threshold_perc > 100)
+                ex_error("bad ploss_threshold %d specified", ploss_threshold_perc);
+            ploss_threshold = ploss_window_size*ploss_threshold_perc;
+            ploss_threshold /= 100;
+        }
+    }
+    
     if(tos_input_value != -1 && (dscp_input_value != -1 || ecn_input_value != -1)) {
         ex_error("tos cannot be used in conjunction with dscp and ecn");
     } else if(dscp_input_value != -1 || ecn_input_value != -1) {
@@ -977,15 +1011,43 @@ int main(int argc, char *argv[])
     if(loose_match)
         use_additional_raw_icmp_socket = 1;
     
+    if(ping_mode > 0) {
+        max_hops = ping_mode;
+        first_hop = ping_mode;
+        sim_probes = 1;
+    }
+
     if(af == AF_INET6 && (tos || flow_label))
         dst_addr.sin6.sin6_flowinfo = htonl(((tos & 0xff) << 20) |(flow_label & 0x000fffff));
 
-    if(src_port) {
-        src_addr.sin.sin_port = htons((uint16_t) src_port);
-        src_addr.sa.sa_family = af;
+    if(ops->options && opts_idx > 1) {
+        opts[0] = strdup(module);        /*  aka argv[0] ...  */
+        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
+            exit(2);
     }
 
-    if(src_port || ops->one_per_time) {
+    int ignore_src_port = 0;
+    if(src_port) {
+        if(strcmp(module, "tcpinsession") == 0) {
+            for(int i = 1; i < opts_idx; i++) {
+                if(opts[i] != NULL && strcmp(opts[i], "ecmp") == 0) {
+                    ignore_src_port = 1;
+                    printf("Warning: source port cannot be used in tcpinsession module when ECMP option is enabled. Ignoring source port.\n");
+                    break;
+                }
+            }
+        }
+
+        if(!ignore_src_port) {
+            src_addr.sin.sin_port = htons((uint16_t) src_port);
+            src_addr.sa.sa_family = af;
+        }
+    }
+
+    // Set sim_probes to 1 if the module is not tcpinsession or udpinsession and either the source port is specified or the module requires one probe per time
+    // This because in tcpinsession mode the source port is not needed to match the reply with the probe sent (the seq number is used) 
+    // In udpinsession mode the source port is not needed to match the reply with the probe sent (the checksum is used)
+    if((strcmp(module, "tcpinsession") != 0 && strcmp(module, "udpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }
@@ -1000,6 +1062,11 @@ int main(int argc, char *argv[])
     header_len = (af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr)) + rtbuf_len + ops->header_len;
 
     data_len = compute_data_len(packet_len);
+    
+  #ifdef HAVE_OPENSSL3
+    if(strcmp(module, "quic") == 0 && data_len < MIN_DATA_LEN_QUIC) 
+        ex_error("QUIC packets must have at least %d bytes payload\n", MIN_DATA_LEN_QUIC); 
+  #endif
 
     saved_max_hops = max_hops;
     saved_first_hop = first_hop;
@@ -1039,12 +1106,6 @@ int main(int argc, char *argv[])
     sem_init(&probe_semaphore, 0, 0);
 #endif
 
-    if(ops->options && opts_idx > 1) {
-        opts[0] = strdup(module);        /*  aka argv[0] ...  */
-        if(CLIF_parse(opts_idx, opts, ops->options, 0, CLIF_KEYWORD) < 0)
-            exit(2);
-    }
-    
     print_header();
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
@@ -1084,31 +1145,63 @@ int main(int argc, char *argv[])
     if(pthread_create(&printer_thr, NULL, printer, NULL) != 0)
         ex_error("printer thread creation failed");
 
+    // The idea of the loop below is to send probes of variable sizes, starting from 65k and decrementing each time an ICMP "Packet too big" is received (or the interface gives error).
+    // The probe size is "implicitly" changed by the receive function, which adjusts the size probe on the basis of the ICMP error received.
+    // In case a probe does not receive a response (i.e. it expires), it is resent for a max amount of MAX_MTU_RESENDS consecutively
+    // As soon as a response is received it can happen one of the following:
+    // - The response is an ICMP Packet too big (i.e. err_str is not NULL): a narrowing happened and thus we continue with the next probe with decremented size, Note: if a narrowing does not happen, we break. This because we do not want to loop indefinitely in case some buggy hop always reply with a Packet too big or estimate a wrong MTU across different paths.
+    // - The response is something else: the loop is ended, because it means we received a response from either the destination or an hop that pretends to be the destination. The reason is that the probes are sent with TTL 255, thus if a non-"ICMP packet too big" response is received it means that the probe made its travel and since no narrowing information is present, it does not make sense to continue probing. Note that if the response did not come from the destination, we don't declare the found MTU as reliable.
     if(mtudisc) {
-        data_len = compute_data_len(MAX_PACKET_LEN);
-        
+        mtudisc_phase = 1;
+        data_len = compute_data_len(MAX_PACKET_LEN);        
         int i = 0;
-        while(!probes[0].final) {
+        while(i <= MAX_MTU_RESENDS) {
             i++;
-            ops->send_probe(&probes[0], 255);
+
+            ops->send_probe(&probes[0], 255, i);
             
             do_poll(wait_secs, poll_callback);
             
-            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) {
-                overall_mtu = atoi(probes[0].err_str+2);
+            if(probes[0].sk > 0) {
+                del_poll(probes[0].sk);
+                close(probes[0].sk);
+                probes[0].sk = -1;
+            }
+            
+            if(probes[0].err_str[0] && strlen(probes[0].err_str) > 2) { // We received a response which is a "Packet too big". Record the overall_mtu and continue with a probe with narrowed size.
+                int new_mtu = atoi(probes[0].err_str+2);
+                if(overall_mtu != -1 && new_mtu >= overall_mtu) // If the narrowing didn't happen, break
+                    break;
+                overall_mtu = new_mtu; // Record the narrowing as the new discovered MTU so far
                 memset(&probes[0], 0x0, sizeof(probe));
-            } else if(!probes[0].done && i <= MAX_MTU_RETRIES) {
+                i = 0;
+                continue; // Please also note that a narrowing cannot happen "forever", because at some point we must reach zero (by definition)
+            } else if(probes[0].done) {
+                break; // We received a response which is not a "Packet too big". End.
+            } else { // we did not receive anything back for that probe, retry
                 probe_done(&probes[0], NULL);
-                break;
             }
         }
-        
-        if(probes[0].final)
-            reliable_overall_mtu = 1;
 
+        if(probes[0].final)
+            reliable_overall_mtu = 1; // if the response did not came from the destination, don't declare the found MTU as reliable.
+        
+        if(probes[0].ext != NULL) {
+            free(probes[0].ext);
+            probes[0].ext = NULL;
+        }
+
+        if(probes[0].five_tuple != NULL) {
+            free(probes[0].five_tuple);
+            probes[0].five_tuple = NULL;
+        }
+        
         memset(&probes[0], 0x0, sizeof(probe));
         
-        data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
+        if(!ping_mode)
+            data_len = compute_data_len(MAX_PACKET_LEN); // After the initial "MTU Discovery Pings" restart doing traceroute from the MAX_PACKET_LEN until the bootleneck is found
+        else
+            data_len = compute_data_len(packet_len); // If we are in ping mode reset the size either to the default one or the one provided in input
     }
 
     mtudisc_phase = 0;
@@ -1130,10 +1223,20 @@ int main(int argc, char *argv[])
         probes = calloc(num_probes, sizeof(*probes));
         
         do_it();
-        
+
+        // Print the results of the extra ping
         int start = (first_hop - 1) * probes_per_hop;
-        for(int i = start; i < num_probes; i++)
-            print_probe(&probes[i]);
+        int end = num_probes;
+        for(int idx = start; idx < end; idx++) {
+        #ifdef __APPLE__
+            dispatch_semaphore_wait(probe_semaphore, DISPATCH_TIME_FOREVER);
+        #else
+            sem_wait(&probe_semaphore);
+        #endif
+        
+            probe* pb = &probes[idx];
+            print_probe(pb);
+        }
     }
     
     // Make extra-sure to not leave any FD open
@@ -1213,17 +1316,24 @@ void print_probe(probe *pb)
 
         if(prn) {
             print_addr(&pb->res);
-            if(pb->ext) {
-                printf(" <%s>", pb->ext);
-                free(pb->ext);
-                pb->ext = NULL;
-            }
 
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
                 if(hops != ttl)
                     printf(" '-%d'", hops);
             }
+        }
+
+        if(pb->ext) {
+            printf(" <%s>", pb->ext);
+            free(pb->ext);
+            pb->ext = NULL;
+        }
+
+        if(pb->five_tuple) {
+            printf(" <FT:%s>", pb->five_tuple);
+            free(pb->five_tuple);
+            pb->five_tuple = NULL;
         }
 
         if(pb->proto_details != NULL) {
@@ -1464,6 +1574,18 @@ probe* probe_by_seq_num(uint32_t seq_num)
     return NULL;
 }
 
+probe* probe_by_checksum(uint32_t checksum) 
+{
+    if(checksum == 0) // checksum == 0 is not valid.
+        return NULL;
+
+    for(int n = 0; n < num_probes; n++)
+        if(probes[n].checksum == checksum)
+            return &probes[n];
+
+    return NULL;
+}
+
 probe *probe_by_sk(int sk) 
 {
     int n;
@@ -1516,11 +1638,19 @@ probe* probe_by_src_and_dest(sockaddr_any* src, sockaddr_any* dest, int check_so
 
 static void do_it(void) 
 {
+    int seconds = (int)send_secs;
+    int microseconds = (send_secs-seconds)*1000000;
+    
+    struct timeval probe_spacing = {seconds, microseconds};
+    
     int start = (first_hop - 1) * probes_per_hop;
     int end = num_probes;
-    double last_send = 0;
+    
+    int start_window = -1;
     
     gettimeofday(&starttime, NULL);
+    
+    struct timeval next_probe_send_time = starttime;
 
     while(start < end) {
         int n = 0;
@@ -1528,21 +1658,30 @@ static void do_it(void)
         double next_time = 0;
         double now_time = get_time();
         
+        struct timeval currtime;
+        gettimeofday(&currtime, NULL);
+
         int exit_please = 0;
+        int probe_just_sent = 0;
 
         for(n = start; n < end && exit_please == 0; n++) {
+            if(strcmp(module, "tcpinsession") == 0 || strcmp(module, "tcp") == 0)
+                last_probe = (n / probes_per_hop + 1) * probes_per_hop;
+
             if(overall_timeout > 0) {
                 struct timeval currtime;
                 gettimeofday(&currtime, NULL);
                 
                 if(currtime.tv_sec-starttime.tv_sec >= overall_timeout) {
                     if(n < end) {
-                        probes[n].exit_please = 1;
-                        #ifdef __APPLE__
-                            dispatch_semaphore_signal(probe_semaphore);
-                        #else
-                            sem_post(&probe_semaphore);
-                        #endif
+                        for(int p = start; p < end; ++p) {
+                            probes[p].exit_please = 1;
+                            #ifdef __APPLE__
+                                dispatch_semaphore_signal(probe_semaphore);
+                            #else
+                                sem_post(&probe_semaphore);
+                            #endif
+                        }
                     }
                     timedout = 1;
                     break;
@@ -1561,7 +1700,7 @@ static void do_it(void)
                 }
             }
             
-            if(mtudisc && sim_probes == 1 && pb->err_str[0]) {
+            if(!ping_mode && mtudisc && sim_probes == 1 && pb->err_str[0]) {
                 destination_reached = 0; // Any unreachability means we didn't get to destination!
                 int mtu_value = atoi(pb->err_str+2);
                 if(strlen(pb->err_str) > 2 && overall_mtu >= mtu_value) {
@@ -1583,6 +1722,31 @@ static void do_it(void)
                     else
                         consecutive_probe_failures = 0;
                     
+                    if(ploss_threshold >= 0 && ploss_violation_detected == 0) { // Don't do anything once you already identified a packet loss threshold violation
+                        if(start_window == -1) {
+                            start_window = n;
+                        } else if(n - start_window >= ploss_window_size) {
+                            probe* ppb = &probes[start_window];
+                            if(!ppb->res.sa.sa_family) {
+                                ploss_total--;
+                            }
+                            start_window++;
+                        }
+                        
+                        if(!pb->res.sa.sa_family) {
+                            ploss_total++;
+                            if(ploss_total >= ploss_threshold) {
+                                ploss_violation_detected = 1;
+
+                                if(n+1 < end) {
+                                    probes[n+1].exit_please = 1;
+                                    sem_post(&probe_semaphore);
+                                }
+
+                                exit_please = 1;
+                            }
+                        }
+                    }
                 #ifdef __APPLE__
                     dispatch_semaphore_signal(probe_semaphore);
                 #else
@@ -1615,47 +1779,60 @@ static void do_it(void)
                 continue;
             }
 
-            if(!pb->send_time) {
-                double next;
+            if(!pb->send_time && timercmp(&currtime, &next_probe_send_time, >=))  {
+                int ttl;
+                
+                ttl = n / probes_per_hop + 1;
 
-                if(send_secs &&(next = last_send + send_secs) > now_time) {
-                    next_time = next;
-                    break;
-                }
-
-                int ttl = n / probes_per_hop + 1;
-
+                gettimeofday(&pb->starttime, NULL);
                 pb->mss = 0;
                 pb->mtu = 0;
 
-                ops->send_probe(pb, ttl);
+                ops->send_probe(pb, ttl, n);
 
                 if(!pb->send_time) {
                     if(next_time)
                         break;    /*  have chances later   */
-                    else 
+                    else
                         error("send probe");
                 }
 
-                last_send = pb->send_time;
+                probe_just_sent = 1;
+                timeradd(&currtime, &probe_spacing, &next_probe_send_time);
             }
 
             if(!next_time)
                 next_time = pb->send_time + get_timeout(pb);
 
             num++;
-            if(num >= sim_probes)
+            
+            if(ping_mode && send_secs > 0) { // if we are high frequency
+                if(probe_just_sent > 0)
+                    break;
+            } else if(num >= sim_probes) {
                 break;
+            }
         }
 
         if(timedout > 0 || exit_please > 0)
             break;
 
         if(next_time) {
-            double timeout = next_time - get_time();
-            if(timeout < 0)
-                timeout = 0;
-
+            double poll_time = 0;
+            
+            if(timercmp(&currtime, &next_probe_send_time, <)) {
+                struct timeval diff;
+                timersub(&next_probe_send_time, &currtime, &diff);
+                
+                poll_time = diff.tv_usec;
+                poll_time /= 1000000;
+            } else {
+                poll_time = next_time - get_time();
+            }
+            
+            if(poll_time < 0)
+                poll_time = 0;
+                
             if(overall_timeout > 0) {
                 struct timeval currtime;
                 gettimeofday(&currtime, NULL);
@@ -1672,12 +1849,12 @@ static void do_it(void)
                 decimals /= 1000;
                 decimals /= 1000;
                 missing_time -= decimals;
-
                 missing_time = (missing_time < 0) ? 0 : missing_time;
-                do_poll((missing_time > timeout) ? timeout : missing_time, poll_callback);                
-            } else {
-                do_poll(timeout, poll_callback);
+                
+                poll_time = (missing_time > poll_time) ? poll_time : missing_time;
             }
+            
+            do_poll(poll_time, poll_callback);
         }
     }
 }
@@ -1743,10 +1920,15 @@ void tune_socket(int sk)
         }
     }
 
+    i = 1;
+    if(setsockopt(sk, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i)) < 0)
+        error("setsockopt SO_REUSEADDR");
+
     bind_socket(sk);
 
     if(af == AF_INET) {
       #ifdef __APPLE__
+        i = 0;
         if(dontfrag && setsockopt(sk, IPPROTO_IP, IP_DONTFRAG, &i, sizeof(i)) < 0)
             error("setsockopt IP_DONTFRAG");
       #else
@@ -2653,7 +2835,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
     static char errbuf[512];
 
     int s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
-    if (s < 0) {
+    if(s < 0) {
         snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
         return (errbuf);
     }
@@ -2736,9 +2918,9 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
             switch(i) {
                 case RTA_IFA:
                 {
-                    if (sa->sa_family == AF_INET) {
+                    if(sa->sa_family == AF_INET) {
                         ifa = (struct sockaddr_in *)cp;
-                        if (ifa->sin_addr.s_addr != 0) {
+                        if(ifa->sin_addr.s_addr != 0) {
                             *from = *ifa;
                             return NULL;
                         }
@@ -2751,7 +2933,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
                 }
             }
 
-            if (SALEN(sa) == 0)
+            if(SALEN(sa) == 0)
                 cp += sizeof (uint32_t);
             else
                 cp += roundup(SALEN(sa), sizeof (uint32_t));

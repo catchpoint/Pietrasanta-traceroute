@@ -31,6 +31,8 @@ traceroute \- print the route packets trace to network host
 .br
 .ti +8
 .BR "" [ "--tcpinsession" "]
+.ti +8
+.BR "" [ "--udpinsession" "]
 .br
 .ti +8
 .BR "" [ "--ecn=num" "] [" "--dscp=num" "]
@@ -41,6 +43,19 @@ traceroute \- print the route packets trace to network host
 .ti +8
 .BR "" [ "--loose-match ]
 .br
+.ti +8
+.BR "" [ "--disable-extra-ping" ]
+.br
+.ti +8
+.BR "" [ "--ping=num" "]
+.br
+.ti +8
+.BR "" [ "--packet-loss-threshold=num" "]
+.br
+.ti +8
+.BR "" [ "--packet-loss-window-size=num" "]
+.br
+.ti +8
 .BR host " [" "packet_len" "]"
 .br
 .BR traceroute6
@@ -62,7 +77,7 @@ The only required parameter is the name or IP address of the
 destination
 .BR host \ .
 The optional
-.B packet_len\fR`gth
+.B packet_length
 is the total size of the probing packet (default 60 bytes
 for IPv4 and 80 for IPv6). The specified size can be ignored
 in some situations or increased up to a minimal value.
@@ -139,6 +154,9 @@ Use TCP SYN for probes
 .TP
 .B \-\-tcpinsession
 Use TCP InSession. See https://www.catchpoint.com/blog/traceroute-insession-catchpoints-effort-towards-a-more-reliable-network-diagnostic-tool
+.TP
+.B \-\-udpinsession
+Use UDP InSession. This is the UDP implementation of Paris Traceroute, see https://paris-traceroute.net/
 .TP
 .B \-d, --debug
 Enable socket level debugging (when the Linux kernel supports it)
@@ -326,7 +344,7 @@ address of one of the interfaces.
 By default, the address of the outgoing interface is used.
 .TP
 .BI \-z " sendwait" ", --sendwait=" sendwait
-Minimal time interval between probes (default 0).
+Time interval between probes (default 0).
 If the value is more than 10, then it specifies a number in milliseconds,
 else it is a number of seconds (float point values allowed too).
 Useful when some routers use rate-limit for ICMP messages.
@@ -373,6 +391,8 @@ have names
 and
 .I tcp
 respectively.
+The DNS method has name
+.IR dns .
 .br
 Method-specific options can be passed by
 .BR \-O\  .
@@ -517,6 +537,43 @@ The number of the last hop is repeated, highlighting that these are extra pings 
 the hop that reached the destination. This option is to disable the extra ping
 mechanism regardles whether the method-specific conditions are met or not.
 
+.TP
+.BI \--ping\fR=\fInum
+Fix the TTL to the given num. It is a shorten for -f -m.
+
+.TP
+.BI \--packet-loss-threshold\fR=\fInum
+Valid ony when running in ping mode.
+This is the maximum number of prrobes that can expire consecutively after which the measurement stops when running in ping mode. 
+For example if this value is 70, it means that the measurement will stop when the the 70% of probes over the total of
+.B nqueries
+expires
+.U consecutively
+The value of
+.B packet-loss-window-size
+can affect its value. For example if the number of probes sent is 20, the
+.B packet-loss-window-size is 20,
+and
+.B packet-loss-threshold is 50
+then the maximum number of probes that can expire sent before teh measurement is stop is 10.
+On th eother hand, if the
+.B packet-loss-window-size
+is less than
+.B nqueries
+e.g. 10,
+then the maximum number of probes that can expire consecutively is 5.
+In general the formula for the maximum number of probes that can expire consecutively before the measurement is stop
+is (packet-loss-threshold*packet-loss-window-size/100).
+.TP
+.BI \--packet-loss-window-size\fR=\fInum
+Valid ony when running in ping mode.
+This is the window size used to compute the
+.B packet-loss-threshold
+. Each time a probe gets a reply or expires, the tool looks back num probes, computes the
+percentage of packet loss and stops if the
+.B packet-loss-threshold
+is reached. By default its value is 20 probes.
+
 .br
 
 .SH LIST OF AVAILABLE METHODS
@@ -638,6 +695,10 @@ Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
 other useful things.
 .TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+.TP
 .B acc-ecn
 Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
 .IP
@@ -662,7 +723,7 @@ Use udp datagram with constant destination port (default 53, dns).
 .br
 Intended to bypass firewall as well. 
 .P
-Note, that unlike in
+Note that, unlike in
 .I tcp
 method, the correspond application on the destination host
 .B always
@@ -672,17 +733,84 @@ see the final hop in the trace. (Fortunately, it seems that at least
 dns servers replies with something angry).
 .P
 This method is allowed for unprivileged users.
+.P
+Options:
+.TP
+.B fix_dest_port
+Keep the destination port fixed. This has to be used in conjunction with the -p/--port option to take effect. 
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+.SS dns
+Send real DNS queries as traceroute probes.
+.br
+The destination
+.B host
+is the DNS server to query, and the DNS name being queried is provided with
+the
+.B domain
+module option. The default destination port is 53.
+.P
+This method is intended for tracing paths where DNS traffic is expected to be
+allowed. Unlike the
+.I udp
+method, the probe payload is a valid DNS message. Probes are sent over UDP.
+.P
+When a DNS answer is received, answer records are printed within
+.BR < >
+after the probe RTT. The format for each answer is:
+.P
+.RS
+.B name,type,class,ttl,rdata
+.RE
+.P
+Multiple answers are separated by semicolons.
+.P
+If the destination host does not reply with a valid DNS response (e.g. because
+is not an actual nameserver) traceroute will anyway conclude but no parsed response will be printed.
+.P
+Options:
+.TP
+.B domain\fR=\fIname
+Set the DNS name to include in the query. This option is required.
+.TP
+.B type\fR=\fItype
+Set the DNS query type. Supported values are
+.BR a ,
+.BR aaaa ,
+.BR ns ,
+.BR txt ,
+.BR ds ,
+.BR dnskey ,
+.BR rrsig ,
+.BR nsec ,
+.BR nsec3 ,
+.BR nsec3param ,
+.BR cds ,
+and
+.BR cdnskey .
+The default is
+.BR a .
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 .SS udplite \  \ \-UL
 Use udplite datagram for probes (with constant destination port,
 default 53).
 .P
 This method is allowed for unprivileged users.
-.br
+.P
 Options:
 .TP
 .B coverage\fR=\fInum
 Set udplite send coverage to
 .IR num .
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 .SS dccp \  \ \-D
 Use DCCP Request packets for probes (rfc4340).
 .P
@@ -715,7 +843,8 @@ Opens a TCP connection with the destination and sends TCP probes within the open
 The default destination port is 80.
 .P
 This method prevents false packet loss introduced by firewall and router configurations related to
-security and ensures that packets follow a single flow, akin to a regular TCP session, to bypass load-balanced routers.
+security. By default all probes belong to the same flow, identified by the TCP
+five-tuple, akin to a regular TCP session, to bypass load-balanced routers.
 .P
 This method uses the connect() syscall to open the session with the destination,
 thus the content of /proc/sys/net/ipv4/* affects the flags and options sent during
@@ -741,6 +870,54 @@ Show the value of maxseg tcp header option found in the syn/ack received from th
 .B info
 Print tcp flags found in the syn/ack received from the destination during the initial TCP handshake.
 .br
+.TP
+.B ecmp
+Create multiple TCP flows instead of using the single default flow. One flow is
+created per
+.I nqueries
+value, so the first probe of each hop belongs to flow 1, the second probe of
+each hop belongs to flow 2, and so on. This can be particularly useful in
+conjunction with the
+.B \-e/\-\-extensions
+option to discover multiple labeled paths within a single measurement run.
+.br
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+
+.SS udpinsession
+Opens a UDP session with the destination and sends UDP probes within that session.
+The options available for this method include:
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+
+.SS udpinsession
+Sends UDP probes using multiple connected UDP sessions. The default destination
+port is 53.
+.P
+By default all probes belong to the same flow, identified by the UDP five-tuple.
+With the
+.B ecmp
+option, multiple flows are created to allow tracing equal-cost multipath routes.
+.P
+Options:
+.TP
+.B ecmp
+Create multiple UDP flows instead of using the single default flow. One flow is
+created per
+.I nqueries
+value, so the first probe of each hop belongs to flow 1, the second probe of
+each hop belongs to flow 2, and so on.
+.TP
+.B fix_dest_port
+Keep the destination port fixed across ECMP flows. This option can only be used
+in conjunction with
+.B ecmp
+and cannot be used when the source port is explicitly set with
+.B --sport.
 
 .SS quic
 Performs a QUIC-based traceroute. QUIC Initial packets containing a CRYPTO
@@ -817,6 +994,10 @@ prints the RTT of the Retry packet.
 .br
 .BI sum
 prints the RTT as the sum of the Retry and Initial packets RTT.
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 
 .SH NOTES
 .PP

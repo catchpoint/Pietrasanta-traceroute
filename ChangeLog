@@ -1,3 +1,111 @@
+2026-08-27  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.34
+  
+   * Use one raw ICMP socket in ecmp in tcp insession mode
+   * Update README for more clear build instructions
+   * Close raw sockets in udpinsession and tcpinsession
+   * Update package script and readme
+
+2026-08-26  Alessandro Improta  <alessandro.improta@logicmonitor.com> - 0.1.33
+
+   * Fixed wrong timestamp recorded in handshake of TCP InSession with option ecmp enabled
+   * Changed output of TCP InSession handshake to be mapped to the output of regular traceroute
+   * Introduced 5-tuple per probe with option print-five-tuple. This option is available
+     for DNS, QUIC, TCP, TCP InSession, UDP, UDP InSession
+   * Introduced check for not allowed options using -O
+
+2026-08-26  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.32
+  
+   * Add ecmp discovery mode in udpinsession module
+
+2026-08-24  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.31
+  
+   * Add support to compile on arm64
+
+2026-08-24  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.30
+  
+   * Removed space when reporting unhandled QUIC packet type <Q:U(<type>)>
+
+2026-07-31  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.29
+  
+   * Introduce UDP In Session method.
+     This provides the Paris Traceroute methodology in UDP mode.
+	 UDP packets have a fixed five tuple so that they belong to the same flow.
+
+2026-07-09  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.28
+  
+   * Allow to reuse ports
+   * Allow multiple probes in parallel in tcpinsession even if source port is specified
+   * Fix build problem
+
+2026-07-09  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.27
+  
+   * Clean build system and provide packager script
+
+2026-07-06  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.26
+  
+   * Small fixes to adjust output
+
+2026-06-29  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.25
+  
+   * Refactored build system for precompiled binaries
+   * Updated presupported platforms to OracleLinux 8/9, Debian 12 and Ubuntu 24
+
+2026-06-25  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.24
+  
+   * Improved MTU discovery loop
+   * Check on provided packet size when QUIC is selected
+   * Fix ping HF
+
+2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.23
+  
+   * Introduced timeout to ensure recvmsg does not get stuck
+
+2026-06-22  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.22
+  
+   * Ping mode and high frequency probes
+     
+	Introduced ping mode, an helper option to fix the TTL to one value throughout all the
+	measurement. Introduced the possibility to send probes at a fixed frequency. In ping mode added also
+	the possibility to stop the measurement when a certain packet loss threshold is reached.
+
+2026-05-07  Luca Sani  <lsani@catchpoint.com> - 0.1.21
+  
+   * TCP InSession ECMP
+     
+	TCP InSession now supports an ecmp option that creates multiple
+	TCP flows instead of a single one. This is useful to discover 
+	multiple paths within the same traceroute measurement.
+
+2026-05-07  Luca Sani  <lsani@catchpoint.com> - 0.1.20
+  
+   * New DNS module
+     
+	Traceroute DNS support over UDP. 
+	Probes carry a DNS query which can be specified via module options.
+
+2026-02-04  Luca Sani  <lsani@catchpoint.com> - 0.1.19
+                 
+    *  Handle Initial packets shorter than 1200 bytes
+    
+       Occasionally Initial packets shorter than 1200 bytes are received.
+	   Handle them instead of exiting abruptly.
+
+    *  Handle PING frame in Initial packets
+
+	   PING frames can be contained into Initial packets.
+	   We missed to handle them when parsing the Initial packet in search of ECN counters.
+
+2025-11-03  Luca Sani  <lsani@catchpoint.com> - 0.1.18
+                 
+    *  UDP fixed destination port option
+    
+       Introduced UDP option (-O fix_dest_port) to keep the destination port specified via 
+       -p/--port fixed during the whole traceroute.
+
+    *  OL8 binary
+
+	   Introduced OL8 binary support.
+
 2024-09-05  Luca Sani  <lsani@catchpoint.com> - 0.1.17
                  
     *  Fix IPv6

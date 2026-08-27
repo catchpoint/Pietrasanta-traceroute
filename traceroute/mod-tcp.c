@@ -49,6 +49,8 @@ static unsigned int mss = 0;
 static int info = 0;
 static int use_ecn = 0;
 static int use_acc_ecn = 0;
+static int print_received_mss = 0;
+static int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 extern int ecn_input_value;
@@ -74,6 +76,8 @@ static CLIF_option tcp_options[] = {
     { 0, "mss", "NUM", "Use value of %s for maxseg tcp option (when syn)", CLIF_set_uint16, &mss, 0, 0 },
     { 0, "info", 0, "Print tcp flags of final tcp replies when target host is reached. Useful to determine whether an application listens the port etc.", CLIF_set_flag, &info, 0, 0 },
     { 0, "acc-ecn", 0, "Send syn packets with tcp flags ECE, CWR and AE (for Accurate ECN check, not yet rfc but draft)", CLIF_set_flag, &use_acc_ecn, 0, 0 },
+    { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -308,7 +312,7 @@ static int tcp_init(const sockaddr_any* dest, unsigned int port_seq, size_t* pac
     return 0;
 }
 
-static void tcp_send_probe(probe* pb, int ttl)
+static void tcp_send_probe(probe* pb, int ttl, int probe_idx)
 {
     int sk;
     int af = dest_addr.sa.sa_family;
@@ -381,6 +385,12 @@ static void tcp_send_probe(probe* pb, int ttl)
             error ("getsockname");
         pb->seq = th->source;
     #endif
+
+    if(print_five_tuple) {
+        char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
+        snprintf(five_tuple, sizeof(five_tuple), "%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(th->source), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_port));
+        pb->five_tuple = strdup(five_tuple);
+    }
     
     pb->sk = sk;
 
@@ -436,7 +446,7 @@ static probe* tcp_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
         if(info)
             pb->ext = names_by_flags(get_th_flags(tcp));
         
-        if(mss > 0) {
+        if(mss > 0 || print_received_mss) {
           #ifdef __APPLE__
             int length = (th->th_off * 4) - sizeof(struct tcphdr);
           #else
