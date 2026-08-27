@@ -695,6 +695,10 @@ Print tcp flags of final tcp replies when the target host is reached.
 Allows to determine whether an application listens the port and
 other useful things.
 .TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+.TP
 .B acc-ecn
 Send syn packet with tcp flags ECE, CWR and AE for AccECN checks.
 .IP
@@ -734,6 +738,10 @@ Options:
 .TP
 .B fix_dest_port
 Keep the destination port fixed. This has to be used in conjunction with the -p/--port option to take effect. 
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 .SS dns
 Send real DNS queries as traceroute probes.
 .br
@@ -784,6 +792,10 @@ and
 .BR cdnskey .
 The default is
 .BR a .
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 .SS udplite \  \ \-UL
 Use udplite datagram for probes (with constant destination port,
 default 53).
@@ -795,6 +807,10 @@ Options:
 .B coverage\fR=\fInum
 Set udplite send coverage to
 .IR num .
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 .SS dccp \  \ \-D
 Use DCCP Request packets for probes (rfc4340).
 .P
@@ -865,6 +881,18 @@ conjunction with the
 .B \-e/\-\-extensions
 option to discover multiple labeled paths within a single measurement run.
 .br
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
+
+.SS udpinsession
+Opens a UDP session with the destination and sends UDP probes within that session.
+The options available for this method include:
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 
 .SS udpinsession
 Sends UDP probes using multiple connected UDP sessions. The default destination
@@ -966,6 +994,10 @@ prints the RTT of the Retry packet.
 .br
 .BI sum
 prints the RTT as the sum of the Retry and Initial packets RTT.
+.TP
+.B print-five-tuple
+Print the source IP address and port and the destination IP address and port
+in each hop.
 
 .SH NOTES
 .PP

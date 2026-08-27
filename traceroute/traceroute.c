@@ -1187,6 +1187,11 @@ int main(int argc, char *argv[])
             free(probes[0].ext);
             probes[0].ext = NULL;
         }
+
+        if(probes[0].five_tuple != NULL) {
+            free(probes[0].five_tuple);
+            probes[0].five_tuple = NULL;
+        }
         
         memset(&probes[0], 0x0, sizeof(probe));
         
@@ -1308,17 +1313,24 @@ void print_probe(probe *pb)
 
         if(prn) {
             print_addr(&pb->res);
-            if(pb->ext) {
-                printf(" <%s>", pb->ext);
-                free(pb->ext);
-                pb->ext = NULL;
-            }
 
             if(backward && pb->recv_ttl) {
                 int hops = ttl2hops(pb->recv_ttl);
                 if(hops != ttl)
                     printf(" '-%d'", hops);
             }
+        }
+
+        if(pb->ext) {
+            printf(" <%s>", pb->ext);
+            free(pb->ext);
+            pb->ext = NULL;
+        }
+
+        if(pb->five_tuple) {
+            printf(" <FT:%s>", pb->five_tuple);
+            free(pb->five_tuple);
+            pb->five_tuple = NULL;
         }
 
         if(pb->proto_details != NULL) {
@@ -2820,7 +2832,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
     static char errbuf[512];
 
     int s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
-    if (s < 0) {
+    if(s < 0) {
         snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
         return (errbuf);
     }
@@ -2903,9 +2915,9 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
             switch(i) {
                 case RTA_IFA:
                 {
-                    if (sa->sa_family == AF_INET) {
+                    if(sa->sa_family == AF_INET) {
                         ifa = (struct sockaddr_in *)cp;
-                        if (ifa->sin_addr.s_addr != 0) {
+                        if(ifa->sin_addr.s_addr != 0) {
                             *from = *ifa;
                             return NULL;
                         }
@@ -2918,7 +2930,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
                 }
             }
 
-            if (SALEN(sa) == 0)
+            if(SALEN(sa) == 0)
                 cp += sizeof (uint32_t);
             else
                 cp += roundup(SALEN(sa), sizeof (uint32_t));

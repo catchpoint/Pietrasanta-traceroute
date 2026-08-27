@@ -1,5 +1,8 @@
 /*
-    Copyright(c)  2023   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    Copyright (c)  2023             Catchpoint Systems, Inc.    
+    Copyright (c)  2023             Alessandro Improta, Luca Sani
+                    <aimprota@catchpoint.com>    
+                    <lsani@catchpoint.com>
     
     This software was updated by Catchpoint Systems, Inc. to incorporate
     InSession algorithm functionality.
@@ -53,6 +56,7 @@ static uint16_t* lenp = NULL;
 static int info = 0;
 static int print_received_mss = 0;
 
+int print_five_tuple = 0;
 extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
@@ -69,6 +73,7 @@ uint32_t ts_value[MAX_PROBES] = {};
 uint32_t ts_echo_reply[MAX_PROBES] = {};
 static sockaddr_any src[MAX_PROBES] = {};
 int SACK_permitted = 0;
+int handshake_printed = 0;
 int sack = 0;
 int ecmp = 0;
 int n_flows = 0;
@@ -79,6 +84,7 @@ static CLIF_option tcp_options[] = {
     { 0, "sack", 0, "Show sack,", CLIF_set_flag, &sack, 0, 0 },
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
     { 0, "print-received-mss", 0, "Print the received MSS value from the SYN+ACK packet", CLIF_set_flag, &print_received_mss, 0, 0 },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -113,8 +119,10 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
     
     socklen_t src_len = sizeof(src[0]);
     socklen_t lenmtu = sizeof(mtu);
+    double connect_starttime[MAX_PROBES] = {};
     
     for(int i = 0; i < n_flows; i++) {
+        connect_starttime[i] = get_time();
         if(connect(raw_sk[i], &dest_addr.sa, (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) < 0)
             error("connect");
 
@@ -141,8 +149,10 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
 
     uint8_t ack_buf[MAX_PROBES][1024];
 
+    printf("\nhand");
+    handshake_printed = 1;
+
     for(int i = 0; i < n_flows; i++) {
-        double connect_starttime = get_time();
         double recv_time = 0;
         int found = 0;
         do {
@@ -223,7 +233,7 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     }
                 }
             } else {
-                if(get_time() - connect_starttime > MAX_CONNECT_TIMEOUT_SEC)
+                if(get_time() - connect_starttime[i] > MAX_CONNECT_TIMEOUT_SEC)
                     break;
                 
                 usleep(10000);
@@ -241,15 +251,14 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         }
 
         // Print some info about this handshake
-        double diff = (recv_time - connect_starttime) * 1000;
-        printf("\nhand  %.3f ms", diff);
+        double diff = (recv_time - connect_starttime[i]) * 1000;
 
         char* res = NULL;
         
         if(info && response_tcp_hdr[i])
             res = names_by_flags(get_th_flags(response_tcp_hdr[i]));
     
-        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0)) {
+        if((res && strlen(res) > 0) || (sack > 0 && SACK_permitted > 0) || ((mss > 0 || print_received_mss) && mss_received[i] > 0) || print_five_tuple > 0) {
             printf(" <");
         
             int print_comma = 0;
@@ -271,8 +280,19 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                 printf("SACK");
             }
 
+            if(print_five_tuple) {
+                if(print_comma == 1)
+                    printf(",");
+
+                char src_str[INET6_ADDRSTRLEN] = {};
+                snprintf(src_str, sizeof(src_str), "%s", addr2str(&src[i]));
+                printf("%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+            }
+
             printf(">");
         }
+
+        printf(" %.3f ms", diff);
 
         fflush(stdout);
         
@@ -515,10 +535,7 @@ static probe* find_probe_from_sack(struct tcphdr* tcp)
     if(interval == 0) {
         close(sk[0]); // TODO close all
         close(raw_sk[0]);
-        if(sack_found == 0)
-            ex_error("Missing SACK options");
-        else
-            ex_error("Unexpected overlap of SACK intervals");
+        ex_error("%s%s", (handshake_printed > 0) ? "\n" : "", (sack_found == 0) ? "Missing SACK options" : "Unexpected overlap of SACK intervals");
     }
     
     // just order them decreasing
@@ -559,8 +576,21 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         if(dport != dest_port)
             return NULL;
 
+        probe* pb = probe_by_seq_num(seq_num_returned);
+        if(pb && print_five_tuple && pb->five_tuple == NULL) {
+            for(int i = 0; i < n_flows; i++) {
+                if(tcp->source == src[i].sin.sin_port) {
+                    char src_str[INET6_ADDRSTRLEN + 16];
+                    char str[128] = {};    /*  enough...  */
+                    snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[i]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port));
+                    snprintf(str, sizeof(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+                    pb->five_tuple = strdup(str);
+                    break;
+                }
+            }
+        }
 
-        return probe_by_seq_num(seq_num_returned);
+        return pb;
     }
     
     uint16_t dport = tcp->source;
@@ -572,15 +602,18 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     // Scan all srcs and if no one corresponds, return NULL
 
     int found = 0;
+    int src_index = -1;
     for(int i = 0; i < n_flows; i++) {
         if(src[i].sa.sa_family == AF_INET6) {
             if(sport == src[i].sin6.sin6_port) {
                 found = 1;
+                src_index = i;
                 break;
             }
         } else if(src[i].sa.sa_family == AF_INET) {
             if(sport == src[i].sin.sin_port) {
                 found = 1;
+                src_index = i;
                 break;
             }
         } else {
@@ -601,6 +634,15 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     if(info)
         pb->ext = names_by_flags(get_th_flags(tcp));
     
+    if(print_five_tuple && pb->five_tuple == NULL) {
+        char str[128] = {};    /*  enough...  */
+        char src_str[INET6_ADDRSTRLEN + 16] = {};
+        snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[src_index]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[src_index].sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+
+        pb->five_tuple = strdup(str);
+    }
+
     // Note that here we cannot receive the MSS, because it is included only in the initial SYN+ACK
     
     return pb;
@@ -657,6 +699,15 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     
     for(int i = 0; i < n_flows; i++) {
         if((loose_match || equal_sockaddr(&src[i], &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
+            if(print_five_tuple && pb->five_tuple == NULL) {
+                char str[128] = {};    /*  enough...  */
+                char src_str[INET6_ADDRSTRLEN + 16] = {};
+                snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[i]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port));
+                snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+
+                pb->five_tuple = strdup(str);
+            }
+
             pb->returned_tos = returned_tos;
             probe_done(pb, &pb->icmp_done);
             if(loose_match || tr_via_additional_raw_icmp_socket)

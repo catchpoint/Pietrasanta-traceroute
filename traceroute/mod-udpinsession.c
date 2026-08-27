@@ -1,5 +1,8 @@
 /*
-    Copyright(c)  2026   Alessandro Improta, Luca Sani, Catchpoint Systems, Inc.
+    Copyright (c)  2026             Catchpoint Systems, Inc.    
+    Copyright (c)  2026             Alessandro Improta, Luca Sani
+                    <aimprota@catchpoint.com>    
+                    <lsani@catchpoint.com>
 
     Copyright(c)  2006, 2007        Dmitry Butskoy
                     <buc@citadel.stu.neva.ru>
@@ -31,6 +34,7 @@ static sockaddr_any src[MAX_PROBES] = {};
 static sockaddr_any dest_addr[MAX_PROBES] = {};
 static int raw_sk[MAX_PROBES] = { -1 };
 static int raw_icmp_sk = -1;
+static int print_five_tuple = 0;
 
 static uint8_t tmp_buf[65535] = {};
 static size_t *length_p;
@@ -45,6 +49,7 @@ static int n_flows = 0;
 static CLIF_option udpinsession_options[] = {
     { 0, "ecmp", 0, "ECMP,", CLIF_set_flag, &ecmp, 0, 0 },
     { 0, "fix_dest_port", 0, "Keep the destination port fixed. This can be used only in conjunction with ecmp", CLIF_set_flag, &fix_dest_port, 0, CLIF_ABBREV },
+    { 0, "print-five-tuple", 0, "Print the source IP address and port and the destination IP address and port in each hop", CLIF_set_flag, &print_five_tuple, 0, 0 },
     CLIF_END_OPTION
 };
 
@@ -76,7 +81,7 @@ static uint32_t ones_complement_sum(const uint8_t *data, size_t len)
         len  -= 2;
     }
 
-    if (len == 1)
+    if(len == 1)
         sum += ((uint16_t)data[0]) << 8;  // pad last byte
 
     return sum;
@@ -111,7 +116,7 @@ uint16_t udp_checksum_ipv4(struct in_addr src, struct in_addr dst, const struct 
     uint16_t checksum = (uint16_t)~sum;
 
     // A computed checksum of 0 is transmitted as 0xFFFF (See RFC 768)
-    if (checksum == 0)
+    if(checksum == 0)
         checksum = 0xFFFF;
 
     return checksum;
@@ -146,7 +151,7 @@ uint16_t udp_checksum_ipv6(const struct in6_addr *src, const struct in6_addr *ds
     uint16_t checksum = (uint16_t)~sum;
 
     // A computed checksum of 0 is transmitted as 0xFFFF (See RFC 768)
-    if (checksum == 0)
+    if(checksum == 0)
         checksum = 0xFFFF;
 
     return checksum;
@@ -210,7 +215,7 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     error("getsockname");
                 src_addr.sin.sin_port = save_port;
                 src[i] = src_addr;
-            } else if (fix_dest_port) { // we need to keep the dest fixed, thus src_port need to be incremented
+            } else if(fix_dest_port) { // we need to keep the dest fixed, thus src_port need to be incremented
                 if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
                     error("getsockname");
                 src[i] = src_addr;
@@ -227,7 +232,6 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
             src[i] = src_addr;
         }
 
-        printf("\n<src=%s:%d dst=%s:%d>", addr2str(&src[i]), ntohs(src[i].sin.sin_port), addr2str(&dest_addr[i]), ntohs(dest_addr[i].sin.sin_port));
     }
 
     if(use_additional_raw_icmp_socket) {
@@ -269,6 +273,7 @@ static void udpinsession_send_probe(probe* pb, int ttl, int probe_idx)
         return;
     }
     pb->send_time = get_time();
+
     memcpy(&pb->dest, &dest_addr[flow], sizeof(dest_addr[flow]));
     pb->src = src[flow];
     pb->seq = dest_addr[flow].sin.sin_port;
@@ -291,6 +296,12 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     probe* pb = probe_by_checksum(uh->check);
     if(pb != NULL && pb->flow_sk != sk) // see udpinsession_send_probe for more details on this check
         return NULL;
+
+    if(pb && print_five_tuple && pb->five_tuple == NULL) {
+        char str[128] = {};
+        snprintf(str, sizeof(str), "%s%s%s:%u->%s%s%s:%u", af == AF_INET6 ? "[" : "", addr2str(&pb->src), af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port), af == AF_INET6 ? "[" : "", addr2str(&pb->dest), af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
+        pb->five_tuple = strdup(str);
+    }
     
     return pb;
 }
@@ -331,20 +342,29 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
 #endif
     
     probe *pb = probe_by_checksum(offending_probe->check);
-    if (!pb)
+    if(!pb)
         return NULL;
 
     // Since additional_raw_icmp_socket receives ICMP traffic independently of the UDP raw sockets we need to enusre this
     // is traffic for us and not for other appplications
-    if (!equal_sockaddr(&offending_probe_dest, &pb->dest))
+    if(!equal_sockaddr(&offending_probe_dest, &pb->dest))
         return NULL;
 
-    if (loose_match) {
-        if (!equal_port(&offending_probe_src, &pb->src))
+    if(loose_match) {
+        if(!equal_port(&offending_probe_src, &pb->src))
             return NULL;
     } else {
-        if (!equal_sockaddr(&offending_probe_src, &pb->src))
+        if(!equal_sockaddr(&offending_probe_src, &pb->src))
             return NULL;
+    }
+
+    if(print_five_tuple && pb->five_tuple == NULL) {
+        char str[128] = {};
+        char src_str[INET6_ADDRSTRLEN + 16] = {};
+        snprintf(src_str, sizeof(src_str), "%s%s%s:%u", af == AF_INET6 ? "[" : "", addr2str(&pb->src), af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, af == AF_INET6 ? "[" : "", addr2str(&pb->dest), af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
+
+        pb->five_tuple = strdup(str);
     }
         
     pb->returned_tos = returned_tos;

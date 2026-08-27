@@ -596,6 +596,9 @@ int CLIF_parse_cmdline(int argc, char *argv[], CLIF_option *option_list, CLIF_ar
         if(argument_list) {
             if(i < MAX_ARGC_NUMBER)    /*  XXX: ugly, better report   */
                 arg_n[num_args++] = i;
+        } else if(parse_flags & _CLIF_STRICT_KEYWORD) {
+            err_bad_opt(argv[i], 0, i);
+            return -1;
         } else {
             err_report("`%s' (argc %d): arguments are not allowed", argv[i], i);
             return -1;
@@ -1232,4 +1235,3 @@ int CLIF_arg_func(CLIF_argument* argm, char* arg, int index)
     func = (int (*)(char*, int))argm->data;
     return func(arg, index);
 }
-
