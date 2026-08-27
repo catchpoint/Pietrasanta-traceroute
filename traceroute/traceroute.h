@@ -69,7 +69,8 @@ struct probe_struct
     int sk;
     int flow_sk;
     int seq;
-    char *ext;
+    char* ext;
+    char* five_tuple;
     int mss;
     int mtu;
     int returned_tos;

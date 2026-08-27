@@ -669,7 +669,7 @@ static void quic_send_probe(probe* pb, int ttl, int probe_idx)
     if(print_five_tuple) {
         char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
         snprintf(five_tuple, sizeof(five_tuple), "%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&pb->src), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(pb->src.sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
-        pb->ext = strdup(five_tuple);
+        pb->five_tuple = strdup(five_tuple);
     }
 
     add_poll(sk, POLLIN | POLLERR);

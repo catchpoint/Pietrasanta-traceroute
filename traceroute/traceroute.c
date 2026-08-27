@@ -1187,6 +1187,11 @@ int main(int argc, char *argv[])
             free(probes[0].ext);
             probes[0].ext = NULL;
         }
+
+        if(probes[0].five_tuple != NULL) {
+            free(probes[0].five_tuple);
+            probes[0].five_tuple = NULL;
+        }
         
         memset(&probes[0], 0x0, sizeof(probe));
         
@@ -1320,6 +1325,12 @@ void print_probe(probe *pb)
             printf(" <%s>", pb->ext);
             free(pb->ext);
             pb->ext = NULL;
+        }
+
+        if(pb->five_tuple) {
+            printf(" <FT:%s>", pb->five_tuple);
+            free(pb->five_tuple);
+            pb->five_tuple = NULL;
         }
 
         if(pb->proto_details != NULL) {
