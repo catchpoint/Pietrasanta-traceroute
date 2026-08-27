@@ -40,21 +40,21 @@ You can change this directory passing the `prefix` parameter to `make install`
 
 ### Examples
 
-#### Full build
+#### Normal build & default installation
 
 ```
 make 
 make install
 ```
 
-#### Build without openssl3
+#### Build without openssl3 & default installation
 
 ```
 make DISABLE_OPENSSL=1
 make install
 ```
 
-#### Instal in custom directory
+#### Normal build & installation in custom directory
 
 ```
 make
