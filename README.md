@@ -30,16 +30,24 @@ Pietrasanta traceroute.
 Happy (Pietrasanta) tracerouting!
 
 ## Building & Installation
+
+Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
+traceroute. If openssl3 libraries are not available in your system, you can still build and enjoy traceroute by disabling
+QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
+
+#### Full build
+
 ```
 make 
 make install
 ```
 
-### OpenSSL 3 dependency
+#### Build without openssl
 
-Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
-traceroute from source. If openssl3 libraries are not available, you can still build and enjoy traceroute by disabling
-QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
+```
+make DISABLE_OPENSSL=1
+make install
+```
 
 ## Binaries
 
@@ -47,8 +55,7 @@ This tool should build and run on any Linux system running a kernel version 2.6 
 
 Since version 0.1.14 this tool should also work on MacOS, with the known limitations that TCP and TCP InSession mode are not yet available and Path MTU discovery is not supported for any mode.
 
-Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system linked
-against system openssl3 runtime libraries.
+Binaries are provided for convenience [here](binaries) for common Linux distributions and they can be directly used into the target system linked against openssl3 runtime libraries provided by the host system.
 
 A way to use the provided binaries is the following:
 
