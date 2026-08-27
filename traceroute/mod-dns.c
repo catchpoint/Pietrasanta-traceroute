@@ -1065,18 +1065,8 @@ static probe* dns_check_reply(int sk, int err, sockaddr_any* from, char* buf, si
 
         pb->final = 1;
         if(ext) {
-            if(pb->ext) {
-                size_t ext_len = strlen(pb->ext) + strlen(ext) + 2;
-                char* combined = malloc(ext_len);
-                if(!combined)
-                    error("malloc");
-                snprintf(combined, ext_len, "%s,%s", pb->ext, ext);
-                free(pb->ext);
-                free(ext);
-                pb->ext = combined;
-            } else {
-                pb->ext = ext;
-            }
+            free(pb->ext);
+            pb->ext = ext;
         }
     }
 
