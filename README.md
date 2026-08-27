@@ -33,7 +33,12 @@ Happy (Pietrasanta) tracerouting!
 
 Since version 0.1.3 (the version that introduced QUIC support), openssl3 (version >= 3.2) is needed to compile
 traceroute. If openssl3 libraries are not available in your system, you can still build and enjoy traceroute by disabling
-QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`. 
+QUIC by passing the argument `DISABLE_OPENSSL=1` to `make`.
+
+By default the binary and manual are respectively installed in `bin` and `share` folders under `/usr/local`.
+You can change this directory passing the `prefix` parameter to `make install`
+
+### Examples
 
 #### Full build
 
@@ -42,11 +47,18 @@ make
 make install
 ```
 
-#### Build without openssl
+#### Build without openssl3
 
 ```
 make DISABLE_OPENSSL=1
 make install
+```
+
+#### Instal in custom directory
+
+```
+make
+make install prefix=custom_dir
 ```
 
 ## Binaries
