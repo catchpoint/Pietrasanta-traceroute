@@ -2821,7 +2821,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
     static char errbuf[512];
 
     int s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
-    if (s < 0) {
+    if(s < 0) {
         snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
         return (errbuf);
     }
@@ -2904,9 +2904,9 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
             switch(i) {
                 case RTA_IFA:
                 {
-                    if (sa->sa_family == AF_INET) {
+                    if(sa->sa_family == AF_INET) {
                         ifa = (struct sockaddr_in *)cp;
-                        if (ifa->sin_addr.s_addr != 0) {
+                        if(ifa->sin_addr.s_addr != 0) {
                             *from = *ifa;
                             return NULL;
                         }
@@ -2919,7 +2919,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
                 }
             }
 
-            if (SALEN(sa) == 0)
+            if(SALEN(sa) == 0)
                 cp += sizeof (uint32_t);
             else
                 cp += roundup(SALEN(sa), sizeof (uint32_t));

@@ -294,7 +294,8 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     // Now we need to match the checksum with the original probe
     struct udphdr* uh = (struct udphdr*)buf;
     probe* pb = probe_by_checksum(uh->check);
-<<<<<<< HEAD
+    if(pb != NULL && pb->flow_sk != sk) // see udpinsession_send_probe for more details on this check
+        return NULL;
 
     if(pb && print_five_tuple && pb->ext == NULL) {
         char str[128] = {};
@@ -304,19 +305,14 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
         if(pb->ext && strlen(pb->ext) > 0)
             str[strlen(pb->ext)] = ',';
 
-        char src_str[INET6_ADDRSTRLEN] = {};
-        snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port));
-        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
+        char src_str[INET6_ADDRSTRLEN + 16] = {};
+        snprintf(src_str, sizeof(src_str), "%s%s%s:%u", af == AF_INET6 ? "[" : "", addr2str(&pb->src), af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, af == AF_INET6 ? "[" : "", addr2str(&pb->dest), af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
 
         free(pb->ext);
         pb->ext = strdup(str);
     }
-
-=======
-    if(pb != NULL && pb->flow_sk != sk) // see udpinsession_send_probe for more details on this check
-        return NULL;
     
->>>>>>> origin/develop
     return pb;
 }
 
@@ -380,9 +376,9 @@ static probe* udpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
         if(pb->ext && strlen(pb->ext) > 0)
             str[strlen(pb->ext)] = ',';
 
-        char src_str[INET6_ADDRSTRLEN] = {};
-        snprintf(src_str, sizeof(src_str), "%s:%u", addr2str(&pb->src), ntohs(pb->src.sin.sin_port));
-        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s:%u", src_str, addr2str(&pb->dest), ntohs(pb->dest.sin.sin_port));
+        char src_str[INET6_ADDRSTRLEN + 16] = {};
+        snprintf(src_str, sizeof(src_str), "%s%s%s:%u", af == AF_INET6 ? "[" : "", addr2str(&pb->src), af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, af == AF_INET6 ? "[" : "", addr2str(&pb->dest), af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
 
         free(pb->ext);
         pb->ext = strdup(str);
