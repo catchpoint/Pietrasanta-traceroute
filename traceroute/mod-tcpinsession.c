@@ -722,8 +722,10 @@ static void tcpinsession_close()
     for(int i = start; i < last_probe; i++)
         print_probe(&probes[i]);
     
-    for(int i = 0; i < n_flows; i++)
+    for(int i = 0; i < n_flows; i++) {
         close(sk[i]);
+        close(raw_sk[i]);
+    }
 
     if(use_additional_raw_icmp_socket)
         close(raw_icmp_sk);
