@@ -240,7 +240,7 @@ do
             exit 1
         fi
 
-        if [ "${BUILD}" =  1 ]; then
+        if [ "${BUILD}" =  "1" ]; then
             if ! build "${PLATFORM}" "${ARCH}"; then
                 exit 1
             fi
