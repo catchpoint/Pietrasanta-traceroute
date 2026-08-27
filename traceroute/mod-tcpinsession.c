@@ -39,8 +39,7 @@
 static sockaddr_any dest_addr = {{ 0, }, };
 static unsigned int dest_port = 0;
 
-// Note that MAX_PROBES means "max probes per hop"
-static int raw_icmp_sk[MAX_PROBES] = {-1};
+static int raw_icmp_sk = -1;
 static int last_ttl = 0;
 
 static int af = 0;
@@ -61,6 +60,7 @@ extern int use_additional_raw_icmp_socket;
 extern int tr_via_additional_raw_icmp_socket;
 
 static unsigned int mss = 0;
+// Note that MAX_PROBES means "max probes per hop"
 static uint8_t tmp_buf[MAX_PROBES][1024] = {};        /*  enough, enough...  */
 static int mtu[MAX_PROBES] = {};
 static unsigned mss_received[MAX_PROBES] = {};
@@ -399,18 +399,18 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         
         header_len = len;
         
-        if(use_additional_raw_icmp_socket) {
-            raw_icmp_sk[i] = socket(dest_addr.sa.sa_family, SOCK_RAW, (dest_addr.sa.sa_family == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
-            
-            if(raw_icmp_sk[i] < 0)
-                error_or_perm("raw icmp socket");
-            
-            add_poll(raw_icmp_sk[i], POLLIN | POLLERR);
-        }
-        
         lenp = (uint16_t*)(buf + delta_len_p); // Allow the length in the pseudo IP header to be changed when we send probes
     }
 
+    if(use_additional_raw_icmp_socket) {
+        raw_icmp_sk = socket(dest_addr.sa.sa_family, SOCK_RAW, (af == AF_INET) ? IPPROTO_ICMP : IPPROTO_ICMPV6);
+        
+        if(raw_icmp_sk < 0)
+            error_or_perm("raw icmp socket");
+        
+        add_poll(raw_icmp_sk, POLLIN | POLLERR);
+    }
+        
     return 0;
 }
 
@@ -658,11 +658,8 @@ static void tcpinsession_recv_probe(int sk, int revents)
 
 static int tcpinsession_is_raw_icmp_sk(int sk)
 {
-    for(int i = 0; i < n_flows; i++) {
-        if(sk == raw_icmp_sk[i])
-            return 1;
-    }
-
+    if(sk == raw_icmp_sk)
+        return 1;
     return 0;
 }
 
@@ -727,9 +724,11 @@ static void tcpinsession_close()
     
     for(int i = 0; i < n_flows; i++) {
         close(sk[i]);
-        if(use_additional_raw_icmp_socket)
-                close(raw_icmp_sk[i]);
+        close(raw_sk[i]);
     }
+
+    if(use_additional_raw_icmp_socket)
+        close(raw_icmp_sk);
 }
 
 static tr_module tcpinsession_ops = {

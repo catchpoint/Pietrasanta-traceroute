@@ -6,10 +6,11 @@ usage()
     echo -e "\nUsage: $0 [--clean] [--build] [--platform=<platforms>] [--arch=<architecture>]"
     echo -e "--clean: Clean the docker images and containers used during the build process for the provided platforms."
     echo -e "--build: Build traceroute binaries for the provided platforms."
-    echo -e "--platform: A space-separated list containing ol8, ol9, debian12 or ubuntu24."
-    echo -e "--arch: Target architecture: x86_64 or arm64 (default: x86_64)."
+    echo -e "--platform: A space-separated list containing ol8, ol9, debian12 or ubuntu24. (default: \"ol8 ol9 debian12 ubuntu24\")"
+    echo -e "--arch: A space-separated list containing x86_64 or arm64. (default: \"x86_64 arm64\")"
     echo -e "\n"
-    echo -e "Example: $0 --build --clean"
+    echo -e "Example: $0 --build --clean --platform=\"ol8\" --arch=\"x86_64\" # builds only for ol8 on x86_64"
+    echo -e "Example: $0 --build --clean # builds everything"
     echo -e "\n"
 }
 
@@ -191,7 +192,7 @@ build()
 BUILD=0
 CLEAN=0
 PLATFORM="debian12 ol8 ol9 ubuntu24"
-ARCH=x86_64
+ARCHS="x86_64 arm64"
 
 if ! args=$(getopt -o '' --long build,clean,help,platform:,arch: -n 'invalid arguments' -- "$@"); then
     exit 2
@@ -211,7 +212,7 @@ while true; do
         --platform)
             PLATFORM=$2; shift 2 ;;
         --arch)
-            ARCH=$2; shift 2 ;;
+            ARCHS=$2; shift 2 ;;
         --)
             shift; break ;;
         *)
@@ -227,27 +228,30 @@ fi
 
 echo "Operations: BUILD=${BUILD}, CLEAN=${CLEAN}"
 echo "PLATFORM=${PLATFORM}"
-echo "ARCH=${ARCH}"
+echo "ARCHS=${ARCHS}"
 
 for PLATFORM in $(echo $PLATFORM)
 do
     echo "Doing $PLATFORM"
 
-    if ! platform_info "${PLATFORM}" "${ARCH}"; then
-        exit 1
-    fi
-    
-    if [ "${BUILD}" =  1 ]; then
-        if ! build "${PLATFORM}" "${ARCH}"; then
+    for ARCH in $(echo $ARCHS)
+    do
+        if ! platform_info "${PLATFORM}" "${ARCH}"; then
             exit 1
         fi
-    fi
-    
-    if [ "$CLEAN" = "1" ]; then
-        if ! clean_docker "${PLATFORM}" "${ARCH}"; then
-            exit 1
+
+        if [ "${BUILD}" =  "1" ]; then
+            if ! build "${PLATFORM}" "${ARCH}"; then
+                exit 1
+            fi
         fi
-    fi
+        
+        if [ "$CLEAN" = "1" ]; then
+            if ! clean_docker "${PLATFORM}" "${ARCH}"; then
+                exit 1
+            fi
+        fi
+    done 
 done
 
 echo 

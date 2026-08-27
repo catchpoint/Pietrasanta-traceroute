@@ -1062,8 +1062,11 @@ int main(int argc, char *argv[])
     header_len = (af == AF_INET ? sizeof(struct iphdr) : sizeof(struct ip6_hdr)) + rtbuf_len + ops->header_len;
 
     data_len = compute_data_len(packet_len);
+    
+  #ifdef HAVE_OPENSSL3
     if(strcmp(module, "quic") == 0 && data_len < MIN_DATA_LEN_QUIC) 
         ex_error("QUIC packets must have at least %d bytes payload\n", MIN_DATA_LEN_QUIC); 
+  #endif
 
     saved_max_hops = max_hops;
     saved_first_hop = first_hop;

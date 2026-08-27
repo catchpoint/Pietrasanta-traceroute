@@ -380,6 +380,9 @@ static void udpinsession_close()
 {
     if(use_additional_raw_icmp_socket)
         close(raw_icmp_sk);
+    
+    for(int i = 0; i < n_flows; i++)
+        close(raw_sk[i]);
 }
 
 static tr_module udpinsession_ops = {
