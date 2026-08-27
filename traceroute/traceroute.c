@@ -1044,9 +1044,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Set sim_probes to 1 if the module is not tcpinsession and either the source port is specified or the module requires one probe per time
+    // Set sim_probes to 1 if the module is not tcpinsession or udpinsession and either the source port is specified or the module requires one probe per time
     // This because in tcpinsession mode the source port is not needed to match the reply with the probe sent (the seq number is used) 
-    if((strcmp(module, "tcpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
+    // In udpinsession mode the source port is not needed to match the reply with the probe sent (the checksum is used)
+    if((strcmp(module, "tcpinsession") != 0 && strcmp(module, "udpinsession") != 0 && ((!ignore_src_port && src_port) || ops->one_per_time))) {
         sim_probes = 1;
         here_factor = near_factor = 0;
     }
@@ -1186,6 +1187,11 @@ int main(int argc, char *argv[])
             free(probes[0].ext);
             probes[0].ext = NULL;
         }
+
+        if(probes[0].five_tuple != NULL) {
+            free(probes[0].five_tuple);
+            probes[0].five_tuple = NULL;
+        }
         
         memset(&probes[0], 0x0, sizeof(probe));
         
@@ -1319,6 +1325,12 @@ void print_probe(probe *pb)
             printf(" <%s>", pb->ext);
             free(pb->ext);
             pb->ext = NULL;
+        }
+
+        if(pb->five_tuple) {
+            printf(" <FT:%s>", pb->five_tuple);
+            free(pb->five_tuple);
+            pb->five_tuple = NULL;
         }
 
         if(pb->proto_details != NULL) {
@@ -2820,7 +2832,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
     static char errbuf[512];
 
     int s = socket(PF_ROUTE, SOCK_RAW, AF_UNSPEC);
-    if (s < 0) {
+    if(s < 0) {
         snprintf(errbuf, sizeof(errbuf), "socket: %.128s", strerror(errno));
         return (errbuf);
     }
@@ -2903,9 +2915,9 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
             switch(i) {
                 case RTA_IFA:
                 {
-                    if (sa->sa_family == AF_INET) {
+                    if(sa->sa_family == AF_INET) {
                         ifa = (struct sockaddr_in *)cp;
-                        if (ifa->sin_addr.s_addr != 0) {
+                        if(ifa->sin_addr.s_addr != 0) {
                             *from = *ifa;
                             return NULL;
                         }
@@ -2918,7 +2930,7 @@ const char* findsaddr(register const struct sockaddr_in *to, register struct soc
                 }
             }
 
-            if (SALEN(sa) == 0)
+            if(SALEN(sa) == 0)
                 cp += sizeof (uint32_t);
             else
                 cp += roundup(SALEN(sa), sizeof (uint32_t));

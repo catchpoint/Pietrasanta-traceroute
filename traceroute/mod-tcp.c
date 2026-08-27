@@ -388,8 +388,8 @@ static void tcp_send_probe(probe* pb, int ttl, int probe_idx)
 
     if(print_five_tuple) {
         char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
-        snprintf(five_tuple, sizeof(five_tuple), "%s:%u->%s:%u", addr2str(&src), ntohs(th->source), addr2str(&dest_addr), ntohs(dest_port));
-        pb->ext = strdup(five_tuple);
+        snprintf(five_tuple, sizeof(five_tuple), "%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(th->source), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_port));
+        pb->five_tuple = strdup(five_tuple);
     }
     
     pb->sk = sk;
