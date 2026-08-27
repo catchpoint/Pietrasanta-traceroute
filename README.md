@@ -86,64 +86,51 @@ The build script takes these options:
 * `--build`: build the binaries.
 * `--clean`: clean docker images and containers created during the build process.
 * `--platform="<space separated list of platforms>"`: build and/or clean for the specified platforms: `ol8`, `ol9`, `debian12` or `ubuntu24`.
-* `--arch="<architecture>"`: target architecture, either `x86_64` or `arm64` (default: `x86_64`).
+* `--arch="<architecture>"`: target architecture, either `x86_64` or `arm64` or both (default: `x86_64 arm64`).
 
-The `ol8` target with `--arch=arm64` cross-compiles from the x86_64 Docker environment
-using the `aarch64-linux-gnu-` toolchain installed from Oracle Linux's public
-`ol8_developer` repository. OpenSSL is built from source for ARM64 inside the
-image.
-
-The `ol9` target with `--arch=arm64` uses the equivalent Oracle Linux 9 public developer
-toolchain and an Oracle Linux 9 ARM64 sysroot.
-
-The `ubuntu24` target with `--arch=arm64` uses Ubuntu's `aarch64-linux-gnu-` cross-toolchain
-and target glibc sysroot packages.
-
-The `debian12` target with `--arch=arm64` uses Debian's `aarch64-linux-gnu-` cross-toolchain
-and target glibc sysroot packages.
-
-The build script requires GNU [getopt](https://linux.die.net/man/1/getopt) (which is available by default on Linux).
-
-Example:
+Examples:
 
 ```
 ./build.sh --build --clean
 ```
 
-This will produce the x86_64 binaries for Oracle Linux 8, Oracle Linux 9, Debian 12 and Ubuntu 24 and place them into the `binaries` folder.
+This will produce the x86_64 and arm64 binaries for Oracle Linux 8, Oracle Linux 9, Debian 12 and Ubuntu 24 and place them into the `binaries` folder.
 
 Optionally `--platform` and `--arch` parameters can be passed to compile for a subset of the presupported platforms and architectures.
 
-To build the ARM64 binaries:
+To build only the ARM64 binaries:
 
 ```
 ./build.sh --build --clean --platform="ol8 ol9 debian12 ubuntu24" --arch=arm64
 ```
 
-The binary is written to `binaries/ol8/arm64/traceroute`. To package it:
+The binary is written to `binaries/ol8/arm64/traceroute`. 
 
-```
-./package.sh --platform=ol8 --arch=arm64
-```
+### Packaging
 
-The Ubuntu 24.04 ARM64 binary is written to
-`binaries/ubuntu24/arm64/traceroute` and can be packaged with:
-
-```
-./package.sh --platform=ubuntu24 --arch=arm64
-```
-
-The Debian 12 ARM64 binary is written to
-`binaries/debian12/arm64/traceroute` and can be packaged with:
-
-```
-./package.sh --platform=debian12 --arch=arm64
-```
-
-A script called "package.sh" is provided into the build folder, wich produces an RPM that should work on RHEL8/RHEL9 and derivatives and
+A script called `package.sh` is provided into the build folder, wich produces an RPM that should work on RHEL8/RHEL9 and derivatives and
 a DEB that should work on Debian12 and derivatives (including Ubuntu).
+This script takes these options:
 
-## Usage
+* `--platform="<space separated list of platforms>"`: build and/or clean for the specified platforms: `ol8`, `ol9`, `debian12` or `ubuntu24` (default: `ol8 ol9 debian12 ubuntu24`).
+* `--arch="<architecture>"`: target architecture, `x86_64` or `arm64` or both (default: `x86_64 arm64`).
+
+If binaries to package are not provided the build script is called automatically.
+
+Examples:
+
+Packages (and possibly builds) binaries for all the pre supported platforms and architectures
+
+```
+./package.sh 
+```
+Packages (and possibly builds) binaries for ubuntu24 on all pre supported architectures
+
+```
+./package.sh --platform=ubuntu24 --arch="x86_64 arm64"
+```
+
+## Traceroute usage
 
 See [traceroute(8)](traceroute/traceroute.8) for detailed instructions.
 
