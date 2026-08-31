@@ -1,3 +1,7 @@
+2026-08-31  Alessandro Improta  <alessandro.improta@logicmonitor.com> - 0.1.35
+
+   * Now printing the five tuple also for lost probes
+
 2026-08-27  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.34
   
    * Use one raw ICMP socket in ecmp in tcp insession mode
