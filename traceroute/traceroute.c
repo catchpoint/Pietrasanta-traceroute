@@ -1302,6 +1302,11 @@ void print_probe(probe *pb)
 
     if(!pb->res.sa.sa_family) {
         printf(" *");
+        if(pb->five_tuple) {
+            printf(" <FT:%s>", pb->five_tuple);
+            free(pb->five_tuple);
+            pb->five_tuple = NULL;
+        }
     } else {
         int prn = !np;    /*  print if the first...  */
         if(np) {        /*  ...and if differs with previous   */
