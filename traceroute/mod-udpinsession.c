@@ -206,32 +206,25 @@ static int udpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
         // Here we need to get the source address we are going to use, in particular the src port
         // This depends on whether we need to keep the source port fixed or not and the dest port fixed or not
         socklen_t src_len = sizeof(src_addr);
-        if(ecmp) {
-            if(fix_src_port) { // This means we need to keep src port fixed (fix_dest_port MUST be true), thus dest port is incremented (see above)
-                // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
-                // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
-                uint16_t save_port = src_addr.sin.sin_port;
-                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
-                    error("getsockname");
-                src_addr.sin.sin_port = save_port;
-                src[i] = src_addr;
-            } else if(fix_dest_port) { // we need to keep the dest fixed, thus src_port need to be incremented
-                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
-                    error("getsockname");
-                src[i] = src_addr;
-                if(i > 0)
-                    src[i].sin.sin_port = htons(ntohs(src[i-1].sin.sin_port) + 1);
-            } else { // The dst port varies and we don't have to keep the src fixed, so we can avid to worry
-                if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
-                    error("getsockname");
-                src[i] = src_addr;
-            }
-        } else {
+        if(fix_src_port) { // This means we need to keep src port fixed (fix_dest_port MUST be true), thus dest port is incremented (see above)
+            // When using raw sockets the source port is set to IPPROTO_UDP (17) by the kernel, so we save and restore it if it was explicitly set.
+            // See https://www.man7.org/linux/man-pages/man7/ip.7.html (Address format)
+            uint16_t save_port = src_addr.sin.sin_port;
+            if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                error("getsockname");
+            src_addr.sin.sin_port = save_port;
+            src[i] = src_addr;
+        } else if(fix_dest_port) { // we need to keep the dest fixed, thus src_port need to be incremented
+            if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
+                error("getsockname");
+            src[i] = src_addr;
+            if(i > 0)
+                src[i].sin.sin_port = htons(ntohs(src[i-1].sin.sin_port) + 1);
+        } else { // The dst port varies and we don't have to keep the src fixed, so we can avid to worry
             if(getsockname(raw_sk[i], &src_addr.sa, &src_len) < 0)
                 error("getsockname");
             src[i] = src_addr;
         }
-
     }
 
     if(use_additional_raw_icmp_socket) {
