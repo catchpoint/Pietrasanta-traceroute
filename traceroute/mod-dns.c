@@ -1037,7 +1037,11 @@ static void dns_udp_send_probe(probe* pb, int ttl, int probe_idx)
 
     if(print_five_tuple) {
         char five_tuple[INET6_ADDRSTRLEN * 2 + 64] = {};
-        snprintf(five_tuple, sizeof(five_tuple), "%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&pb->src), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(pb->src.sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+        char source_address[INET6_ADDRSTRLEN] = {};
+        char destination_address[INET6_ADDRSTRLEN] = {};
+        snprintf(source_address, sizeof(source_address), "%s", addr2str(&pb->src));
+        snprintf(destination_address, sizeof(destination_address), "%s", addr2str(&dest_addr));
+        snprintf(five_tuple, sizeof(five_tuple), "%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", source_address, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(pb->src.sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", destination_address, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
         pb->five_tuple = strdup(five_tuple);
     }
         

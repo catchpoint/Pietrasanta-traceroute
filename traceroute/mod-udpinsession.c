@@ -299,7 +299,11 @@ static probe* udpinsession_check_reply(int sk, int err, sockaddr_any* from, char
 
     if(pb && print_five_tuple && pb->five_tuple == NULL) {
         char str[128] = {};
-        snprintf(str, sizeof(str), "%s%s%s:%u->%s%s%s:%u", af == AF_INET6 ? "[" : "", addr2str(&pb->src), af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port), af == AF_INET6 ? "[" : "", addr2str(&pb->dest), af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
+        char source_address[INET6_ADDRSTRLEN] = {};
+        char destination_address[INET6_ADDRSTRLEN] = {};
+        snprintf(source_address, sizeof(source_address), "%s", addr2str(&pb->src));
+        snprintf(destination_address, sizeof(destination_address), "%s", addr2str(&pb->dest));
+        snprintf(str, sizeof(str), "%s%s%s:%u->%s%s%s:%u", af == AF_INET6 ? "[" : "", source_address, af == AF_INET6 ? "]" : "", ntohs(pb->src.sin.sin_port), af == AF_INET6 ? "[" : "", destination_address, af == AF_INET6 ? "]" : "", ntohs(pb->dest.sin.sin_port));
         pb->five_tuple = strdup(str);
     }
     

@@ -285,8 +285,10 @@ static int tcpinsession_init(const sockaddr_any* dest, unsigned int port_seq, si
                     printf(",");
 
                 char src_str[INET6_ADDRSTRLEN] = {};
+                char dest_str[INET6_ADDRSTRLEN] = {};
                 snprintf(src_str, sizeof(src_str), "%s", addr2str(&src[i]));
-                printf("%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+                snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+                printf("%s%s%s:%u->%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port), (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", dest_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
             }
 
             printf(">");
@@ -581,9 +583,11 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
             for(int i = 0; i < n_flows; i++) {
                 if(tcp->source == src[i].sin.sin_port) {
                     char src_str[INET6_ADDRSTRLEN + 16];
+                    char dest_str[INET6_ADDRSTRLEN] = {};
                     char str[128] = {};    /*  enough...  */
                     snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[i]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port));
-                    snprintf(str, sizeof(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+                    snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+                    snprintf(str, sizeof(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", dest_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
                     pb->five_tuple = strdup(str);
                     break;
                 }
@@ -637,8 +641,10 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
     if(print_five_tuple && pb->five_tuple == NULL) {
         char str[128] = {};    /*  enough...  */
         char src_str[INET6_ADDRSTRLEN + 16] = {};
+        char dest_str[INET6_ADDRSTRLEN] = {};
         snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[src_index]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[src_index].sin.sin_port));
-        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+        snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+        snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", dest_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
 
         pb->five_tuple = strdup(str);
     }
@@ -696,11 +702,13 @@ static probe* tcpinsession_handle_raw_icmp_packet(char* bufp, uint16_t* overhead
     
     for(int i = 0; i < n_flows; i++) {
         if((loose_match || equal_sockaddr(&src[i], &offending_probe_src)) && equal_sockaddr(&dest_addr, &offending_probe_dest)) {
-            if(print_five_tuple && pb->five_tuple == NULL) {
-                char str[128] = {};    /*  enough...  */
-                char src_str[INET6_ADDRSTRLEN + 16] = {};
-                snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[i]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port));
-                snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&dest_addr), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
+        if(print_five_tuple && pb->five_tuple == NULL) {
+            char str[128] = {};    /*  enough...  */
+            char src_str[INET6_ADDRSTRLEN + 16] = {};
+            char dest_str[INET6_ADDRSTRLEN] = {};
+            snprintf(src_str, sizeof(src_str), "%s%s%s:%u", (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", addr2str(&src[i]), (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(src[i].sin.sin_port));
+            snprintf(dest_str, sizeof(dest_str), "%s", addr2str(&dest_addr));
+            snprintf(str + strlen(str), sizeof(str) - strlen(str), "%s->%s%s%s:%u", src_str, (dest_addr.sa.sa_family == AF_INET6) ? "[" : "", dest_str, (dest_addr.sa.sa_family == AF_INET6) ? "]" : "", ntohs(dest_addr.sin.sin_port));
 
                 pb->five_tuple = strdup(str);
             }

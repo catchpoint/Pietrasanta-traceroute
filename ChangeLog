@@ -1,3 +1,7 @@
+2026-09-01  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.36
+  
+   * Fix five tuple print: the source address was printed twice due to shared static buffer
+
 2026-08-31  Alessandro Improta  <alessandro.improta@logicmonitor.com> - 0.1.35
 
    * Now printing the five tuple also for lost probes
