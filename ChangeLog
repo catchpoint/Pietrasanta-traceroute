@@ -1,4 +1,4 @@
-2026-09-01  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.38
+2026-11-19  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.38
   
    * Accept RST packets in tcpinsession mode
 
