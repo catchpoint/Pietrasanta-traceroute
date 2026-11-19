@@ -569,7 +569,14 @@ static probe* tcpinsession_check_reply(int sk, int err, sockaddr_any* from, char
 
     struct tcphdr* tcp = (struct tcphdr*)buf;
     
-    if(!err && (tcp->syn || !tcp->ack)) // Here we cannot receive probes with the SYN flag set and moreover they need to have the ACK flag set, since they are replies to our data probes
+    // Here we cannot receive probes with the SYN flag set and moreover they need to have the ACK flag set, 
+    // since they are replies to our data probes. The only exception is for RST packets.
+    // Note that it sounds strange that an RST packet is received here because in theory the TCP handshake has been completed before.
+    // However, it can happen due to various network middleboxes or unexpected behavior from the remote host.
+    //
+    // !err means "response is TCP"
+    // So this "if" is basically saying: If the response is TCP and it is not an RST packet, it must not have the SYN flag set and must have the ACK flag set.
+    if(!err && !tcp->rst && (tcp->syn || !tcp->ack))
         return NULL;
 
     if(err) { // got icmp, thus buf contains the TCP header of the offending probe
