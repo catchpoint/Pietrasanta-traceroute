@@ -964,6 +964,8 @@ int main(int argc, char *argv[])
         ex_error("bad wait specifications `%g,%g,%g' used", wait_secs, here_factor, near_factor);
     if(packet_len > MAX_PACKET_LEN)
         ex_error("too big packetlen %d specified", packet_len);
+    if(packet_len < header_len + DEF_DATA_LEN_TCPINSESSION && strcmp(module, "tcpinsession") == 0)
+        ex_error("packetlen must be at least %d for tcpinsession module", header_len + DEF_DATA_LEN_TCPINSESSION);
     if(src_addr.sa.sa_family && src_addr.sa.sa_family != af)
         ex_error("IP version mismatch in addresses specified");
     if(send_secs < 0)
@@ -1221,6 +1223,8 @@ int main(int argc, char *argv[])
         max_hops = 255;
         num_probes = max_hops * probes_per_hop;
         probes = calloc(num_probes, sizeof(*probes));
+        if(!probes)
+            error("calloc");
         
         do_it();
 
