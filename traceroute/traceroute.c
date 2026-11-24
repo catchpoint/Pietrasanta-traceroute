@@ -1117,9 +1117,7 @@ int main(int argc, char *argv[])
 
     if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
         data_len = DEF_DATA_LEN_TCPINSESSION;
-        printf("\nStarting tcpinsession initial ping\n");
         do_it();
-        printf("\ntcpinsession initial ping completed\n");
         
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
