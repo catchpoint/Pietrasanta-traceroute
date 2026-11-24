@@ -1,6 +1,7 @@
 2026-11-23  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.39
   
    * Added check on packet length for tcpinsession module and on calloc failure
+   * starttime is now taken in main() function so that is honored across multiple do_it() calls
 
 2026-11-19  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.38
   

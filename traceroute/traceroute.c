@@ -1112,10 +1112,14 @@ int main(int argc, char *argv[])
 
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
         ex_error("trace method's init failed");
-        
+       
+    gettimeofday(&starttime, NULL);
+
     if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
         data_len = DEF_DATA_LEN_TCPINSESSION;
+        printf("\nStarting tcpinsession initial ping\n");
         do_it();
+        printf("\ntcpinsession initial ping completed\n");
         
         int start = 254 * probes_per_hop;
         for(int idx = 0; idx < probes_per_hop; idx++)
@@ -1656,8 +1660,6 @@ static void do_it(void)
     int end = num_probes;
     
     int start_window = -1;
-    
-    gettimeofday(&starttime, NULL);
     
     struct timeval next_probe_send_time = starttime;
 
