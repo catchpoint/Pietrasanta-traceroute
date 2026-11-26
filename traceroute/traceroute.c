@@ -1108,8 +1108,6 @@ int main(int argc, char *argv[])
     sem_init(&probe_semaphore, 0, 0);
 #endif
 
-    print_header();
-
     if(ops->init(&dst_addr, dst_port_seq, &data_len) < 0)
         ex_error("trace method's init failed");
        
@@ -1210,6 +1208,8 @@ int main(int argc, char *argv[])
 
     mtudisc_phase = 0;
     
+    print_header();
+
     do_it();
 
     pthread_join(printer_thr, NULL);
