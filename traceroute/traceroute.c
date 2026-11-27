@@ -437,7 +437,11 @@ static void* printer(void* args)
         }
     }
 
-    if(strcmp(module, "tcpinsession") == 0) { // Only in tcpinsession we need to replace the destination with the initial ping. Please note that print_probe will not print the probe results if  tcpinsession_destination_reply is set, and the final print is required to be performed at the end of the run
+    // Only in tcpinsession we need to replace the destination with the initial ping. 
+    // Please note that print_probe will not print the probe results if 
+    // tcpinsession_destination_reply is 1, and tcpinsession_print_allowed=0
+    // Instead, those probes will be printed by tcpinsession_close callback
+    if(strcmp(module, "tcpinsession") == 0) {
         int destination_replies = 0;
         for(int i = last_probe-probes_per_hop; i < last_probe; i++)
             if(probes[i].tcpinsession_destination_reply == 1)
@@ -1086,6 +1090,10 @@ int main(int argc, char *argv[])
     use_additional_raw_icmp_socket = 1;
 #endif
 
+    // In tcpinsession mode, we need to replace the destination with the initial ping.
+    // We need to do this because even thiough receiver should ack an out-of-order segment immediately,
+    // in practice that doesn't always hold. So three probes reaching the destination can produce two acks, for example.
+    // To solve this, we replace the destination with a sequential initial ping, so that the receiver will ack the initial ping probes separately
     if(strcmp(module, "tcpinsession") == 0) {
         max_hops = 255;
         first_hop = 255;
@@ -1113,7 +1121,8 @@ int main(int argc, char *argv[])
        
     gettimeofday(&starttime, NULL);
 
-    if(strcmp(module, "tcpinsession") == 0) { // Only in this module we need to run an initial ping in the very same TCP session
+    // Only in this module we need to run an initial ping in the very same TCP session, see explanation above
+    if(strcmp(module, "tcpinsession") == 0) {
         data_len = DEF_DATA_LEN_TCPINSESSION;
         do_it();
         
@@ -1674,7 +1683,9 @@ static void do_it(void)
         int probe_just_sent = 0;
 
         for(n = start; n < end && exit_please == 0; n++) {
-            if(strcmp(module, "tcpinsession") == 0 || strcmp(module, "tcp") == 0)
+            // Remember last probe for modules that cannot print immediately (currently only tcpinsession)
+            // So in case max_consecutive_hop_failures is reached, we can still print the results
+            if(strcmp(module, "tcpinsession") == 0)
                 last_probe = (n / probes_per_hop + 1) * probes_per_hop;
 
             if(overall_timeout > 0) {
@@ -1773,7 +1784,7 @@ static void do_it(void)
                         }
                         
                         if(strcmp(module, "tcpinsession") == 0)
-                            destination_reached = 0;
+                            destination_reached = 0; // Reset the destination reached flag set to 1 by the initial ping loop
                         
                         exit_please = 1;
                     }                    
