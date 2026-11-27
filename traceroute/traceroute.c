@@ -895,6 +895,7 @@ unsigned int compute_data_len(int packet_len)
 /*    PRINT  STUFF        */
 static void print_header(void) 
 {
+    printf("\n");
     /*  Note, without ending new-line!  */
      if(ping_mode > 0)
         printf("ping to %s (%s), %u ttl, %zu byte packets, ", dst_name, addr2str(&dst_addr), max_hops, header_len + data_len);
