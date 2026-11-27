@@ -1078,6 +1078,8 @@ int main(int argc, char *argv[])
     saved_first_hop = first_hop;
     saved_sim_probes = sim_probes;
     
+    print_header();
+    
     if(mtudisc) {
         mtudisc_phase = 1;
         dontfrag = 1;
@@ -1217,8 +1219,6 @@ int main(int argc, char *argv[])
 
     mtudisc_phase = 0;
     
-    print_header();
-
     do_it();
 
     pthread_join(printer_thr, NULL);
