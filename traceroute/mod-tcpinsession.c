@@ -477,6 +477,14 @@ int compare_desc(const void* a, const void* b)
     return 0;
 }
 
+// find_probe_from_sack is what decides which ttl reached the destination.
+// The intial ping does not infer that, because its probe are sent with ttl=255 
+// 
+// Once the ttl is known, the replies found in the initial ping will be used for the actual print at the right line.
+// That's why even if we receive less acks than the number of probes (e.g. due to delayed/cumulative acks), we can still print the results.
+// Note that this function is needed because we need to assign a reply to a probe that actually hit the destination,
+// and this can be recognized by the fact that the sequence number saved into the probe structure is within the sack interval carried by the ack
+// And moreover note that this function is also used by the initial ping
 static probe* find_probe_from_sack(struct tcphdr* tcp)
 {
     const uint8_t* ptr = (const uint8_t*)(tcp + 1);
