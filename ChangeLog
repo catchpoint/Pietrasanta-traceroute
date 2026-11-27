@@ -1,3 +1,10 @@
+2026-11-23  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.39
+  
+   * Added check on packet length for tcpinsession module and on calloc failure
+   * starttime is now taken in main() function so that is honored across multiple do_it() calls
+   * print the header before the actual main loop, so the actual number of max_hops is printed in case of pre-pings are done
+   * Added some comments on tcpinsession module behavior
+   
 2026-11-19  Luca Sani  <luca.sani@logicmonitor.com> - 0.1.38
   
    * Accept RST packets in tcpinsession mode
